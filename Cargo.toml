@@ -14,8 +14,24 @@ uuid = { version = "=1.29.2", features = ["v4"] }
 thiserror = "=2.0.21"
 # Same version and features as in spike/shell/src-tauri/Cargo.toml: SQLite is compiled in.
 rusqlite = { version = "=0.42.0", features = ["bundled"] }
-# Tests only: temporary directories for database files.
+# Tests only: temporary directories for database files and response bodies.
 tempfile = "=3.27.0"
+# HTTP stack of `rqm-http`, same versions as in spike/http-probe/Cargo.toml.
+# `rustls-no-provider`: rustls without a built-in crypto provider (plain `rustls` pulls aws-lc-rs); `ring` is
+# installed by `rqm-http`. No `http2` and no decompression features: the body is decoded by `rqm-http` itself,
+# reqwest's auto-decompression hides the on-the-wire size.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "multipart", "system-proxy"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+flate2 = "=1.1.11"
+brotli = "=9.1.1"
+zstd = "=0.14.3"
+# Same version reqwest uses: the type of a response body chunk.
+bytes = "=1.12.1"
+# Features are listed by the crates that use it.
+tokio = "=1.54.1"
+tokio-util = "=0.7.20"
+# Tests only: local HTTP server on 127.0.0.1.
+wiremock = "=0.6.5"
 
 # Size-oriented release profile, same as in spike/shell/src-tauri/Cargo.toml.
 [profile.release]

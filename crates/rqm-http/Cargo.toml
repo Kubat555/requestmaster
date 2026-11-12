@@ -1,0 +1,23 @@
+[package]
+name = "rqm-http"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: HTTP engine — sends one request, stores the decoded response body on disk."
+
+[dependencies]
+reqwest = { workspace = true }
+rustls = { workspace = true }
+flate2 = { workspace = true }
+brotli = { workspace = true }
+zstd = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync", "fs"] }
+tokio-util = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
+tempfile = { workspace = true }
