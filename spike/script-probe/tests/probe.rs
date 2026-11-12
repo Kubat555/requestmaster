@@ -40,3 +40,14 @@ fn limits() -> Limits { Limits { time: Duration::from_millis(500), memory_bytes:
     let out = run_script(PRELUDE, "[typeof fetch, typeof process, typeof require].join()", limits());
     assert!(matches!(out, ScriptOutcome::Ok(s) if s == "\"undefined,undefined,undefined\""));
 }
+#[test] fn host_wait_is_excluded_while_interrupt_handler_runs() {
+    // 800 ms host wait, then ~150 ms of CPU so the interrupt handler actually fires:
+    // without the pause the charged time would be ~950 ms > 500 ms limit.
+    let src = "(async()=>{ await hostDelay(800); const t=Date.now(); while(Date.now()-t<150){} return 'ok' })()";
+    assert!(matches!(run_script_async(PRELUDE, src, limits()), ScriptOutcome::Ok(s) if s == "\"ok\""));
+}
+#[test] fn script_time_accumulates_across_host_wait() {
+    // ~300 ms CPU + host wait + ~300 ms CPU: charged time ~600 ms > 500 ms limit.
+    let src = "(async()=>{ let t=Date.now(); while(Date.now()-t<300){} await hostDelay(100); t=Date.now(); while(Date.now()-t<300){} return 'ok' })()";
+    assert!(matches!(run_script_async(PRELUDE, src, limits()), ScriptOutcome::TimedOut));
+}
