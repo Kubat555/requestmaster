@@ -1,0 +1,22 @@
+[package]
+name = "rqm-runner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: the \"Send\" scenario — builds an HTTP request from a stored request and sends it."
+
+[dependencies]
+rqm-model = { path = "../rqm-model" }
+rqm-vars = { path = "../rqm-vars" }
+rqm-store = { path = "../rqm-store" }
+rqm-http = { path = "../rqm-http" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = { workspace = true }

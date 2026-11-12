@@ -1170,6 +1170,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqm-runner"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "rqm-http",
+ "rqm-model",
+ "rqm-store",
+ "rqm-vars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "wiremock",
+]
+
+[[package]]
 name = "rqm-store"
 version = "0.1.0"
 dependencies = [
