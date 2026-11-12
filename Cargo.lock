@@ -1176,6 +1176,7 @@ dependencies = [
  "base64 0.23.1",
  "rqm-http",
  "rqm-model",
+ "rqm-postman",
  "rqm-store",
  "rqm-vars",
  "serde",
