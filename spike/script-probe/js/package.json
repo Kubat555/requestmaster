@@ -1,0 +1,16 @@
+{
+  "name": "script-probe-prelude",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Builds the JS prelude (chai + lodash) for the QuickJS probe",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "chai": "4.4.1",
+    "lodash": "4.17.21"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
