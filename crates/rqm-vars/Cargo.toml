@@ -1,0 +1,9 @@
+[package]
+name = "rqm-vars"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: variable scopes, {{name}} substitution, path variables and dynamic values."
+
+[dependencies]
+uuid = { workspace = true }
