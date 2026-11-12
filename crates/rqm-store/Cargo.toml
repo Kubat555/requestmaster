@@ -1,0 +1,14 @@
+[package]
+name = "rqm-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: SQLite store of the collections tree, environments and application state."
+
+[dependencies]
+rqm-model = { path = "../rqm-model" }
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
