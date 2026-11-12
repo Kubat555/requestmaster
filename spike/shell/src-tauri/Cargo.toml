@@ -1,0 +1,29 @@
+[package]
+name = "requestmaster-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+# `_lib` suffix keeps the lib name distinct from the bin name (cargo issue 8519 on Windows).
+name = "requestmaster_spike_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.5", features = [] }
+serde_json = "=1.0.154"
+# `bundled`: SQLite is compiled from source and linked statically (the question this probe answers).
+rusqlite = { version = "=0.42.0", features = ["bundled"] }
+
+# Size-oriented release profile, as in the Tauri template.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[workspace]
