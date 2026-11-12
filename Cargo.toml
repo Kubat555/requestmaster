@@ -1,0 +1,21 @@
+# RequestMaster workspace: the core crates `rqm-*` live in `crates/`.
+[workspace]
+members = ["crates/*"]
+# The stage 0 probes in `spike/` are standalone packages, not part of this workspace.
+exclude = ["spike"]
+resolver = "2"
+
+# Versions are pinned exactly; crates take them with `workspace = true`.
+[workspace.dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+# `preserve_order`: key order of Postman JSON kept in `postman_extra` must survive a round trip.
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
+uuid = { version = "=1.29.2", features = ["v4"] }
+
+# Size-oriented release profile, same as in spike/shell/src-tauri/Cargo.toml.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
