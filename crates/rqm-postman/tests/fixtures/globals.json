@@ -1,0 +1,21 @@
+{
+	"id": "0a1b2c3d-0000-4000-8000-000000000003",
+	"name": "Synthetic globals",
+	"values": [
+		{
+			"key": "tenant",
+			"value": "synthetic",
+			"type": "default",
+			"enabled": true
+		},
+		{
+			"key": "retries",
+			"value": "3",
+			"type": "default",
+			"enabled": false
+		}
+	],
+	"_postman_variable_scope": "globals",
+	"_postman_exported_at": "2026-11-12T00:00:00.000Z",
+	"_postman_exported_using": "Postman/11.0.0"
+}

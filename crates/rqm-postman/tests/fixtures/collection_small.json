@@ -1,0 +1,301 @@
+{
+	"info": {
+		"_postman_id": "0a1b2c3d-0000-4000-8000-000000000001",
+		"name": "Small synthetic collection",
+		"description": "Synthetic fixture, written by hand.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"_exporter_id": "1234567",
+	"item": [
+		{
+			"name": "F1",
+			"description": "Outer folder",
+			"item": [
+				{
+					"name": "F2",
+					"item": [
+						{
+							"name": "R1",
+							"id": "0a1b2c3d-0000-4000-8000-0000000000a1",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"id": "0a1b2c3d-0000-4000-8000-0000000000e1",
+										"type": "text/javascript",
+										"exec": [
+											"pm.test(\"status is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});"
+										]
+									}
+								}
+							],
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true,
+								"followRedirects": false,
+								"insecureHTTPParser": true
+							},
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "X-Trace",
+										"value": "abc",
+										"description": "Trace identifier"
+									},
+									{
+										"key": "X-Off",
+										"value": "1",
+										"disabled": true
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"{{user}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/users/:id?page=1&debug=true",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"users",
+										":id"
+									],
+									"query": [
+										{
+											"key": "page",
+											"value": "1"
+										},
+										{
+											"key": "debug",
+											"value": "true",
+											"disabled": true
+										}
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": "42",
+											"description": "User identifier"
+										}
+									]
+								},
+								"description": "Creates a user."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "R2",
+					"request": "https://example.test/ping"
+				}
+			]
+		},
+		{
+			"name": "R3",
+			"request": {
+				"auth": null,
+				"method": "POST",
+				"header": "X-One: 1\nX-Two: 2",
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "note",
+							"value": "hello",
+							"type": "text"
+						},
+						{
+							"key": "upload",
+							"type": "file",
+							"src": "/synthetic/upload.bin"
+						}
+					]
+				},
+				"url": {
+					"raw": "https://example.test/upload",
+					"protocol": "https",
+					"host": [
+						"example",
+						"test"
+					],
+					"path": [
+						"upload"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "R4",
+			"request": {
+				"auth": {
+					"type": "awsv4",
+					"awsv4": [
+						{
+							"key": "service",
+							"value": "s3",
+							"type": "string"
+						},
+						{
+							"key": "region",
+							"value": "eu-test-1",
+							"type": "string"
+						}
+					]
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "file",
+					"file": {
+						"src": "/synthetic/payload.dat"
+					}
+				},
+				"url": {
+					"raw": "https://example.test/files/1",
+					"protocol": "https",
+					"host": [
+						"example",
+						"test"
+					],
+					"path": [
+						"files",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "R5",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "grant_type",
+							"value": "client_credentials",
+							"type": "text"
+						},
+						{
+							"key": "scope",
+							"value": "read",
+							"type": "text",
+							"disabled": true
+						}
+					]
+				},
+				"url": {
+					"raw": "https://example.test/token",
+					"protocol": "https",
+					"host": [
+						"example",
+						"test"
+					],
+					"path": [
+						"token"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "R6",
+			"request": {
+				"auth": {
+					"type": "apikey",
+					"apikey": [
+						{
+							"key": "in",
+							"value": "query",
+							"type": "string"
+						},
+						{
+							"key": "key",
+							"value": "api_key",
+							"type": "string"
+						},
+						{
+							"key": "value",
+							"value": "{{api_key}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "graphql",
+					"graphql": {
+						"query": "query ($id: ID!) { user(id: $id) { name } }",
+						"variables": "{\"id\": \"42\"}"
+					}
+				},
+				"url": {
+					"raw": "https://example.test/graphql",
+					"protocol": "https",
+					"host": [
+						"example",
+						"test"
+					],
+					"path": [
+						"graphql"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"pm.variables.set(\"started\", Date.now());"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://example.test",
+			"type": "string"
+		},
+		{
+			"key": "user",
+			"value": "synthetic",
+			"type": "string",
+			"disabled": true
+		}
+	]
+}

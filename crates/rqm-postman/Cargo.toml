@@ -1,0 +1,11 @@
+[package]
+name = "rqm-postman"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: import of Postman collections (v2.1), environments and globals into the model."
+
+[dependencies]
+rqm-model = { path = "../rqm-model" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
