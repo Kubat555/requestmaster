@@ -8,6 +8,10 @@ description = "RequestMaster: HTTP engine — sends one request, stores the deco
 [dependencies]
 reqwest = { workspace = true }
 rustls = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 flate2 = { workspace = true }
 brotli = { workspace = true }
 zstd = { workspace = true }
@@ -21,3 +25,5 @@ thiserror = { workspace = true }
 wiremock = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
 tempfile = { workspace = true }
+rcgen = { workspace = true }
+tokio-rustls = { workspace = true }

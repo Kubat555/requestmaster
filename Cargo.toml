@@ -27,11 +27,19 @@ brotli = "=9.1.1"
 zstd = "=0.14.3"
 # Same version reqwest uses: the type of a response body chunk.
 bytes = "=1.12.1"
+# System proxy lookup of `rqm-http` (`ProxySetting::System`): the matcher reqwest uses internally but does not
+# expose. Same versions as in the dependency tree of reqwest.
+hyper-util = { version = "=0.1.21", features = ["client-proxy-system"] }
+http = "=1.5.0"
 # Features are listed by the crates that use it.
 tokio = "=1.54.1"
 tokio-util = "=0.7.20"
 # Tests only: local HTTP server on 127.0.0.1.
 wiremock = "=0.6.5"
+# Tests only: HTTPS server with a self-signed certificate, same versions and features as in
+# spike/http-probe/Cargo.toml.
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 
 # Size-oriented release profile, same as in spike/shell/src-tauri/Cargo.toml.
 [profile.release]
