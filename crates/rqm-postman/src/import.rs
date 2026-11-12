@@ -172,12 +172,12 @@ fn request_content(item: &Obj, notes: &mut Vec<Note>) -> RequestContent {
 // ---- tolerant reading helpers -------------------------------------------------------------
 
 /// String value of a key; `None` when the key is missing or is not a string.
-fn str_of<'a>(obj: &'a Obj, key: &str) -> Option<&'a str> {
+pub(crate) fn str_of<'a>(obj: &'a Obj, key: &str) -> Option<&'a str> {
     obj.get(key).and_then(Value::as_str)
 }
 
 /// `true` only when the key holds the boolean `true`.
-fn flag(obj: &Obj, key: &str) -> bool {
+pub(crate) fn flag(obj: &Obj, key: &str) -> bool {
     obj.get(key).and_then(Value::as_bool) == Some(true)
 }
 
@@ -193,7 +193,7 @@ pub(crate) fn text_of(value: Option<&Value>) -> String {
 
 /// The objects of an array value; anything that is not an array gives nothing,
 /// elements that are not objects are skipped.
-fn objects(value: Option<&Value>) -> impl Iterator<Item = &Obj> {
+pub(crate) fn objects(value: Option<&Value>) -> impl Iterator<Item = &Obj> {
     value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object)
 }
 
@@ -409,7 +409,7 @@ fn form_part(part: &Obj, notes: &mut Vec<Note>) -> FormPart {
 
 /// File references of a `src` value: a string, an array of strings or `null`.
 /// Empty paths are dropped; an imported path is never confirmed.
-fn imported_files(src: Option<&Value>) -> Vec<FileRef> {
+pub(crate) fn imported_files(src: Option<&Value>) -> Vec<FileRef> {
     let paths: Vec<&str> = match src {
         Some(Value::String(path)) => vec![path.as_str()],
         Some(Value::Array(paths)) => paths.iter().filter_map(Value::as_str).collect(),
