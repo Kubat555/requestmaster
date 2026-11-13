@@ -19,6 +19,7 @@ export const strings = {
   sidebar: {
     label: "Коллекции",
     resize: "Ширина боковой панели",
+    emptyTitle: "Коллекций пока нет",
     empty: "Перетащите сюда файл коллекции Postman или нажмите „Импорт“",
     filter: "Фильтр по имени",
     nothingFound: "Ничего не найдено",
@@ -49,7 +50,6 @@ export const strings = {
   },
   tabs: {
     label: "Вкладки",
-    placeholder: "Здесь появятся вкладки запросов",
     unsaved: "есть несохранённые изменения",
     close: "Закрыть вкладку",
     closeTitle: "Сохранить изменения?",
@@ -60,7 +60,8 @@ export const strings = {
   },
   editor: {
     label: "Редактор запроса",
-    placeholder: "Здесь появится редактор запроса",
+    emptyTitle: "Откройте запрос из списка слева",
+    emptyText: "Здесь появятся его редактор и ответ",
     method: "Метод",
     customMethodOption: "Свой метод…",
     customMethod: "Свой метод",
@@ -146,7 +147,7 @@ export const strings = {
   },
   response: {
     label: "Ответ",
-    placeholder: "Здесь появится ответ",
+    emptyTitle: "Ответа пока нет",
     empty: "Нажмите Send, чтобы получить ответ",
     sending: "Запрос отправляется…",
     sections: "Разделы ответа",
@@ -157,6 +158,9 @@ export const strings = {
     pretty: "Pretty",
     raw: "Raw",
     bodyText: "Тело ответа",
+    copy: "Копировать",
+    copied: "Скопировано",
+    copyFailed: "Не удалось скопировать: буфер обмена недоступен",
     noBody: "Ответ без тела",
     truncated: (total: string) => `Показаны первые 256 КБ из ${total}`,
     decodeError: "Не удалось распаковать ответ: показано как получено",

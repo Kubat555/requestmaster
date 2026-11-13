@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "./ui/Button.svelte";
+  import Field from "./ui/Field.svelte";
   import { strings } from "../lib/strings";
   import type { ApiKeyPlacement, Auth } from "../lib/types";
 
@@ -59,22 +61,22 @@
   <div class="field">
     <span>{label}</span>
     <span class="secret">
-      <input
+      <Field
+        mono
         type={shown ? "text" : "password"}
-        aria-label={label}
+        {label}
         spellcheck="false"
         autocomplete="off"
         {value}
         oninput={(event) => set(event.currentTarget.value)}
       />
-      <button
-        type="button"
+      <Button
         aria-pressed={shown}
         aria-label="{shown ? strings.table.hide : strings.table.show}: {label}"
         onclick={() => toggleRevealed(label)}
       >
         {shown ? strings.table.hide : strings.table.show}
-      </button>
+      </Button>
     </span>
   </div>
 {/snippet}
@@ -82,7 +84,7 @@
 {#snippet placementField(value: ApiKeyPlacement, set: (value: ApiKeyPlacement) => void)}
   <div class="field">
     <span>{strings.auth.placement}</span>
-    <select aria-label={strings.auth.placement} {value} onchange={(event) => set(event.currentTarget.value as ApiKeyPlacement)}>
+    <select class="select" aria-label={strings.auth.placement} {value} onchange={(event) => set(event.currentTarget.value as ApiKeyPlacement)}>
       {#each PLACEMENTS as placement (placement)}
         <option value={placement}>{PLACEMENT_NAMES[placement]}</option>
       {/each}
@@ -93,7 +95,7 @@
 <div class="auth-editor">
   <div class="field">
     <span>{strings.auth.type}</span>
-    <select aria-label={strings.auth.type} value={selected} onchange={onTypeChosen}>
+    <select class="select" aria-label={strings.auth.type} value={selected} onchange={onTypeChosen}>
       {#if inherit}
         <option value={INHERIT}>{strings.auth.inherit}</option>
       {/if}
@@ -117,7 +119,7 @@
     {@const basic = auth}
     <div class="field">
       <span>{strings.auth.username}</span>
-      <input type="text" aria-label={strings.auth.username} spellcheck="false" autocomplete="off" bind:value={basic.username} />
+      <Field mono label={strings.auth.username} spellcheck="false" autocomplete="off" bind:value={basic.username} />
     </div>
     {@render secretField(strings.auth.password, basic.password, (value) => (basic.password = value))}
   {:else if auth.type === "bearer"}
@@ -127,11 +129,11 @@
     {@const apiKey = auth}
     <div class="field">
       <span>{strings.auth.key}</span>
-      <input type="text" aria-label={strings.auth.key} spellcheck="false" bind:value={apiKey.key} />
+      <Field mono label={strings.auth.key} spellcheck="false" bind:value={apiKey.key} />
     </div>
     <div class="field">
       <span>{strings.auth.value}</span>
-      <input type="text" aria-label={strings.auth.value} spellcheck="false" autocomplete="off" bind:value={apiKey.value} />
+      <Field mono label={strings.auth.value} spellcheck="false" autocomplete="off" bind:value={apiKey.value} />
     </div>
     {@render placementField(apiKey.placement, (value) => (apiKey.placement = value))}
   {:else if auth.type === "oauth2_token"}
@@ -139,7 +141,7 @@
     {@render secretField(strings.auth.token, oauth.token, (value) => (oauth.token = value))}
     <div class="field">
       <span>{strings.auth.prefix}</span>
-      <input type="text" aria-label={strings.auth.prefix} spellcheck="false" bind:value={oauth.header_prefix} />
+      <Field mono label={strings.auth.prefix} spellcheck="false" bind:value={oauth.header_prefix} />
     </div>
     {@render placementField(oauth.placement, (value) => (oauth.placement = value))}
   {:else if auth.type === "unsupported"}
@@ -153,7 +155,7 @@
     flex-direction: column;
     gap: calc(var(--space) * 2);
     max-width: 560px;
-    padding: calc(var(--space) * 2);
+    padding: calc(var(--space) * 2) var(--space);
   }
 
   .field {
@@ -167,37 +169,9 @@
     color: var(--text-muted);
   }
 
-  input,
-  select,
-  button {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 2);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  input {
-    min-width: 0;
-    font-family: var(--font-mono);
-  }
-
   .secret {
     display: flex;
     gap: calc(var(--space) * 2);
-  }
-
-  .secret input {
-    flex: 1;
-  }
-
-  button {
-    flex: none;
-    cursor: pointer;
-  }
-
-  button:hover {
-    border-color: var(--text-muted);
   }
 
   .note {

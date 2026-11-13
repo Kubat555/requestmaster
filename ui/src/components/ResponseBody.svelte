@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import { getContext, untrack } from "svelte";
+  import { getContext } from "svelte";
   import CodeEditor from "./CodeEditor.svelte";
   import type { Api } from "../lib/api";
   import { formatBytes } from "../lib/format";
@@ -17,14 +17,14 @@
     body: ResponseDto["body"];
     /** Why the body could not be unpacked; then it is shown as it was received. */
     decodeError: string | null;
+    /** The view: re-indented by the core, or as received. Only a JSON body has the first one. */
+    pretty: boolean;
   }
 
-  let { body, decodeError }: Props = $props();
+  let { body, decodeError, pretty = $bindable() }: Props = $props();
 
   const api = getContext<Api>("api");
 
-  /** Re-indented by the core; only a JSON body has this view, and it is the first one shown. */
-  let pretty = $state(untrack(() => body.json));
   /** The text on the screen and the view it was read in; `null` until the body is read for the first time. */
   let shown = $state.raw<{ text: string; pretty: boolean } | null>(null);
 
@@ -89,16 +89,21 @@
   .bar {
     flex: none;
     display: flex;
-    padding: calc(var(--space) * 2);
+    padding: calc(var(--space) * 2) calc(var(--space) * 3);
   }
 
+  /* Two buttons under one border, like `Segmented`; they stay toggle buttons because Pretty may be unavailable. */
   .bar button {
-    height: var(--row-height);
+    height: var(--control-height-sm);
     padding: 0 calc(var(--space) * 3);
-    background: var(--surface-2);
+    background: var(--bg);
     border: 1px solid var(--border);
     color: var(--text-muted);
     cursor: pointer;
+  }
+
+  .bar button:hover:enabled {
+    color: var(--text);
   }
 
   .bar button:first-child {
@@ -111,7 +116,7 @@
   }
 
   .bar button[aria-pressed="true"] {
-    background: var(--bg);
+    background: var(--surface-2);
     color: var(--text);
   }
 

@@ -3,6 +3,7 @@
   import CodeEditor from "./CodeEditor.svelte";
   import Dialog from "./Dialog.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
+  import Button from "./ui/Button.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
@@ -77,7 +78,7 @@
 
 <div class="body-editor">
   <div class="bar">
-    <select aria-label={strings.body.kind} value={body.mode} onchange={onKindChosen}>
+    <select class="select" aria-label={strings.body.kind} value={body.mode} onchange={onKindChosen}>
       {#each EDITABLE as mode (mode)}
         <option value={mode}>{strings.body.kinds[mode]}</option>
       {/each}
@@ -86,13 +87,13 @@
       {/if}
     </select>
     {#if body.mode === "raw"}
-      <select aria-label={strings.body.language} bind:value={body.data.language}>
+      <select class="select" aria-label={strings.body.language} bind:value={body.data.language}>
         {#each LANGUAGES as language (language)}
           <option value={language}>{strings.body.languages[language]}</option>
         {/each}
       </select>
       {#if body.data.language === "json"}
-        <button type="button" onclick={beautify}>{strings.body.beautify}</button>
+        <Button onclick={beautify}>{strings.body.beautify}</Button>
       {/if}
     {/if}
     {#if readOnly}
@@ -152,8 +153,8 @@
   <Dialog title={strings.body.replaceTitle} onclose={() => (pending = null)}>
     <p class="question">{strings.body.replaceText}</p>
     <div class="dialog-actions">
-      <button type="button" class="primary" onclick={confirmReplace}>{strings.body.replace}</button>
-      <button type="button" onclick={() => (pending = null)}>{strings.body.cancel}</button>
+      <Button variant="primary" onclick={confirmReplace}>{strings.body.replace}</Button>
+      <Button onclick={() => (pending = null)}>{strings.body.cancel}</Button>
     </div>
   </Dialog>
 {/if}
@@ -171,28 +172,7 @@
     display: flex;
     align-items: center;
     gap: calc(var(--space) * 2);
-    padding: calc(var(--space) * 2);
-  }
-
-  select {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 2);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .bar button {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 3);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  .bar button:hover {
-    border-color: var(--text-muted);
+    padding: calc(var(--space) * 2) calc(var(--space) * 3);
   }
 
   .code {

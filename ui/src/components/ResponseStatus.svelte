@@ -1,13 +1,16 @@
 <script lang="ts">
+  import Button from "./ui/Button.svelte";
   import { formatBytes, formatMs, statusClass } from "../lib/format";
   import { strings } from "../lib/strings";
   import type { ResponseDto } from "../lib/types";
 
   interface Props {
     response: ResponseDto;
+    /** The user asked to copy the body; the owner knows the view it is shown in. */
+    oncopy: () => void;
   }
 
-  let { response }: Props = $props();
+  let { response, oncopy }: Props = $props();
 
   const id = $props.id();
   /** Whether the list of the followed redirects is shown. */
@@ -30,6 +33,12 @@
       <button type="button" class="redirects" aria-expanded={hopsShown} aria-controls="{id}-hops" onclick={() => (hopsShown = !hopsShown)}>
         {strings.response.redirects(response.redirects.length)}
       </button>
+    {/if}
+    <!-- A response without a body has nothing to copy. -->
+    {#if response.body.total > 0}
+      <span class="copy">
+        <Button variant="ghost" size="sm" icon="copy" onclick={oncopy}>{strings.response.copy}</Button>
+      </span>
     {/if}
   </div>
   {#if hopsShown && response.redirects.length > 0}
@@ -58,7 +67,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: calc(var(--space) * 4);
-    min-height: var(--row-height);
+    min-height: var(--control-height-sm);
     color: var(--text-muted);
   }
 
@@ -83,8 +92,13 @@
     color: var(--status-server);
   }
 
+  /* At the right edge of the line. */
+  .copy {
+    margin-left: auto;
+  }
+
   .redirects {
-    height: var(--row-height);
+    height: var(--control-height-sm);
     padding: 0 calc(var(--space) * 2);
     background: transparent;
     border: 1px solid var(--border);

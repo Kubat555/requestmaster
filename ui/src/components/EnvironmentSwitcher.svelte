@@ -1,5 +1,8 @@
 <script lang="ts">
   import { getContext } from "svelte";
+  import Button from "./ui/Button.svelte";
+  import Icon from "./ui/Icon.svelte";
+  import Menu, { type MenuItem } from "./ui/Menu.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import type { Workspace } from "../lib/workspace.svelte";
@@ -12,31 +15,57 @@
 
   const api = getContext<Api>("api");
 
-  /** Value of the option that stands for "no environment"; an environment id is never empty. */
-  const NONE = "";
+  /** The frame of the button: the menu appears under it. */
+  let anchor = $state<HTMLSpanElement>();
+  let open = $state(false);
 
-  function onChange(event: Event) {
-    const value = (event.currentTarget as HTMLSelectElement).value;
-    void workspace.setEnvironment(api, value === NONE ? null : value);
-  }
+  const active = $derived(workspace.environments.find((environment) => environment.id === workspace.activeEnvironmentId) ?? null);
+  const name = $derived(active?.name ?? strings.environment.none);
+
+  /** "No environment" first, then every environment. */
+  const items = $derived<MenuItem[]>([
+    { label: strings.environment.none, onselect: () => void workspace.setEnvironment(api, null) },
+    ...workspace.environments.map((environment) => ({
+      label: environment.name,
+      onselect: () => void workspace.setEnvironment(api, environment.id),
+    })),
+  ]);
 </script>
 
-<select class="switcher" aria-label={strings.environment.label} value={workspace.activeEnvironmentId ?? NONE} onchange={onChange}>
-  <option value={NONE}>{strings.environment.none}</option>
-  {#each workspace.environments as environment (environment.id)}
-    <option value={environment.id}>{environment.name}</option>
-  {/each}
-</select>
+<!-- The button names the active environment; the dot is lit while one is chosen. -->
+<span bind:this={anchor} class="switcher">
+  <Button aria-haspopup="menu" aria-expanded={open} aria-label="{strings.environment.label}: {name}" onclick={() => (open = !open)}>
+    <span class="dot" class:on={active !== null}></span>
+    <span class="name">{name}</span>
+    <Icon name="chevron-down" />
+  </Button>
+</span>
+{#if open && anchor}
+  <Menu label={strings.environment.label} {items} {anchor} onclose={() => (open = false)} />
+{/if}
 
 <style>
   .switcher {
     flex: none;
-    height: var(--row-height);
-    max-width: 240px;
+    display: flex;
     margin: 0 calc(var(--space) * 2);
-    padding: 0 calc(var(--space) * 2);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+  }
+
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+  }
+
+  .dot.on {
+    background: var(--status-ok);
+  }
+
+  .name {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

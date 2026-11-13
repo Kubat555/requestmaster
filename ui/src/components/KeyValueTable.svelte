@@ -1,5 +1,7 @@
 <script lang="ts" generics="Row extends { key: string; value: string; enabled: boolean }">
   import { tick } from "svelte";
+  import Button from "./ui/Button.svelte";
+  import IconButton from "./ui/IconButton.svelte";
   import { strings } from "../lib/strings";
 
   interface Props {
@@ -75,13 +77,11 @@
         </td>
         <td class="actions">
           {#if masked}
-            <button type="button" class="reveal" aria-pressed={shown} onclick={() => toggleRevealed(row)}>
+            <Button variant="ghost" size="sm" aria-pressed={shown} onclick={() => toggleRevealed(row)}>
               {shown ? strings.table.hide : strings.table.show}
-            </button>
+            </Button>
           {/if}
-          <button type="button" class="remove" aria-label={strings.table.remove} title={strings.table.remove} onclick={() => remove(index)}>
-            <span aria-hidden="true">×</span>
-          </button>
+          <IconButton class="remove" icon="close" size="sm" label={strings.table.remove} onclick={() => remove(index)} />
         </td>
       </tr>
     {/each}
@@ -133,9 +133,21 @@
   }
 
   .actions {
-    width: 112px;
+    width: 120px;
+    padding: 0 var(--space);
     text-align: right;
     white-space: nowrap;
+  }
+
+  /* The buttons of a row stand side by side in the middle of its height. */
+  td.actions > :global(*) {
+    vertical-align: middle;
+  }
+
+  /* Deleting a row cannot be undone here, so its button warns with the colour. */
+  td.actions > :global(.remove:hover),
+  td.actions > :global(.remove:focus-visible) {
+    color: var(--danger);
   }
 
   input[type="text"],
@@ -161,33 +173,6 @@
   .off input[type="text"],
   .off input[type="password"] {
     color: var(--text-muted);
-  }
-
-  button {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 2);
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-
-  button:hover {
-    color: var(--text);
-  }
-
-  /* The cross is small; the button around it is a square of the row height, never under 24 x 24 px. */
-  .remove {
-    width: var(--row-height);
-    min-width: 24px;
-    min-height: 24px;
-    padding: 0;
-    font-size: 15px;
-  }
-
-  .remove:hover,
-  .remove:focus-visible {
-    color: var(--danger);
   }
 
   .visually-hidden {

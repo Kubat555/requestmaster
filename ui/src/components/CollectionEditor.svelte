@@ -27,7 +27,7 @@
 </script>
 
 <div class="collection-editor">
-  <div class="sections" role="tablist" aria-label={strings.collection.sections}>
+  <div class="section-tabs" role="tablist" aria-label={strings.collection.sections}>
     {#each SECTIONS as name (name)}
       <button
         type="button"
@@ -35,7 +35,6 @@
         id="{id}-tab-{name}"
         aria-selected={section === name}
         aria-controls="{id}-panel-{name}"
-        class:active={section === name}
         onclick={() => (section = name)}
       >
         {strings.collection[name]}
@@ -67,38 +66,6 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
-  }
-
-  .sections {
-    flex: none;
-    display: flex;
-    padding: 0 calc(var(--space) * 2);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .sections button {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 3);
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-
-  .sections button:hover {
-    color: var(--text);
-  }
-
-  .sections button.active {
-    border-bottom-color: var(--accent);
-    color: var(--text);
-  }
-
-  .count {
-    margin-left: var(--space);
-    color: var(--accent);
-    font-size: 11px;
   }
 
   .panel {

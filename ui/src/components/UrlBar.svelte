@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "./ui/Button.svelte";
+  import Field from "./ui/Field.svelte";
   import { strings } from "../lib/strings";
 
   interface Props {
@@ -33,38 +35,35 @@
 </script>
 
 <div class="url-bar">
-  <select class="method" aria-label={strings.editor.method} value={custom ? CUSTOM : method} onchange={onMethodChosen}>
+  <select class="select method" aria-label={strings.editor.method} value={custom ? CUSTOM : method} onchange={onMethodChosen}>
     {#each METHODS as name (name)}
       <option value={name}>{name}</option>
     {/each}
     <option value={CUSTOM}>{strings.editor.customMethodOption}</option>
   </select>
   {#if custom}
-    <input class="custom" type="text" aria-label={strings.editor.customMethod} spellcheck="false" bind:value={method} />
+    <div class="custom">
+      <Field mono label={strings.editor.customMethod} spellcheck="false" bind:value={method} />
+    </div>
   {/if}
   <!-- `data-url-input`: Ctrl+L looks for the field of the shown tab by it. -->
-  <input
-    class="url"
-    type="text"
-    data-url-input
-    aria-label={strings.editor.url}
-    placeholder={strings.editor.urlPlaceholder}
-    spellcheck="false"
-    bind:value={url}
-  />
+  <div class="url">
+    <Field mono data-url-input label={strings.editor.url} placeholder={strings.editor.urlPlaceholder} spellcheck="false" bind:value={url} />
+  </div>
   <!-- One button for both actions, so that the focus stays on it; the two texts lie on top of each other
        and only the one of the current action is visible. -->
-  <button
-    type="button"
-    class="send"
-    class:sending
+  <Button
+    variant={sending ? "default" : "primary"}
+    icon={sending ? "close" : "send"}
     disabled={!sending && !canSend}
     aria-label={sending ? strings.editor.cancel : strings.editor.send}
     onclick={sending ? oncancel : onsend}
   >
-    <span class="text" class:shown={!sending} aria-hidden="true">{strings.editor.send}</span>
-    <span class="text" class:shown={sending} aria-hidden="true">{strings.editor.cancel}</span>
-  </button>
+    <span class="texts">
+      <span class="text" class:shown={!sending} aria-hidden="true">{strings.editor.send}</span>
+      <span class="text" class:shown={sending} aria-hidden="true">{strings.editor.cancel}</span>
+    </span>
+  </Button>
 </div>
 
 <style>
@@ -74,18 +73,8 @@
     padding: calc(var(--space) * 2);
   }
 
-  select,
-  input,
-  button {
-    height: var(--row-height);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
   .method {
     flex: none;
-    padding: 0 calc(var(--space) * 2);
     font-family: var(--font-mono);
     font-weight: 600;
   }
@@ -93,37 +82,16 @@
   .custom {
     flex: none;
     width: 120px;
-    padding: 0 calc(var(--space) * 2);
-    font-family: var(--font-mono);
   }
 
   .url {
     flex: 1;
     min-width: 0;
-    padding: 0 calc(var(--space) * 2);
-    font-family: var(--font-mono);
   }
 
-  .url::placeholder {
-    color: var(--text-muted);
-  }
-
-  .send {
-    flex: none;
+  .texts {
     display: inline-grid;
     place-items: center;
-    padding: 0 calc(var(--space) * 4);
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--accent-contrast);
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .send.sending {
-    background: var(--surface-2);
-    border-color: var(--border);
-    color: var(--text);
   }
 
   .text {
@@ -138,12 +106,5 @@
   .text.shown {
     opacity: 1;
     transform: none;
-  }
-
-  .send:disabled {
-    background: var(--surface-2);
-    border-color: var(--border);
-    color: var(--text-muted);
-    cursor: default;
   }
 </style>

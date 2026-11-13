@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import CookiesView from "./CookiesView.svelte";
   import HeadersView from "./HeadersView.svelte";
   import ResponseBody from "./ResponseBody.svelte";
   import ResponseStatus from "./ResponseStatus.svelte";
   import SendWarnings from "./SendWarnings.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import type { Api } from "../lib/api";
   import type { Sending } from "../lib/sending.svelte";
   import { strings } from "../lib/strings";
+  import { toasts } from "../lib/toasts.svelte";
 
   interface Props {
     /** The send state of the tab whose response is shown. */
@@ -13,6 +17,8 @@
   }
 
   let { sending }: Props = $props();
+
+  const api = getContext<Api>("api");
 
   type Section = "body" | "headers" | "cookies";
   const SECTIONS: Section[] = ["body", "headers", "cookies"];
@@ -38,6 +44,33 @@
   const response = $derived(result?.response ?? null);
   const error = $derived(result?.error ?? null);
 
+  /**
+   * The view of the body, chosen in `ResponseBody` and used here to copy what is shown. Every response starts
+   * with Pretty when its body is JSON.
+   */
+  let pretty = $derived(response?.body.json ?? false);
+
+  /**
+   * Puts the body into the clipboard as it is shown. The text comes from the core; a failure of the command
+   * is shown with its message, a clipboard that is missing or refuses — with a message of its own.
+   */
+  async function copyBody() {
+    if (!response) return;
+    let text: string;
+    try {
+      text = await api.copyResponseBody(response.body.id, pretty);
+    } catch (error) {
+      toasts.error(String(error));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toasts.info(strings.response.copied);
+    } catch {
+      toasts.error(strings.response.copyFailed);
+    }
+  }
+
   /** Number of rows next to the name of a section; 0 — no number. */
   const counts = $derived<Record<Section, number>>({
     body: 0,
@@ -57,7 +90,7 @@
   {#if waiting}
     <p class="note" role="status">{strings.response.sending}</p>
   {:else if !result}
-    <p class="note">{strings.response.empty}</p>
+    <EmptyState icon="send" title={strings.response.emptyTitle} text={strings.response.empty} />
   {:else}
     <SendWarnings warnings={result.warnings} />
     {#if error}
@@ -69,9 +102,9 @@
         {/if}
       </div>
     {:else if response}
-      <ResponseStatus {response} />
+      <ResponseStatus {response} oncopy={copyBody} />
 
-      <div class="sections" role="tablist" aria-label={strings.response.sections}>
+      <div class="section-tabs" role="tablist" aria-label={strings.response.sections}>
         {#each SECTIONS as name (name)}
           <button
             type="button"
@@ -79,7 +112,6 @@
             id="{id}-tab-{name}"
             aria-selected={section === name}
             aria-controls="{id}-panel-{name}"
-            class:active={section === name}
             onclick={() => (section = name)}
           >
             {strings.response[name]}
@@ -93,7 +125,7 @@
       <!-- The body stays while another section is shown, so that it is not fetched again. -->
       <div class="panel" role="tabpanel" id="{id}-panel-body" aria-labelledby="{id}-tab-body" hidden={section !== "body"}>
         {#key response.body.id}
-          <ResponseBody body={response.body} decodeError={response.decode_error} />
+          <ResponseBody body={response.body} decodeError={response.decode_error} bind:pretty />
         {/key}
       </div>
       {#if section === "headers"}
@@ -143,38 +175,6 @@
     font-family: var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-  }
-
-  .sections {
-    flex: none;
-    display: flex;
-    padding: 0 calc(var(--space) * 2);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .sections button {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 3);
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-
-  .sections button:hover {
-    color: var(--text);
-  }
-
-  .sections button.active {
-    border-bottom-color: var(--accent);
-    color: var(--text);
-  }
-
-  .count {
-    margin-left: var(--space);
-    color: var(--accent);
-    font-size: 11px;
   }
 
   .panel {

@@ -1,9 +1,10 @@
-import { createEvent, fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar.svelte";
 import { strings } from "../lib/strings";
+import { tabs } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
-import type { ImportResult, TreeRow } from "../lib/types";
+import type { ImportResult, RequestDraft, TreeRow } from "../lib/types";
 import { Workspace } from "../lib/workspace.svelte";
 
 /** Loads the workspace from a fake api, as the window does at start, and renders the sidebar over it. */
@@ -50,6 +51,11 @@ function answerImport(api: FakeApi, results: ImportResult[]) {
 function treeItemNames(): string[] {
   return screen.queryAllByRole("treeitem").map((item) => item.textContent!.replace(/\s+/g, " ").trim());
 }
+
+// The tabs of the window live in a module; every test starts without them.
+afterEach(() => {
+  for (const tab of [...tabs.list]) tabs.close(tab.id);
+});
 
 describe("Sidebar", () => {
   it("shows the placeholder when the tree is empty", async () => {
@@ -244,6 +250,34 @@ describe("Sidebar", () => {
     const other = screen.getByRole("treeitem", { name: /Two/ }).querySelector(".method")!;
     expect(other.textContent).toBe("PROPFI");
     expect(other.classList.contains("method-other")).toBe(true);
+  });
+
+  it("marks the row of a request whose open tab has unsaved edits, keeping its name", async () => {
+    const { api, workspace } = await renderSidebar();
+    workspace.toggle("col-1");
+    workspace.toggle("fold-users");
+    const row = await screen.findByRole("treeitem", { name: /List users/ });
+    const nameBefore = treeItemNames();
+
+    await tabs.open(api, "req-list-users");
+    expect(row.querySelector(".dirty")).toBeNull();
+
+    (tabs.list[0].draft as RequestDraft).url = "https://api.example.test/people";
+
+    await waitFor(() => expect(row.querySelector(".dirty")).not.toBeNull());
+    const dot = row.querySelector(".dirty")!;
+    // Decorative: the tab says it in words, the row keeps the name it had.
+    expect(dot.getAttribute("aria-hidden")).toBe("true");
+    expect(dot.hasAttribute("aria-label")).toBe(false);
+    expect(dot.textContent).toBe("");
+    expect(screen.getByRole("treeitem", { name: /List users/ })).toBe(row);
+    expect(treeItemNames()).toEqual(nameBefore);
+    // Only that row is marked.
+    expect(screen.getByRole("treeitem", { name: /Create user/ }).querySelector(".dirty")).toBeNull();
+    expect(screen.getByRole("treeitem", { name: "Users" }).querySelector(".dirty")).toBeNull();
+
+    tabs.list[0].revert();
+    await waitFor(() => expect(row.querySelector(".dirty")).toBeNull());
   });
 
   it("cancels a drop and a dragover outside the sidebar without importing", async () => {

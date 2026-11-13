@@ -16,7 +16,7 @@ export interface FakeSeed {
   activeEnvironment?: string | null;
   /** Answers `sendRequest`; without it a send rejects. */
   onSend?: SendHandler;
-  /** Response bodies by id; `responseBody` returns them whatever `pretty` is. */
+  /** Response bodies by id; `responseBody` and `copyResponseBody` return them whatever `pretty` is. */
   bodies?: Record<string, Uint8Array>;
 }
 
@@ -133,6 +133,9 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       const body = api.bodies.get(bodyId);
       if (!body) throw `response body not found: ${bodyId}`;
       return body;
+    },
+    async copyResponseBody(bodyId) {
+      return new TextDecoder().decode(await api.responseBody(bodyId, false));
     },
     async releaseBody(bodyId) {
       api.released.push(bodyId);

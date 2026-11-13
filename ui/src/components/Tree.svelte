@@ -1,7 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
   import TreeRow from "./TreeRow.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
   import { strings } from "../lib/strings";
+  import { tabs } from "../lib/tabs.svelte";
   import { buildTree, visibleRows, type TreeNode } from "../lib/tree";
   import type { Workspace } from "../lib/workspace.svelte";
 
@@ -20,6 +22,9 @@
   const filtering = $derived(workspace.filter.trim() !== "");
   /** The row Tab stops at: the last focused one while it is shown, otherwise the first. */
   const tabbableId = $derived(rows.some((row) => row.node.id === focusedId) ? focusedId : (rows[0]?.node.id ?? null));
+
+  /** Ids of the nodes whose open tab has unsaved edits: their rows are marked. */
+  const dirtyIds = $derived(new Set(tabs.list.filter((tab) => tab.dirty).map((tab) => tab.nodeId)));
 
   /** Whether the children of the row at `index` are shown. A filter shows them whatever is expanded. */
   function isExpanded(index: number): boolean {
@@ -87,7 +92,7 @@
 
 {#if rows.length === 0}
   <!-- Only a filter leaves the tree without rows: the sidebar does not draw the tree while it is empty. -->
-  <p class="note">{strings.sidebar.nothingFound}</p>
+  <EmptyState icon="search" title={strings.sidebar.nothingFound} />
 {/if}
 <div bind:this={container} role="tree" aria-label={strings.sidebar.label}>
   {#each rows as { node, depth }, index (node.id)}
@@ -97,6 +102,7 @@
       expanded={isExpanded(index)}
       selected={workspace.selectedId === node.id}
       tabbable={tabbableId === node.id}
+      dirty={dirtyIds.has(node.id)}
       onactivate={() => activate(node)}
       ontoggle={() => toggle(node)}
       onkeydown={(event) => onKeydown(event, index)}
@@ -104,11 +110,3 @@
     />
   {/each}
 </div>
-
-<style>
-  .note {
-    margin: 0;
-    padding: calc(var(--space) * 3);
-    color: var(--text-muted);
-  }
-</style>

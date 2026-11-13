@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import IconButton from "./ui/IconButton.svelte";
   import { methodClass, methodLabel } from "../lib/format";
   import { strings } from "../lib/strings";
   import type { Tab, Tabs } from "../lib/tabs.svelte";
@@ -70,16 +71,7 @@
         {/if}
       </button>
       <!-- For the pointer; the keyboard closes the shown tab with Ctrl+W. -->
-      <button
-        type="button"
-        class="close"
-        tabindex="-1"
-        aria-label="{strings.tabs.close}: {tab.name}"
-        title={strings.tabs.close}
-        onclick={() => onclose(tab)}
-      >
-        <span aria-hidden="true">×</span>
-      </button>
+      <IconButton icon="close" size="sm" tabindex={-1} label="{strings.tabs.close}: {tab.name}" title={strings.tabs.close} onclick={() => onclose(tab)} />
     </div>
   {/each}
 </div>
@@ -98,8 +90,9 @@
     display: flex;
     align-items: center;
     max-width: 240px;
+    padding-right: var(--space);
     border-right: 1px solid var(--border);
-    border-bottom: 2px solid transparent;
+    border-top: 2px solid transparent;
     color: var(--text-muted);
   }
 
@@ -109,24 +102,21 @@
 
   .tab.active {
     background: var(--bg);
-    border-bottom-color: var(--accent);
+    border-top-color: var(--accent);
     color: var(--text);
-  }
-
-  button {
-    height: 100%;
-    background: transparent;
-    border: none;
-    color: inherit;
-    cursor: pointer;
   }
 
   .title {
     display: flex;
     align-items: center;
-    gap: calc(var(--space) * 1.5);
+    gap: calc(var(--space) * 2);
     min-width: 0;
+    height: 100%;
     padding: 0 calc(var(--space) * 1) 0 calc(var(--space) * 3);
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
   }
 
   .name {
@@ -141,16 +131,6 @@
     height: 8px;
     background: var(--accent);
     border-radius: 50%;
-  }
-
-  .close {
-    flex: none;
-    width: var(--row-height);
-    font-size: 15px;
-  }
-
-  .close:hover {
-    color: var(--danger);
   }
 
   .method {

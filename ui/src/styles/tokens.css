@@ -1,14 +1,19 @@
-/* Visual style "Graphite & Signal": every colour, size and duration of the interface is a variable here. */
+/* Visual style "A · Graphite": every colour, size and duration of the interface is a variable here. */
 :root {
-  --bg: #14171c; --surface: #1b1f26; --surface-2: #232831; --border: #2c323d;
-  --text: #dde2ea; --text-muted: #98a1b0; --accent: #2fc7c0; --accent-contrast: #0b1416;
-  --method-get: #4cc38a; --method-post: #e5a93b; --method-put: #5b9cf5; --method-patch: #a98bf5;
-  --method-delete: #f07178; --method-other: #98a1b0;
+  --bg: #14171c; --surface: #1a1e25; --surface-2: #232831; --border: #2b313c;
+  --text: #e1e5ec; --text-muted: #9aa3b2; --accent: #2fc7c0; --accent-contrast: #07201f;
+  --method-get: #4cc38a; --method-post: #e5a93b; --method-put: #6aa6f8; --method-patch: #a98bf5;
+  --method-delete: #f07178; --method-other: #9aa3b2;
   --status-ok: #4cc38a; --status-redirect: #5b9cf5; --status-client: #e5a93b; --status-server: #f07178;
   --danger: #f07178;
-  --font-ui: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  /* The code editor. `--code-line` (line numbers) is a little lighter than in the mock-up, for contrast. */
+  --code-key: #7cb7ff; --code-string: #4cc38a; --code-number: #e5a93b; --code-atom: #b59cf7; --code-line: #626b7a;
+  /* No font is shipped with the application: the first installed one of the list is used. */
+  --font-ui: Inter, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
-  --font-size: 13px; --row-height: 28px; --radius: 4px; --radius-popup: 8px; --space: 4px;
+  --font-size: 13px; --radius: 4px; --radius-popup: 8px; --space: 4px;
+  /* Heights: a button or a field, a small one, a row of the tree or of a table, a request tab. */
+  --control-height: 32px; --control-height-sm: 28px; --row-height: 30px; --tab-height: 40px;
   --dur-1: 83ms; --dur-2: 120ms; --dur-3: 167ms; --dur-4: 250ms; --ease: cubic-bezier(0, 0, 0, 1);
   /* Not in the plan's list: the only shadow, for popups, kept here so that components hold no colours. */
   --shadow-popup: 0 8px 24px rgb(0 0 0 / 0.4);

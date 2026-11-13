@@ -20,7 +20,7 @@
         ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.5" },
         ".cm-content": { caretColor: "var(--accent)", outline: "none" },
         ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)" },
-        ".cm-gutters": { backgroundColor: "var(--surface)", color: "var(--text-muted)", borderRight: "1px solid var(--border)" },
+        ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--code-line)", borderRight: "1px solid var(--border)" },
         // Translucent: the selection is drawn under the lines and must stay visible on the active one.
         ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--surface-2) 60%, transparent)" },
         "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
@@ -32,10 +32,10 @@
     );
     const highlight = syntaxHighlighting(
       HighlightStyle.define([
-        { tag: tags.propertyName, color: "var(--method-put)" },
-        { tag: tags.string, color: "var(--method-get)" },
-        { tag: tags.number, color: "var(--method-post)" },
-        { tag: [tags.bool, tags.null, tags.keyword], color: "var(--method-patch)" },
+        { tag: tags.propertyName, color: "var(--code-key)" },
+        { tag: tags.string, color: "var(--code-string)" },
+        { tag: tags.number, color: "var(--code-number)" },
+        { tag: [tags.bool, tags.null, tags.keyword], color: "var(--code-atom)" },
         { tag: tags.invalid, color: "var(--danger)" },
       ]),
     );

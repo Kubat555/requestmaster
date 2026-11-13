@@ -39,6 +39,8 @@ export interface Api {
   cancelSend(sendId: string): Promise<void>;
   /** Bytes of a response body: whole or its beginning, re-indented when `pretty` and the body is JSON. */
   responseBody(bodyId: string, pretty: boolean): Promise<Uint8Array>;
+  /** Text of a response body for the clipboard: what `responseBody` gives, with bytes that are not UTF-8 replaced. */
+  copyResponseBody(bodyId: string, pretty: boolean): Promise<string>;
   /** Deletes the stored body; an unknown id is not an error. */
   releaseBody(bodyId: string): Promise<void>;
   /** Re-indents JSON text; rejects when the text is not valid JSON. */
@@ -66,6 +68,7 @@ export const tauriApi: Api = {
   // Raw bytes arrive as an ArrayBuffer.
   responseBody: async (bodyId, pretty) =>
     new Uint8Array(await invoke<ArrayBuffer>("response_body", { body_id: bodyId, pretty })),
+  copyResponseBody: (bodyId, pretty) => invoke<string>("copy_response_body", { body_id: bodyId, pretty }),
   releaseBody: (bodyId) => invoke<void>("release_body", { body_id: bodyId }),
   formatJson: (text) => invoke<string>("format_json", { text }),
   // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself

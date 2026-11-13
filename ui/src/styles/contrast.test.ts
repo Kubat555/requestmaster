@@ -37,6 +37,8 @@ describe("colour tokens", () => {
     ...tokensWithPrefix("--method-").map((name): [string, string] => [name, "--surface"]),
     ...tokensWithPrefix("--status-").map((name): [string, string] => [name, "--surface"]),
     ["--accent-contrast", "--accent"],
+    // Text of the code editor lies on the background of the window.
+    ...["--code-key", "--code-string", "--code-number", "--code-atom"].map((name): [string, string] => [name, "--bg"]),
   ];
 
   it("finds every method and status colour", () => {
@@ -46,5 +48,10 @@ describe("colour tokens", () => {
 
   it.each(pairs)("%s on %s has a contrast of at least 4.5", (foreground, background) => {
     expect(contrast(token(foreground), token(background))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Line numbers are an aid, not content: the threshold of non-text contrast is enough.
+  it("--code-line on --bg has a contrast of at least 3", () => {
+    expect(contrast(token("--code-line"), token("--bg"))).toBeGreaterThanOrEqual(3);
   });
 });

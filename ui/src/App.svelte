@@ -9,6 +9,8 @@
   import Splitter from "./components/Splitter.svelte";
   import TabBar from "./components/TabBar.svelte";
   import Toasts from "./components/Toasts.svelte";
+  import Button from "./components/ui/Button.svelte";
+  import EmptyState from "./components/ui/EmptyState.svelte";
   import type { Api } from "./lib/api";
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { canSend } from "./lib/sending.svelte";
@@ -127,18 +129,17 @@
   <main class="main">
     <div class="top">
       <section class="tabs" aria-label={strings.tabs.label}>
-        {#if tabs.list.length === 0}
-          <p class="placeholder">{strings.tabs.placeholder}</p>
-        {:else}
+        {#if tabs.list.length > 0}
           <TabBar {tabs} onclose={requestClose} />
         {/if}
       </section>
       <EnvironmentSwitcher {workspace} />
     </div>
-    <div class="work">
+    <!-- Without tabs the editor takes the whole area and says what to do; there is no response to show. -->
+    <div class="work" class:idle={tabs.list.length === 0}>
       <section class="editor" aria-label={strings.editor.label}>
         {#if tabs.list.length === 0}
-          <p class="placeholder">{strings.editor.placeholder}</p>
+          <EmptyState icon="collection" title={strings.editor.emptyTitle} text={strings.editor.emptyText} />
         {/if}
         <!-- Every open tab keeps its editor; the ones that are not shown are only hidden, so switching is
              instant and nothing of their state is lost. -->
@@ -152,10 +153,7 @@
           </div>
         {/each}
       </section>
-      <section class="response" aria-label={strings.response.label}>
-        {#if tabs.list.length === 0}
-          <p class="placeholder">{strings.response.placeholder}</p>
-        {/if}
+      <section class="response" aria-label={strings.response.label} hidden={tabs.list.length === 0}>
         <!-- Kept for every request tab, like the editors: the response of a tab that is not shown stays. -->
         {#each tabs.list as tab (tab.id)}
           {#if tab.kind === "request"}
@@ -172,9 +170,9 @@
   <Dialog title={strings.tabs.closeTitle} onclose={() => (closing = null)}>
     <p class="question"><strong>{closing.name}</strong> — {strings.tabs.closeText}</p>
     <div class="dialog-actions">
-      <button type="button" class="primary" onclick={() => answerClose(true)}>{strings.tabs.save}</button>
-      <button type="button" onclick={() => answerClose(false)}>{strings.tabs.discard}</button>
-      <button type="button" onclick={() => (closing = null)}>{strings.tabs.cancel}</button>
+      <Button variant="primary" onclick={() => answerClose(true)}>{strings.tabs.save}</Button>
+      <Button onclick={() => answerClose(false)}>{strings.tabs.discard}</Button>
+      <Button onclick={() => (closing = null)}>{strings.tabs.cancel}</Button>
     </div>
   </Dialog>
 {/if}
@@ -182,9 +180,9 @@
   <Dialog title={strings.app.closeTitle} onclose={() => answerQuit("cancel")}>
     <p class="question">{strings.app.closeText(dirtyTabs.length)}</p>
     <div class="dialog-actions">
-      <button type="button" class="primary" onclick={() => answerQuit("save")}>{strings.app.saveAllAndClose}</button>
-      <button type="button" onclick={() => answerQuit("discard")}>{strings.app.closeWithoutSaving}</button>
-      <button type="button" onclick={() => answerQuit("cancel")}>{strings.app.cancel}</button>
+      <Button variant="primary" onclick={() => answerQuit("save")}>{strings.app.saveAllAndClose}</Button>
+      <Button onclick={() => answerQuit("discard")}>{strings.app.closeWithoutSaving}</Button>
+      <Button onclick={() => answerQuit("cancel")}>{strings.app.cancel}</Button>
     </div>
   </Dialog>
 {/if}
@@ -213,7 +211,7 @@
   /* The tabs with the environment switcher in the top right corner. */
   .top {
     flex: none;
-    min-height: calc(var(--row-height) + var(--space) * 2);
+    height: var(--tab-height);
     display: flex;
     align-items: center;
     background: var(--surface);
@@ -224,8 +222,6 @@
     flex: 1;
     min-width: 0;
     align-self: stretch;
-    display: flex;
-    align-items: center;
   }
 
   .tab-panel {
@@ -265,9 +261,13 @@
     }
   }
 
-  .placeholder {
-    margin: 0;
-    padding: calc(var(--space) * 3);
-    color: var(--text-muted);
+  /* No tab is open: one cell, with the hint in the middle of it. */
+  .work.idle {
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  }
+
+  .work.idle .editor {
+    display: grid;
+    place-items: center;
   }
 </style>

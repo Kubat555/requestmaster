@@ -3,6 +3,9 @@
   import Dialog from "./Dialog.svelte";
   import ImportReport from "./ImportReport.svelte";
   import Tree from "./Tree.svelte";
+  import Button from "./ui/Button.svelte";
+  import EmptyState from "./ui/EmptyState.svelte";
+  import Field from "./ui/Field.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
@@ -111,19 +114,13 @@
 
 <div bind:this={root} class="sidebar">
   <div class="toolbar">
-    <button type="button" class="import" onclick={() => fileInput.click()}>{strings.import.button}</button>
+    <Button icon="import" onclick={() => fileInput.click()}>{strings.import.button}</Button>
     <input bind:this={fileInput} type="file" multiple accept=".json" hidden onchange={onFilesChosen} />
-    <input
-      class="filter"
-      type="search"
-      aria-label={strings.sidebar.filter}
-      placeholder={strings.sidebar.filter}
-      bind:value={workspace.filter}
-    />
+    <Field type="search" icon="search" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
   </div>
   <div class="content">
     {#if workspace.rows.length === 0}
-      <p class="note">{strings.sidebar.empty}</p>
+      <EmptyState icon="collection" title={strings.sidebar.emptyTitle} text={strings.sidebar.empty} />
     {:else}
       <Tree {workspace} />
     {/if}
@@ -140,9 +137,9 @@
       {/each}
     </ul>
     <div class="dialog-actions">
-      <button type="button" class="primary" onclick={() => answer("take_incoming")}>{strings.import.takeIncoming}</button>
-      <button type="button" onclick={() => answer("keep_current")}>{strings.import.keepCurrent}</button>
-      <button type="button" onclick={() => answer(null)}>{strings.import.cancel}</button>
+      <Button variant="primary" onclick={() => answer("take_incoming")}>{strings.import.takeIncoming}</Button>
+      <Button onclick={() => answer("keep_current")}>{strings.import.keepCurrent}</Button>
+      <Button onclick={() => answer(null)}>{strings.import.cancel}</Button>
     </div>
   </Dialog>
 {:else if report}
@@ -164,44 +161,10 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .import,
-  .filter {
-    height: var(--row-height);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .import {
-    flex: none;
-    padding: 0 calc(var(--space) * 3);
-    cursor: pointer;
-  }
-
-  .import:hover {
-    border-color: var(--text-muted);
-  }
-
-  .filter {
-    flex: 1;
-    min-width: 0;
-    padding: 0 calc(var(--space) * 2);
-  }
-
-  .filter::placeholder {
-    color: var(--text-muted);
-  }
-
   .content {
     flex: 1;
     min-height: 0;
     overflow: auto;
-  }
-
-  .note {
-    margin: 0;
-    padding: calc(var(--space) * 3);
-    color: var(--text-muted);
   }
 
   .conflicts-text {

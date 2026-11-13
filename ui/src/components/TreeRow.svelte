@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./ui/Icon.svelte";
   import { methodClass, methodLabel } from "../lib/format";
   import type { TreeNode } from "../lib/tree";
 
@@ -12,6 +13,8 @@
     selected: boolean;
     /** Whether Tab stops at this row: one row of the tree at a time. */
     tabbable: boolean;
+    /** Whether the open tab of the node has unsaved edits. */
+    dirty: boolean;
     /** The user activated the row: a click, or Enter. */
     onactivate: () => void;
     /** The user clicked the arrow of a collection or a folder. */
@@ -20,7 +23,7 @@
     onfocus: () => void;
   }
 
-  let { node, depth, expanded, selected, tabbable, onactivate, ontoggle, onkeydown, onfocus }: Props = $props();
+  let { node, depth, expanded, selected, tabbable, dirty, onactivate, ontoggle, onkeydown, onfocus }: Props = $props();
 
   const isRequest = $derived(node.kind === "request");
   const method = $derived(node.method ?? "");
@@ -50,9 +53,15 @@
   {:else}
     <!-- The arrow is for the pointer only: the keyboard expands and collapses with the arrow keys. -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <span class="arrow" class:expanded aria-hidden="true" onclick={onArrowClick}></span>
+    <span class="arrow" aria-hidden="true" onclick={onArrowClick}>
+      <Icon name={expanded ? "chevron-down" : "chevron-right"} />
+    </span>
   {/if}
   <span class="name">{node.name}</span>
+  {#if dirty}
+    <!-- Decoration: the tab of the node says the same in words. -->
+    <span class="dirty" aria-hidden="true"></span>
+  {/if}
 </div>
 
 <style>
@@ -61,7 +70,7 @@
     align-items: center;
     gap: calc(var(--space) * 1.5);
     height: var(--row-height);
-    padding-right: calc(var(--space) * 2);
+    padding-right: calc(var(--space) * 3);
     cursor: default;
     user-select: none;
     white-space: nowrap;
@@ -69,11 +78,11 @@
 
   /* Hover and selection switch at once, without a transition. */
   .row:hover {
-    background: var(--surface-2);
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
   }
 
   .row.selected {
-    background: var(--border);
+    background: var(--surface-2);
   }
 
   .arrow {
@@ -83,18 +92,7 @@
     justify-content: center;
     width: 16px;
     height: 100%;
-  }
-
-  /* A triangle pointing right; it points down when the node is expanded. */
-  .arrow::before {
-    content: "";
-    border: 4px solid transparent;
-    border-left: 5px solid var(--text-muted);
-    border-right-width: 0;
-  }
-
-  .arrow.expanded::before {
-    transform: rotate(90deg);
+    color: var(--text-muted);
   }
 
   .method {
@@ -106,7 +104,17 @@
   }
 
   .name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .dirty {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
   }
 </style>

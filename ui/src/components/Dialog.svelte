@@ -111,9 +111,9 @@
     width: 560px;
     max-width: 100%;
     max-height: 100%;
-    padding: calc(var(--space) * 4);
+    padding: calc(var(--space) * 5);
     overflow: auto;
-    background: var(--surface-2);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-popup);
     box-shadow: var(--shadow-popup);
@@ -125,34 +125,10 @@
     font-weight: 600;
   }
 
-  /* Buttons of every dialog look the same; the content comes from the owner, hence `:global`. */
+  /* The row of buttons of every dialog; the content comes from the owner, hence `:global`. */
   .dialog :global(.dialog-actions) {
     display: flex;
     justify-content: flex-end;
     gap: calc(var(--space) * 2);
-  }
-
-  .dialog :global(.dialog-actions button) {
-    height: var(--row-height);
-    padding: 0 calc(var(--space) * 3);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  .dialog :global(.dialog-actions button:hover) {
-    border-color: var(--text-muted);
-  }
-
-  .dialog :global(.dialog-actions button.primary) {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--accent-contrast);
-  }
-
-  /* The focus ring has the accent colour and would not be seen on the accent background. */
-  .dialog :global(.dialog-actions button.primary:focus-visible) {
-    outline-color: var(--accent-contrast);
   }
 </style>

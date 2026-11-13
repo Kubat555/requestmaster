@@ -508,6 +508,107 @@ describe("ResponsePanel", () => {
     expect(sendButton().disabled).toBe(false);
   });
 
+  describe("copying the body", () => {
+    /** Puts a clipboard that answers with `writeText` in place of the one jsdom lacks. */
+    function stubClipboard(writeText: (text: string) => Promise<void>) {
+      const spy = vi.fn(writeText);
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: spy }, configurable: true });
+      return spy;
+    }
+
+    function copyButton(): HTMLElement {
+      return panel().getByRole("button", { name: strings.response.copy });
+    }
+
+    /** Sends the request and waits until the body of the answer is on the screen. */
+    async function sendAndShow(text: string): Promise<void> {
+      await clickSend();
+      await waitFor(() => expect(bodyText().value).toBe(text));
+    }
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, "clipboard");
+    });
+
+    it("copies the body in the shown view and says so", async () => {
+      const api = await openRequest({ onSend: async () => answered() });
+      const copyResponseBody = vi
+        .spyOn(api, "copyResponseBody")
+        .mockImplementation(async (_id, pretty) => (pretty ? '{\n  "a": 1\n}' : '{"a":1}'));
+      const writeText = stubClipboard(async () => {});
+      await sendAndShow('{"a":1}');
+
+      // A JSON body is shown as Pretty first.
+      await fireEvent.click(copyButton());
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(copyResponseBody).toHaveBeenLastCalledWith("b1", true);
+      expect(writeText).toHaveBeenLastCalledWith('{\n  "a": 1\n}');
+      expect((await screen.findByRole("status")).textContent).toContain(strings.response.copied);
+      expect(screen.queryByRole("alert")).toBeNull();
+
+      await fireEvent.click(panel().getByRole("button", { name: strings.response.raw }));
+      await fireEvent.click(copyButton());
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      expect(copyResponseBody).toHaveBeenLastCalledWith("b1", false);
+      expect(writeText).toHaveBeenLastCalledWith('{"a":1}');
+    });
+
+    it("copies the text the core gives for the stored body", async () => {
+      await openRequest({
+        onSend: async () => answered({ body: { id: "b1", total: 5, truncated: false, json: false } }),
+        bodies: { b1: utf8.encode("hello") },
+      });
+      const writeText = stubClipboard(async () => {});
+      await sendAndShow("hello");
+
+      await fireEvent.click(copyButton());
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("hello"));
+    });
+
+    it("shows an error when the clipboard refuses", async () => {
+      await openRequest({ onSend: async () => answered() });
+      const writeText = stubClipboard(() => Promise.reject(new Error("NotAllowedError")));
+      await sendAndShow('{"a":1}');
+
+      await fireEvent.click(copyButton());
+
+      expect((await screen.findByRole("alert")).textContent).toContain(strings.response.copyFailed);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(toasts.items.some((toast) => toast.text === strings.response.copied)).toBe(false);
+    });
+
+    it("shows an error when there is no clipboard at all", async () => {
+      await openRequest({ onSend: async () => answered() });
+      await sendAndShow('{"a":1}');
+
+      await fireEvent.click(copyButton());
+
+      expect((await screen.findByRole("alert")).textContent).toContain(strings.response.copyFailed);
+    });
+
+    it("shows the message of the command when the body cannot be read", async () => {
+      const api = await openRequest({ onSend: async () => answered() });
+      vi.spyOn(api, "copyResponseBody").mockRejectedValue("response body not found: b1");
+      const writeText = stubClipboard(async () => {});
+      await sendAndShow('{"a":1}');
+
+      await fireEvent.click(copyButton());
+
+      expect((await screen.findByRole("alert")).textContent).toContain("response body not found: b1");
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it("offers nothing to copy for a response without a body", async () => {
+      const empty = { id: "b1", total: 0, truncated: false, json: false };
+      await openRequest({ onSend: async () => answered({ status: 204, status_text: "No Content", decoded_size: 0, body: empty }) });
+      await clickSend();
+      await panel().findByText("204 No Content");
+
+      expect(panel().queryByRole("button", { name: strings.response.copy })).toBeNull();
+    });
+  });
+
   it("releases the body of the response when its tab is closed", async () => {
     const api = await openRequest({ onSend: async () => answered() });
     await clickSend();

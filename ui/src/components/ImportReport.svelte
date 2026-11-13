@@ -1,5 +1,6 @@
 <script lang="ts">
   import Dialog from "./Dialog.svelte";
+  import Button from "./ui/Button.svelte";
   import { strings } from "../lib/strings";
   import type { ImportResult, ReportItem } from "../lib/types";
 
@@ -55,7 +56,7 @@
     </section>
   {/each}
   <div class="dialog-actions">
-    <button type="button" class="primary" onclick={onclose}>{strings.import.close}</button>
+    <Button variant="primary" onclick={onclose}>{strings.import.close}</Button>
   </div>
 </Dialog>
 
