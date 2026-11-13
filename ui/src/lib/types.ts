@@ -104,8 +104,8 @@ export interface RequestContent {
   headers?: Param[];
   /** Absent = no body. */
   body?: Body;
-  /** Absent = inherit from the parent; `no_auth` = explicitly none. */
-  auth?: Auth;
+  /** Absent or `null` = inherit from the parent; `no_auth` = explicitly none. */
+  auth?: Auth | null;
   scripts?: Scripts;
   settings?: RequestSettings;
   /** Lower-case names of automatic headers switched off for this request. */
@@ -114,21 +114,118 @@ export interface RequestContent {
 
 /** Content of a collection node. */
 export interface CollectionContent {
-  /** Absent = nothing set at this level. */
-  auth?: Auth;
+  /** Absent or `null` = nothing set at this level. */
+  auth?: Auth | null;
   variables?: Variable[];
   scripts?: Scripts;
 }
 
 /** Content of a folder node. */
 export interface FolderContent {
-  /** Absent = inherit from the parent. */
-  auth?: Auth;
+  /** Absent or `null` = inherit from the parent. */
+  auth?: Auth | null;
   scripts?: Scripts;
 }
 
 /** Content of a node of any kind. */
 export type NodeContent = CollectionContent | FolderContent | RequestContent;
+
+// ---------------------------------------------------------------------------------------------------------
+// Content as the editors hold it
+// ---------------------------------------------------------------------------------------------------------
+
+/** A key-value row with every default written out. */
+export type ParamRow = Required<Param>;
+
+/** A variable with every default written out. */
+export type VariableRow = Required<Variable>;
+
+/** A body whose url-encoded rows have every default written out. */
+export type DraftBody = Exclude<Body, { mode: "url_encoded" }> | { mode: "url_encoded"; data: ParamRow[] };
+
+/** Content of a request after {@link normalizeContent}. */
+export interface RequestDraft extends RequestContent {
+  query: ParamRow[];
+  path_variables: ParamRow[];
+  headers: ParamRow[];
+  body: DraftBody;
+  /** `null` = inherit from the parent. */
+  auth: Auth | null;
+  disabled_auto_headers: string[];
+}
+
+/** Content of a collection after {@link normalizeContent}. */
+export interface CollectionDraft extends CollectionContent {
+  /** `null` = nothing set at this level. */
+  auth: Auth | null;
+  variables: VariableRow[];
+}
+
+/** Content of a folder after {@link normalizeContent}. */
+export interface FolderDraft extends FolderContent {
+  /** `null` = inherit from the parent. */
+  auth: Auth | null;
+}
+
+function paramRow(param: Param): ParamRow {
+  return { ...param, enabled: param.enabled ?? true, postman_extra: param.postman_extra ?? {} };
+}
+
+function draftBody(body: Body | undefined): DraftBody {
+  if (!body) return { mode: "none" };
+  switch (body.mode) {
+    case "url_encoded":
+      return { mode: "url_encoded", data: body.data.map(paramRow) };
+    case "form_data":
+      return {
+        mode: "form_data",
+        data: body.data.map((part) => ({ ...part, enabled: part.enabled ?? true, postman_extra: part.postman_extra ?? {} })),
+      };
+    default:
+      return body;
+  }
+}
+
+/**
+ * Writes out every default the core leaves out of the JSON of a node: `enabled: true`, `secret: false`,
+ * empty lists, the body "none", `auth: null`, an empty `postman_extra` of a row. Without it a value put back
+ * by the user (a checkbox switched off and on) would differ from the stored content. The core reads the
+ * result as it is. Nothing else is touched; the input is not changed.
+ */
+export function normalizeContent(kind: "request", content: RequestContent): RequestDraft;
+export function normalizeContent(kind: "collection", content: CollectionContent): CollectionDraft;
+export function normalizeContent(kind: "folder", content: FolderContent): FolderDraft;
+export function normalizeContent(kind: NodeKind, content: NodeContent): RequestDraft | CollectionDraft | FolderDraft {
+  switch (kind) {
+    case "request": {
+      const request = content as RequestContent;
+      return {
+        ...request,
+        query: (request.query ?? []).map(paramRow),
+        path_variables: (request.path_variables ?? []).map(paramRow),
+        headers: (request.headers ?? []).map(paramRow),
+        body: draftBody(request.body),
+        auth: request.auth ?? null,
+        disabled_auto_headers: request.disabled_auto_headers ?? [],
+      };
+    }
+    case "collection": {
+      const collection = content as CollectionContent;
+      return {
+        ...collection,
+        auth: collection.auth ?? null,
+        variables: (collection.variables ?? []).map((variable) => ({
+          ...variable,
+          secret: variable.secret ?? false,
+          enabled: variable.enabled ?? true,
+          postman_extra: variable.postman_extra ?? {},
+        })),
+      };
+    }
+    case "folder":
+      return { ...(content as FolderContent), auth: content.auth ?? null };
+  }
+}
 
 // ---------------------------------------------------------------------------------------------------------
 // Command contract

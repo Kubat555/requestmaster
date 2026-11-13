@@ -41,6 +41,18 @@ export class Workspace {
     }
   }
 
+  /**
+   * Reads the tree again, e.g. after a saved request may have changed its method. A failure is shown as a
+   * notification and leaves the tree as it was.
+   */
+  async reloadTree(api: Api): Promise<void> {
+    try {
+      this.rows = await api.tree();
+    } catch (error) {
+      toasts.error(String(error));
+    }
+  }
+
   /** Expands a collapsed node and collapses an expanded one. */
   toggle(id: string): void {
     if (!this.expanded.delete(id)) this.expanded.add(id);

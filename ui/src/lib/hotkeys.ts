@@ -1,0 +1,48 @@
+// The key combinations of the application. One listener on the window catches them in the capture phase, so
+// that neither the code editor nor the webview itself gets them first.
+
+/** What the combinations do. */
+export interface HotkeyActions {
+  /** Ctrl+S: save the shown tab. */
+  save(): void;
+  /** Ctrl+W: close the shown tab. */
+  closeTab(): void;
+  /** Ctrl+L: move the focus to the URL field. */
+  focusUrl(): void;
+}
+
+/**
+ * The Latin letter of the pressed key in lower case. Taken from the physical key, so that a combination works
+ * on any keyboard layout (on the Russian one Ctrl+S arrives with the key "ы").
+ */
+function letter(event: KeyboardEvent): string {
+  return (event.code.startsWith("Key") ? event.code.slice(3) : event.key).toLowerCase();
+}
+
+/**
+ * Starts listening for the combinations and returns the function that stops it. A combination of the
+ * application never reaches other listeners and has no default action. While a modal dialog is open the
+ * combinations do nothing: the window behind the dialog must not change.
+ */
+export function installHotkeys(actions: HotkeyActions): () => void {
+  const byLetter: Record<string, () => void> = {
+    s: actions.save,
+    w: actions.closeTab,
+    l: actions.focusUrl,
+  };
+
+  function handler(event: KeyboardEvent) {
+    // F5 and Ctrl+R (with Shift too) reload the page of the webview, which would drop every unsaved draft.
+    const reload = event.key === "F5" || (event.ctrlKey && !event.altKey && letter(event) === "r");
+    // AltGr arrives as Ctrl+Alt and types a character, so Alt rules a combination out.
+    const action = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey ? byLetter[letter(event)] : undefined;
+    if (!reload && !action) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (action && document.querySelector('[aria-modal="true"]') === null) action();
+  }
+
+  window.addEventListener("keydown", handler, { capture: true });
+  return () => window.removeEventListener("keydown", handler, { capture: true });
+}

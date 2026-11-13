@@ -1,11 +1,18 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
+  import CollectionEditor from "./components/CollectionEditor.svelte";
+  import Dialog from "./components/Dialog.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
+  import RequestEditor from "./components/RequestEditor.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Splitter from "./components/Splitter.svelte";
+  import TabBar from "./components/TabBar.svelte";
   import Toasts from "./components/Toasts.svelte";
   import type { Api } from "./lib/api";
+  import { installHotkeys } from "./lib/hotkeys";
   import { strings } from "./lib/strings";
+  import { tabs, type Tab } from "./lib/tabs.svelte";
+  import type { CollectionDraft, RequestDraft } from "./lib/types";
   import { workspace } from "./lib/workspace.svelte";
 
   const api = getContext<Api>("api");
@@ -16,8 +23,39 @@
 
   let sidebarWidth = $state(SIDEBAR_DEFAULT);
 
+  /** The tab with unsaved edits the user asked to close;  — no question on the screen. */
+  let closing = $state<Tab | null>(null);
+
+  /** Closes the tab; one with unsaved edits is closed only after the user says what to do with them. */
+  function requestClose(tab: Tab) {
+    if (tab.dirty) closing = tab;
+    else tabs.close(tab.id);
+  }
+
+  /** The answer to the question about unsaved edits. A failed save leaves the tab open. */
+  async function answerClose(save: boolean) {
+    const tab = closing;
+    closing = null;
+    if (!tab) return;
+    if (!save || (await tab.save(api))) tabs.close(tab.id);
+  }
+
+  function focusUrl() {
+    const input = document.querySelector<HTMLInputElement>("[data-tab-panel]:not([hidden]) [data-url-input]");
+    input?.focus();
+    input?.select();
+  }
+
   onMount(() => {
+    workspace.onOpen = (id) => void tabs.open(api, id);
     void workspace.load(api);
+    return installHotkeys({
+      save: () => void tabs.active?.save(api),
+      closeTab: () => {
+        if (tabs.active) requestClose(tabs.active);
+      },
+      focusUrl,
+    });
   });
 </script>
 
@@ -29,13 +67,30 @@
   <main class="main">
     <div class="top">
       <section class="tabs" aria-label={strings.tabs.label}>
-        <p class="placeholder">{strings.tabs.placeholder}</p>
+        {#if tabs.list.length === 0}
+          <p class="placeholder">{strings.tabs.placeholder}</p>
+        {:else}
+          <TabBar {tabs} onclose={requestClose} />
+        {/if}
       </section>
       <EnvironmentSwitcher {workspace} />
     </div>
     <div class="work">
       <section class="editor" aria-label={strings.editor.label}>
-        <p class="placeholder">{strings.editor.placeholder}</p>
+        {#if tabs.list.length === 0}
+          <p class="placeholder">{strings.editor.placeholder}</p>
+        {/if}
+        <!-- Every open tab keeps its editor; the ones that are not shown are only hidden, so switching is
+             instant and nothing of their state is lost. -->
+        {#each tabs.list as tab (tab.id)}
+          <div class="tab-panel" data-tab-panel hidden={tabs.active !== tab}>
+            {#if tab.kind === "request"}
+              <RequestEditor tab={tab as Tab<RequestDraft>} />
+            {:else}
+              <CollectionEditor tab={tab as Tab<CollectionDraft>} />
+            {/if}
+          </div>
+        {/each}
       </section>
       <section class="response" aria-label={strings.response.label}>
         <p class="placeholder">{strings.response.placeholder}</p>
@@ -43,6 +98,16 @@
     </div>
   </main>
 </div>
+{#if closing}
+  <Dialog title={strings.tabs.closeTitle} onclose={() => (closing = null)}>
+    <p class="question"><strong>{closing.name}</strong> — {strings.tabs.closeText}</p>
+    <div class="dialog-actions">
+      <button type="button" class="primary" onclick={() => answerClose(true)}>{strings.tabs.save}</button>
+      <button type="button" onclick={() => answerClose(false)}>{strings.tabs.discard}</button>
+      <button type="button" onclick={() => (closing = null)}>{strings.tabs.cancel}</button>
+    </div>
+  </Dialog>
+{/if}
 <Toasts />
 
 <style>
@@ -78,8 +143,18 @@
   .tabs {
     flex: 1;
     min-width: 0;
+    align-self: stretch;
     display: flex;
     align-items: center;
+  }
+
+  .tab-panel {
+    height: 100%;
+  }
+
+  .question {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   /* The editor above the response; side by side when the window is at least 1280 px wide. */
