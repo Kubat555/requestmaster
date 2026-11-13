@@ -138,3 +138,179 @@ pub struct EnvSummary {
     /// Name shown in the switcher.
     pub name: String,
 }
+
+/// Outcome of a send: a response or an error, never both, plus the warnings of the send.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SendResult {
+    /// The response; `None` when the send failed.
+    pub response: Option<ResponseDto>,
+    /// Why there is no response; `None` when there is one.
+    pub error: Option<SendErrorDto>,
+    /// What the user should know about the send; present on a network error too.
+    pub warnings: Vec<Warning>,
+}
+
+/// A response as the response panel shows it; the body itself is fetched by `body.id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseDto {
+    /// Status code.
+    pub status: u16,
+    /// Standard reason phrase of the status code; empty for a non-standard code.
+    pub status_text: String,
+    /// Protocol version of the response, e.g. `HTTP/1.1`.
+    pub http_version: String,
+    /// Response headers as received, in their order.
+    pub headers: Vec<(String, String)>,
+    /// Cookies the response set.
+    pub cookies: Vec<CookieDto>,
+    /// Redirects that were followed before this response.
+    pub redirects: Vec<RedirectDto>,
+    /// Milliseconds until the response headers arrived.
+    pub ttfb_ms: f64,
+    /// Milliseconds until the whole body was received and stored.
+    pub total_ms: f64,
+    /// Size of the body as received, before decoding.
+    pub wire_size: u64,
+    /// Size of the decoded body.
+    pub decoded_size: u64,
+    /// `Some` when the body could not be decoded; the body is then shown as received.
+    pub decode_error: Option<String>,
+    /// The last request actually sent, automatic headers included.
+    pub sent: SentDto,
+    /// Handle of the stored body.
+    pub body: BodyInfo,
+}
+
+/// A cookie set by the response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CookieDto {
+    /// Name of the cookie.
+    pub name: String,
+    /// Value as received.
+    pub value: String,
+    /// Host the cookie belongs to; a leading dot means subdomains too.
+    pub domain: String,
+    /// Path the cookie is sent to.
+    pub path: String,
+    /// Expiry as Unix seconds; `None` for a session cookie.
+    pub expires_unix: Option<i64>,
+    /// `Secure` attribute.
+    pub secure: bool,
+    /// `HttpOnly` attribute.
+    pub http_only: bool,
+}
+
+impl From<rqm_http::Cookie> for CookieDto {
+    fn from(cookie: rqm_http::Cookie) -> Self {
+        CookieDto {
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            expires_unix: cookie.expires_unix,
+            secure: cookie.secure,
+            http_only: cookie.http_only,
+        }
+    }
+}
+
+/// One redirect response that was followed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedirectDto {
+    /// Status of the redirect response.
+    pub status: u16,
+    /// Method of the request that got the redirect.
+    pub method: String,
+    /// URL of the request that got the redirect.
+    pub url: String,
+    /// `Location` header of the redirect response, as received.
+    pub location: String,
+}
+
+impl From<rqm_http::RedirectHop> for RedirectDto {
+    fn from(hop: rqm_http::RedirectHop) -> Self {
+        RedirectDto { status: hop.status, method: hop.method, url: hop.url, location: hop.location }
+    }
+}
+
+/// What was put on the wire for the last request of a send.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SentDto {
+    /// Method as sent.
+    pub method: String,
+    /// URL as sent.
+    pub url: String,
+    /// Automatic headers, then the user's headers.
+    pub headers: Vec<(String, String)>,
+}
+
+/// Handle of a response body kept on disk until `release_body`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BodyInfo {
+    /// Id for `response_body` and `release_body`.
+    pub id: String,
+    /// Size of the body file in bytes.
+    pub total: u64,
+    /// `true` when the body is too large to show whole: `response_body` returns only its beginning.
+    pub truncated: bool,
+    /// `true` when the body is valid JSON that `response_body` can return re-indented.
+    pub json: bool,
+}
+
+/// Why a send produced no response, as the window tells the cases apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendErrorKind {
+    /// The user cancelled the send.
+    Cancelled,
+    /// The time limit ran out.
+    Timeout,
+    /// The address cannot be used.
+    InvalidUrl,
+    /// No connection: DNS, refused, unreachable, proxy.
+    Connect,
+    /// TLS handshake or certificate failure.
+    Tls,
+    /// More redirects than allowed.
+    TooManyRedirects,
+    /// A local file could not be read or written.
+    Io,
+    /// The body refers to files that were not picked on this computer; `fields` names them.
+    UnconfirmedFiles,
+    /// Anything else.
+    Other,
+}
+
+/// Why a send produced no response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendErrorDto {
+    /// Which case it is.
+    pub kind: SendErrorKind,
+    /// Text of the core's error.
+    pub message: String,
+    /// `unconfirmed_files` only: names of the form fields (`binary` for a binary body); empty otherwise.
+    pub fields: Vec<String>,
+}
+
+/// Kind of a send warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WarningKind {
+    /// Scripts exist but were not run; `items` are the names of the nodes that have one.
+    ScriptsNotExecuted,
+    /// The authorization type is not applied; `items` holds the Postman type.
+    UnsupportedAuth,
+    /// The body was not sent because of the method; `items` holds the method.
+    BodyPruned,
+    /// Variables that were not found; `items` are their names.
+    UnresolvedVariables,
+}
+
+/// Something the user should know about a send; never blocks it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Warning {
+    /// What the warning is about.
+    pub kind: WarningKind,
+    /// Depends on `kind`, see [`WarningKind`].
+    pub items: Vec<String>,
+}

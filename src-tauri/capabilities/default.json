@@ -11,6 +11,10 @@
     "allow-import-globals",
     "allow-environments",
     "allow-active-environment",
-    "allow-set-active-environment"
+    "allow-set-active-environment",
+    "allow-send-request",
+    "allow-cancel-send",
+    "allow-response-body",
+    "allow-release-body"
   ]
 }

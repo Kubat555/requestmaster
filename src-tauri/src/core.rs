@@ -8,6 +8,7 @@ use rqm_postman::{Detected, ImportError, MergePolicy};
 use rqm_store::Store;
 
 use crate::dto::{EnvSummary, ImportFile, ImportKind, ImportResult, NodeDto, TreeRow};
+use crate::send::SendState;
 
 /// Key of `app_state` holding the id of the active environment as JSON: a string, or `null` when none is chosen.
 pub const ACTIVE_ENVIRONMENT_KEY: &str = "active_environment";
@@ -25,13 +26,13 @@ pub struct CoreConfig {
 pub struct AppCore {
     /// The database. Locked for the time of one operation.
     store: Mutex<Store>,
-    /// Emptied folder for the files of response bodies.
-    #[expect(dead_code, reason = "read by the send scenario, which the next task of the stage 1B plan adds")]
-    bodies_dir: PathBuf,
+    /// The engine, the cookies, the sends in flight and the stored response bodies (see `send.rs`).
+    pub(crate) send: SendState,
 }
 
 impl AppCore {
-    /// Opens the database and empties the folder of response bodies.
+    /// Opens the database, empties the folder of response bodies and creates the HTTP engine with the
+    /// cookies kept in the database.
     pub fn new(config: CoreConfig) -> Result<Self, String> {
         let store = match &config.db_path {
             Some(path) => Store::open(path),
@@ -45,7 +46,8 @@ impl AppCore {
         }
         std::fs::create_dir_all(&config.bodies_dir)
             .map_err(|error| format!("cannot create the response bodies folder: {error}"))?;
-        Ok(AppCore { store: Mutex::new(store), bodies_dir: config.bodies_dir })
+        let send = SendState::new(&store, config.bodies_dir)?;
+        Ok(AppCore { store: Mutex::new(store), send })
     }
 
     /// All nodes without content, ordered by (parent, position).
@@ -116,17 +118,7 @@ impl AppCore {
 
     /// Id of the active environment; `None` when none is chosen or the chosen one no longer exists.
     pub fn active_environment(&self) -> Result<Option<String>, String> {
-        let store = self.store()?;
-        let Some(value) = store.state_get(ACTIVE_ENVIRONMENT_KEY).map_err(message)? else {
-            return Ok(None);
-        };
-        let Some(id) = serde_json::from_str::<Option<String>>(&value)
-            .map_err(|error| format!("stored active environment cannot be read: {error}"))?
-        else {
-            return Ok(None);
-        };
-        let exists = store.environments().map_err(message)?.iter().any(|environment| environment.id == id);
-        Ok(exists.then_some(id))
+        active_environment_in(&*self.store()?)
     }
 
     /// Chooses the active environment; `None` clears the choice. An id that is not an environment is an error.
@@ -142,7 +134,7 @@ impl AppCore {
     }
 
     /// The store, locked until the guard is dropped.
-    fn store(&self) -> Result<MutexGuard<'_, Store>, String> {
+    pub(crate) fn store(&self) -> Result<MutexGuard<'_, Store>, String> {
         self.store.lock().map_err(|_| "storage is unavailable".to_string())
     }
 
@@ -184,8 +176,22 @@ impl AppCore {
     }
 }
 
+/// Id of the active environment of `store`; `None` when none is chosen or the chosen one no longer exists.
+pub(crate) fn active_environment_in(store: &Store) -> Result<Option<String>, String> {
+    let Some(value) = store.state_get(ACTIVE_ENVIRONMENT_KEY).map_err(message)? else {
+        return Ok(None);
+    };
+    let Some(id) = serde_json::from_str::<Option<String>>(&value)
+        .map_err(|error| format!("stored active environment cannot be read: {error}"))?
+    else {
+        return Ok(None);
+    };
+    let exists = store.environments().map_err(message)?.iter().any(|environment| environment.id == id);
+    Ok(exists.then_some(id))
+}
+
 /// Message of an error for the window.
-fn message(error: impl std::fmt::Display) -> String {
+pub(crate) fn message(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 

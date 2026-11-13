@@ -5,6 +5,7 @@
 pub mod commands;
 pub mod core;
 pub mod dto;
+mod send;
 
 pub use crate::core::{AppCore, CoreConfig, ACTIVE_ENVIRONMENT_KEY};
 
@@ -20,4 +21,8 @@ pub const COMMANDS: &[&str] = &[
     "environments",
     "active_environment",
     "set_active_environment",
+    "send_request",
+    "cancel_send",
+    "response_body",
+    "release_body",
 ];

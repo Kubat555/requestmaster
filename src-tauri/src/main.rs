@@ -23,6 +23,10 @@ fn main() {
                 commands::environments,
                 commands::active_environment,
                 commands::set_active_environment,
+                commands::send_request,
+                commands::cancel_send,
+                commands::response_body,
+                commands::release_body,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())
