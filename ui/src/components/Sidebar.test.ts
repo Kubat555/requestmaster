@@ -288,4 +288,65 @@ describe("Sidebar", () => {
     await fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("keeps Tab inside the dialog", async () => {
+    const { api, fileInput } = await renderSidebar();
+    answerImport(api, [result({ file_name: "globals.json", kind: "globals", conflicts: ["token"] })]);
+
+    await fireEvent.change(fileInput, { target: { files: [jsonFile("globals.json", "{}")] } });
+    const dialog = await screen.findByRole("dialog", { name: strings.import.conflictsTitle });
+    const buttons = within(dialog).getAllByRole("button");
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    expect(buttons.length).toBeGreaterThan(1);
+
+    last.focus();
+    const tab = createEvent.keyDown(last, { key: "Tab" });
+    await fireEvent(last, tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+
+    const shiftTab = createEvent.keyDown(first, { key: "Tab", shiftKey: true });
+    await fireEvent(first, shiftTab);
+    expect(shiftTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+  });
+
+  it("keeps the focus trap and Escape working after a press on the backdrop", async () => {
+    const { api, fileInput } = await renderSidebar();
+    answerImport(api, [result({ file_name: "globals.json", kind: "globals", conflicts: ["token"] })]);
+
+    await fireEvent.change(fileInput, { target: { files: [jsonFile("globals.json", "{}")] } });
+    const dialog = await screen.findByRole("dialog", { name: strings.import.conflictsTitle });
+    const buttons = within(dialog).getAllByRole("button");
+    const backdrop = dialog.parentElement!;
+
+    // The press itself does not move the focus...
+    const mousedown = createEvent.mouseDown(backdrop);
+    await fireEvent(backdrop, mousedown);
+    expect(mousedown.defaultPrevented).toBe(true);
+    // ...while a press inside the dialog is left alone.
+    const inside = createEvent.mouseDown(dialog);
+    await fireEvent(dialog, inside);
+    expect(inside.defaultPrevented).toBe(false);
+
+    // ...and even when the focus does get out, the keys still belong to the dialog.
+    (document.activeElement as HTMLElement).blur();
+    expect(dialog.contains(document.activeElement)).toBe(false);
+
+    const tab = createEvent.keyDown(document.body, { key: "Tab" });
+    await fireEvent(document.body, tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[0]);
+
+    (document.activeElement as HTMLElement).blur();
+    const shiftTab = createEvent.keyDown(document.body, { key: "Tab", shiftKey: true });
+    await fireEvent(document.body, shiftTab);
+    expect(document.activeElement).toBe(buttons[buttons.length - 1]);
+
+    (document.activeElement as HTMLElement).blur();
+    await fireEvent.keyDown(document.body, { key: "Escape" });
+    await screen.findByRole("dialog", { name: strings.import.reportTitle });
+    expect(screen.queryByRole("dialog", { name: strings.import.conflictsTitle })).toBeNull();
+  });
 });
