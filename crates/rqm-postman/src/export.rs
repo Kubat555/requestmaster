@@ -15,7 +15,7 @@ use serde_json::{json, Map, Value};
 
 use crate::import::{
     flag, imported_files, parse_auth, parse_body, parse_headers, parse_request_settings,
-    parse_scripts, parse_url, parse_variables, str_of, text_of, VariableStyle,
+    parse_scripts, parse_url, parse_variables, query_from_text, split_query, str_of, text_of, VariableStyle,
 };
 
 type Obj = Map<String, Value>;
@@ -364,14 +364,21 @@ fn write_url(fields: &mut Obj, request: &RequestContent) {
 /// `hash` after `#`, `protocol` before `://`, the host up to the first `/` (digits after its last
 /// `:` are the port, the rest is cut by `.`), the remainder cut by `/` into `path`.
 /// Unknown keys of the source `url` object are kept.
+///
+/// The address of the model has no query, but the window lets the user type one into the address
+/// field. Such a query is cut out and read the way the importer reads query text; its pairs go
+/// first in `query`, before the rows of the model.
 fn url_value(source: Option<&Value>, request: &RequestContent) -> Value {
-    let (address, hash) = match request.url.split_once('#') {
+    let (address, typed_query) = split_query(&request.url);
+    let (address, hash) = match address.split_once('#') {
         Some((address, hash)) => (address, Some(hash)),
-        None => (request.url.as_str(), None),
+        None => (address.as_str(), None),
     };
+    let mut query = query_from_text(typed_query);
+    query.extend(request.query.iter().cloned());
     let mut raw = address.to_string();
     let enabled: Vec<String> =
-        request.query.iter().filter(|p| p.enabled).map(|p| format!("{}={}", p.key, p.value)).collect();
+        query.iter().filter(|p| p.enabled).map(|p| format!("{}={}", p.key, p.value)).collect();
     if !enabled.is_empty() {
         raw.push('?');
         raw.push_str(&enabled.join("&"));
@@ -408,8 +415,8 @@ fn url_value(source: Option<&Value>, request: &RequestContent) -> Value {
     if let Some(path) = path {
         url.insert("path".to_string(), cut(path, '/'));
     }
-    if !request.query.is_empty() {
-        url.insert("query".to_string(), params_value(&request.query));
+    if !query.is_empty() {
+        url.insert("query".to_string(), params_value(&query));
     }
     if !request.path_variables.is_empty() {
         url.insert("variable".to_string(), params_value(&request.path_variables));

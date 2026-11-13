@@ -96,7 +96,11 @@ impl AppCore {
         match outcome.result {
             Ok(response) => {
                 let body_path = response.body_path.clone();
-                match cookies_saved.and_then(|()| self.response_dto(response)) {
+                // A failure to save the cookies is ignored here: the server has already executed the
+                // request, and losing its response would be worse. The cookies stay in the in-memory jar
+                // and are saved after the next send.
+                let _ = cookies_saved;
+                match self.response_dto(response) {
                     Ok(response) => Ok(SendResult { response: Some(response), error: None, warnings }),
                     Err(error) => {
                         // Nobody will ever ask for this body. A file that cannot be deleted now goes when

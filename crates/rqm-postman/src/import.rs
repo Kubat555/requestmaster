@@ -295,7 +295,7 @@ fn joined(value: Option<&Value>, separator: &str) -> String {
 
 /// Cuts the query out of an address: the part from `?` up to `#` (or to the end).
 /// Returns the address without it (the fragment stays) and the query text without `?`.
-fn split_query(address: &str) -> (String, Option<&str>) {
+pub(crate) fn split_query(address: &str) -> (String, Option<&str>) {
     let fragment_at = address.find('#').unwrap_or(address.len());
     let (before, fragment) = address.split_at(fragment_at);
     match before.split_once('?') {
@@ -305,7 +305,7 @@ fn split_query(address: &str) -> (String, Option<&str>) {
 }
 
 /// Splits query text by `&` and the first `=`; nothing is percent-decoded.
-fn query_from_text(text: Option<&str>) -> Vec<Param> {
+pub(crate) fn query_from_text(text: Option<&str>) -> Vec<Param> {
     text.unwrap_or_default()
         .split('&')
         .filter(|pair| !pair.is_empty())

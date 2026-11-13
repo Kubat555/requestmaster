@@ -100,6 +100,28 @@ fn item<'a>(v: &'a serde_json::Value, path: &[&str]) -> &'a serde_json::Value {
     assert_eq!((&url["host"], &url["port"], &url["path"], &url["hash"]),
         (&serde_json::json!(["{{base}}"]), &serde_json::json!("8080"), &serde_json::json!(["a", "b"]), &serde_json::json!("frag")));
 }
+#[test] fn query_typed_into_the_address_is_exported_as_query() {
+    for (typed, raw, hash) in [("https://h.test/api?id=5", "https://h.test/api?id=5&b=2", None),
+                               ("https://h.test/api?id=5#frag", "https://h.test/api?id=5&b=2#frag", Some("frag"))] {
+        let mut nodes = import_collection(&load("collection_small.json")).unwrap().nodes;
+        let r = req_mut(&mut nodes, "R5");
+        r.url = typed.into();
+        r.query = vec![Param { key: "b".into(), value: "2".into(), enabled: true, postman_extra: Extra::new() }];
+        let out = export_collection(&nodes).unwrap();
+        let url = &item(&out, &["R5"])["request"]["url"];
+        assert_eq!(url["raw"], raw);
+        assert_eq!(url["path"], serde_json::json!(["api"]));
+        let pairs: Vec<_> = url["query"].as_array().unwrap().iter().map(|q| (q["key"].as_str().unwrap(), q["value"].as_str().unwrap())).collect();
+        assert_eq!(pairs, vec![("id", "5"), ("b", "2")]);
+        assert_eq!(url.get("hash").and_then(|h| h.as_str()), hash);
+        // and it imports back with the query out of the address
+        let mut back = import_collection(&out).unwrap().nodes;
+        let b = req_mut(&mut back, "R5");
+        assert_eq!(b.url, typed.replace("?id=5", ""));
+        let pairs: Vec<_> = b.query.iter().map(|q| (q.key.as_str(), q.value.as_str(), q.enabled)).collect();
+        assert_eq!(pairs, vec![("id", "5", true), ("b", "2", true)]);
+    }
+}
 #[test] fn editing_one_environment_variable_keeps_the_others() {
     let src = load("environment.json");
     let mut e = import_environment(&src).unwrap();

@@ -161,12 +161,6 @@ export interface CollectionDraft extends CollectionContent {
   variables: VariableRow[];
 }
 
-/** Content of a folder after {@link normalizeContent}. */
-export interface FolderDraft extends FolderContent {
-  /** `null` = inherit from the parent. */
-  auth: Auth | null;
-}
-
 function paramRow(param: Param): ParamRow {
   return { ...param, enabled: param.enabled ?? true, postman_extra: param.postman_extra ?? {} };
 }
@@ -194,8 +188,10 @@ function draftBody(body: Body | undefined): DraftBody {
  */
 export function normalizeContent(kind: "request", content: RequestContent): RequestDraft;
 export function normalizeContent(kind: "collection", content: CollectionContent): CollectionDraft;
-export function normalizeContent(kind: "folder", content: FolderContent): FolderDraft;
-export function normalizeContent(kind: NodeKind, content: NodeContent): RequestDraft | CollectionDraft | FolderDraft {
+export function normalizeContent(
+  kind: "request" | "collection",
+  content: RequestContent | CollectionContent,
+): RequestDraft | CollectionDraft {
   switch (kind) {
     case "request": {
       const request = content as RequestContent;
@@ -222,8 +218,6 @@ export function normalizeContent(kind: NodeKind, content: NodeContent): RequestD
         })),
       };
     }
-    case "folder":
-      return { ...(content as FolderContent), auth: content.auth ?? null };
   }
 }
 
