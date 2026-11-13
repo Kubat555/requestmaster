@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import AuthEditor from "./AuthEditor.svelte";
   import BodyEditor from "./BodyEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
   import UrlBar from "./UrlBar.svelte";
+  import type { Api } from "../lib/api";
+  import { canSend } from "../lib/sending.svelte";
   import { strings } from "../lib/strings";
   import type { Tab } from "../lib/tabs.svelte";
   import type { ParamRow, RequestDraft } from "../lib/types";
@@ -13,6 +16,8 @@
   }
 
   let { tab }: Props = $props();
+
+  const api = getContext<Api>("api");
 
   type Section = "params" | "headers" | "body" | "auth";
   const SECTIONS: Section[] = ["params", "headers", "body", "auth"];
@@ -49,7 +54,15 @@
 </script>
 
 <div class="request-editor">
-  <UrlBar bind:method={tab.draft.method} bind:url={tab.draft.url} />
+  <!-- What is sent is the draft: saving first is not needed. -->
+  <UrlBar
+    bind:method={tab.draft.method}
+    bind:url={tab.draft.url}
+    sending={tab.sending.state === "sending"}
+    canSend={canSend(tab)}
+    onsend={() => void tab.sending.send(api, tab)}
+    oncancel={() => tab.sending.cancel(api)}
+  />
 
   <div class="sections" role="tablist" aria-label={strings.editor.sections}>
     {#each SECTIONS as name (name)}

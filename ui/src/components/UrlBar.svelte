@@ -6,9 +6,15 @@
     method: string;
     /** Address of the request without the query part. */
     url: string;
+    /** A send is running: the button stops it instead of starting one. */
+    sending: boolean;
+    /** Whether a send may be started. */
+    canSend: boolean;
+    onsend: () => void;
+    oncancel: () => void;
   }
 
-  let { method = $bindable(), url = $bindable() }: Props = $props();
+  let { method = $bindable(), url = $bindable(), sending, canSend, onsend, oncancel }: Props = $props();
 
   /** Methods of the list; any other one is typed as text. */
   const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -46,8 +52,19 @@
     spellcheck="false"
     bind:value={url}
   />
-  <!-- Not wired yet: sending comes with the response panel. -->
-  <button type="button" class="send" disabled>{strings.editor.send}</button>
+  <!-- One button for both actions, so that the focus stays on it; the two texts lie on top of each other
+       and only the one of the current action is visible. -->
+  <button
+    type="button"
+    class="send"
+    class:sending
+    disabled={!sending && !canSend}
+    aria-label={sending ? strings.editor.cancel : strings.editor.send}
+    onclick={sending ? oncancel : onsend}
+  >
+    <span class="text" class:shown={!sending} aria-hidden="true">{strings.editor.send}</span>
+    <span class="text" class:shown={sending} aria-hidden="true">{strings.editor.cancel}</span>
+  </button>
 </div>
 
 <style>
@@ -93,16 +110,40 @@
 
   .send {
     flex: none;
+    display: inline-grid;
+    place-items: center;
     padding: 0 calc(var(--space) * 4);
     background: var(--accent);
     border-color: var(--accent);
     color: var(--accent-contrast);
     font-weight: 600;
+    cursor: pointer;
+  }
+
+  .send.sending {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .text {
+    grid-area: 1 / 1;
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity var(--dur-3) var(--ease),
+      transform var(--dur-3) var(--ease);
+  }
+
+  .text.shown {
+    opacity: 1;
+    transform: none;
   }
 
   .send:disabled {
     background: var(--surface-2);
     border-color: var(--border);
     color: var(--text-muted);
+    cursor: default;
   }
 </style>

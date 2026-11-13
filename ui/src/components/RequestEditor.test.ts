@@ -73,8 +73,7 @@ describe("RequestEditor", () => {
     expect(urlInput().value).toBe("https://api.test/users");
     expect(tab.getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
-    // Send is wired by a later task.
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: strings.editor.send }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: strings.editor.send }).disabled).toBe(false);
   });
 
   it("marks the tab when the URL is edited", async () => {

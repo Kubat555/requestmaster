@@ -2,6 +2,7 @@
 // the user edits.
 
 import type { Api } from "./api";
+import { Sending } from "./sending.svelte";
 import { toasts } from "./toasts.svelte";
 import { normalizeContent, type CollectionDraft, type NodeDto, type RequestDraft } from "./types";
 import { workspace } from "./workspace.svelte";
@@ -37,6 +38,8 @@ export class Tab<C extends TabContent = TabContent> {
   draft: C;
   /** Whether `draft` differs from `saved`. */
   readonly dirty: boolean;
+  /** The send of the request and its result; a collection tab never sends. */
+  readonly sending = new Sending();
 
   /** `content` is the normalized content of the node; the tab keeps copies of it. */
   constructor(node: { id: string; kind: "request" | "collection"; name: string }, content: C) {
@@ -123,12 +126,14 @@ export class Tabs {
   }
 
   /**
-   * Removes the tab with whatever its draft holds; asking about unsaved edits is the caller's job. When the
-   * shown tab is closed, the one that takes its place is shown, or the previous one after the last.
+   * Removes the tab with whatever its draft holds; asking about unsaved edits is the caller's job. Its
+   * running send is stopped and the stored body of its response is released. When the shown tab is closed,
+   * the one that takes its place is shown, or the previous one after the last.
    */
   close(tabId: string): void {
     const index = this.list.findIndex((tab) => tab.id === tabId);
     if (index < 0) return;
+    this.list[index].sending.dispose();
     this.list.splice(index, 1);
     if (this.#activeId === tabId) this.#activeId = (this.list[index] ?? this.list[index - 1])?.id ?? null;
   }

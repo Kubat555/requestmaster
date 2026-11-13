@@ -9,11 +9,14 @@ export interface HotkeyActions {
   closeTab(): void;
   /** Ctrl+L: move the focus to the URL field. */
   focusUrl(): void;
+  /** Ctrl+Enter: send the request of the shown tab. */
+  send(): void;
 }
 
 /**
- * The Latin letter of the pressed key in lower case. Taken from the physical key, so that a combination works
- * on any keyboard layout (on the Russian one Ctrl+S arrives with the key "ы").
+ * The pressed key in lower case: the Latin letter of a letter key, the name of any other one ("enter"). The
+ * letter is taken from the physical key, so that a combination works on any keyboard layout (on the Russian
+ * one Ctrl+S arrives with the key "ы").
  */
 function letter(event: KeyboardEvent): string {
   return (event.code.startsWith("Key") ? event.code.slice(3) : event.key).toLowerCase();
@@ -25,17 +28,19 @@ function letter(event: KeyboardEvent): string {
  * combinations do nothing: the window behind the dialog must not change.
  */
 export function installHotkeys(actions: HotkeyActions): () => void {
-  const byLetter: Record<string, () => void> = {
+  const byKey: Record<string, () => void> = {
     s: actions.save,
     w: actions.closeTab,
     l: actions.focusUrl,
+    // Caught here, or the code editor would first put an empty line into the body.
+    enter: actions.send,
   };
 
   function handler(event: KeyboardEvent) {
     // F5 and Ctrl+R (with Shift too) reload the page of the webview, which would drop every unsaved draft.
     const reload = event.key === "F5" || (event.ctrlKey && !event.altKey && letter(event) === "r");
     // AltGr arrives as Ctrl+Alt and types a character, so Alt rules a combination out.
-    const action = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey ? byLetter[letter(event)] : undefined;
+    const action = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey ? byKey[letter(event)] : undefined;
     if (!reload && !action) return;
 
     event.preventDefault();

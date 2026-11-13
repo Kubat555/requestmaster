@@ -4,12 +4,14 @@
   import Dialog from "./components/Dialog.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
+  import ResponsePanel from "./components/ResponsePanel.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Splitter from "./components/Splitter.svelte";
   import TabBar from "./components/TabBar.svelte";
   import Toasts from "./components/Toasts.svelte";
   import type { Api } from "./lib/api";
   import { installHotkeys } from "./lib/hotkeys";
+  import { canSend } from "./lib/sending.svelte";
   import { strings } from "./lib/strings";
   import { tabs, type Tab } from "./lib/tabs.svelte";
   import type { CollectionDraft, RequestDraft } from "./lib/types";
@@ -46,6 +48,13 @@
     input?.select();
   }
 
+  /** Sends the request of the shown tab; nothing happens while its send is running. */
+  function sendActive() {
+    if (tabs.active?.kind !== "request") return;
+    const tab = tabs.active as Tab<RequestDraft>;
+    if (canSend(tab)) void tab.sending.send(api, tab);
+  }
+
   onMount(() => {
     workspace.onOpen = (id) => void tabs.open(api, id);
     void workspace.load(api);
@@ -55,6 +64,7 @@
         if (tabs.active) requestClose(tabs.active);
       },
       focusUrl,
+      send: sendActive,
     });
   });
 </script>
@@ -93,7 +103,17 @@
         {/each}
       </section>
       <section class="response" aria-label={strings.response.label}>
-        <p class="placeholder">{strings.response.placeholder}</p>
+        {#if tabs.list.length === 0}
+          <p class="placeholder">{strings.response.placeholder}</p>
+        {/if}
+        <!-- Kept for every request tab, like the editors: the response of a tab that is not shown stays. -->
+        {#each tabs.list as tab (tab.id)}
+          {#if tab.kind === "request"}
+            <div class="tab-panel" hidden={tabs.active !== tab}>
+              <ResponsePanel sending={tab.sending} />
+            </div>
+          {/if}
+        {/each}
       </section>
     </div>
   </main>

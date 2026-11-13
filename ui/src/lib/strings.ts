@@ -1,4 +1,5 @@
-// Every text of the interface. Keys are English; components contain no Russian strings.
+// Every text of the interface. Keys are English; components contain no Russian strings. A text with a value
+// inside is a function of that value.
 
 export const strings = {
   units: {
@@ -59,6 +60,7 @@ export const strings = {
     url: "URL",
     urlPlaceholder: "Адрес запроса",
     send: "Send",
+    cancel: "Cancel",
     sections: "Разделы запроса",
     params: "Params",
     headers: "Headers",
@@ -136,6 +138,53 @@ export const strings = {
   response: {
     label: "Ответ",
     placeholder: "Здесь появится ответ",
+    empty: "Нажмите Send, чтобы получить ответ",
+    sending: "Запрос отправляется…",
+    sections: "Разделы ответа",
+    body: "Body",
+    headers: "Headers",
+    cookies: "Cookies",
+    view: "Вид тела",
+    pretty: "Pretty",
+    raw: "Raw",
+    bodyText: "Тело ответа",
+    noBody: "Ответ без тела",
+    truncated: (total: string) => `Показаны первые 256 КБ из ${total}`,
+    decodeError: "Не удалось распаковать ответ: показано как получено",
+    ttfb: (time: string) => `до первого байта: ${time}`,
+    wireSize: (size: string) => `по сети: ${size}`,
+    redirects: (count: number) => `редиректов: ${count}`,
+    redirectList: "Переходы",
+    noHeaders: "Заголовков нет",
+    noCookies: "Cookies нет",
+    name: "Имя",
+    value: "Значение",
+    domain: "Domain",
+    path: "Path",
+    expires: "Expires",
+    secure: "Secure",
+    httpOnly: "HttpOnly",
+    session: "сессия",
+    yes: "да",
+    no: "нет",
+    errors: {
+      cancelled: "Запрос отменён",
+      timeout: "Сервер не ответил вовремя",
+      connect: "Не удалось подключиться",
+      tls: "Ошибка сертификата",
+      invalid_url: "Неверный адрес",
+      too_many_redirects: "Слишком много редиректов",
+      unconfirmed_files: "Файлы нужно выбрать заново",
+      io: "Ошибка отправки",
+      other: "Ошибка отправки",
+    },
+    warnings: {
+      scripts_not_executed: (nodes: string[]) =>
+        `Скрипты не выполнены: ${nodes.join(", ")}. Выполнение скриптов появится на следующем этапе`,
+      unresolved_variables: (names: string[]) => `Не найдены переменные: ${names.join(", ")}`,
+      body_pruned: (methods: string[]) => `Тело не отправлено: метод ${methods.join(", ")} его не передаёт`,
+      unsupported_auth: (types: string[]) => `Авторизация ${types.join(", ")} не поддерживается, запрос отправлен без неё`,
+    },
   },
   toasts: {
     label: "Уведомления",
