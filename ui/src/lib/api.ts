@@ -58,6 +58,13 @@ export interface Api {
   createEnvironment(name: string): Promise<string>;
   /** Deletes the environment; the active one stops being active. The globals cannot be deleted. */
   deleteEnvironment(id: string): Promise<void>;
+  /**
+   * Asks where to save and writes the collection as a Postman file. Resolves to the path of the file; `null` —
+   * the user closed the window that asks, and nothing was written. A node that is not a collection is rejected.
+   */
+  exportCollection(id: string): Promise<string | null>;
+  /** The same for an environment; the id `globals` — the set of global variables. */
+  exportEnvironment(id: string): Promise<string | null>;
   /** Sends the request, or its unsaved `draft`. `sendId` is made by the caller so that it can cancel. */
   sendRequest(sendId: string, requestId: string, draft: RequestContent | null): Promise<SendResult>;
   /** Stops the send; an unknown id is not an error. */
@@ -95,6 +102,8 @@ export const tauriApi: Api = {
   saveEnvironment: (id, name, variables) => invoke<void>("save_environment", { id, name, variables }),
   createEnvironment: (name) => invoke<string>("create_environment", { name }),
   deleteEnvironment: (id) => invoke<void>("delete_environment", { id }),
+  exportCollection: (id) => invoke<string | null>("export_collection", { id }),
+  exportEnvironment: (id) => invoke<string | null>("export_environment", { id }),
   sendRequest: (sendId, requestId, draft) =>
     invoke<SendResult>("send_request", { send_id: sendId, request_id: requestId, draft }),
   cancelSend: (sendId) => invoke<void>("cancel_send", { send_id: sendId }),

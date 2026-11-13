@@ -217,6 +217,18 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       environments.splice(environments.indexOf(findEnvironment(id)), 1);
       if (activeEnvironment === id) activeEnvironment = null;
     },
+    // No file is written: the path is made of the name the core gives the file, as if the user had kept it.
+    async exportCollection(id) {
+      const node = findNode(id);
+      if (node.kind !== "collection") throw "not a collection";
+      return `C:\\Exports\\${node.name}.postman_collection.json`;
+    },
+    async exportEnvironment(id) {
+      const { name } = findEnvironment(id);
+      return id === GLOBALS_ID
+        ? "C:\\Exports\\globals.postman_globals.json"
+        : `C:\\Exports\\${name}.postman_environment.json`;
+    },
     sendRequest(sendId, requestId, draft) {
       return api.onSend(sendId, requestId, draft);
     },

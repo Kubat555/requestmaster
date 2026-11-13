@@ -279,6 +279,7 @@ describe("list of environments", () => {
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent!.trim())).toEqual([
       TEXT.activate,
       TEXT.rename,
+      strings.export.item,
       TEXT.delete,
     ]);
   });

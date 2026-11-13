@@ -9,6 +9,7 @@
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import { environmentTabId, tabs } from "../lib/tabs.svelte";
+  import { toasts } from "../lib/toasts.svelte";
   import { GLOBALS_ID, type EnvSummary } from "../lib/types";
   import type { Workspace } from "../lib/workspace.svelte";
 
@@ -28,13 +29,27 @@
   let menu = $state.raw<{ environment: EnvSummary; anchor: Anchor } | null>(null);
   /** The environment the user asked to delete, until the question is answered; `null` — no question. */
   let deleting = $state.raw<EnvSummary | null>(null);
+  /**
+   * The environment (or the global variables) with secret variables the user asked to export, until the warning
+   * is answered; `null` — no warning on the screen.
+   */
+  let exporting = $state.raw<EnvSummary | null>(null);
 
-  /** The global variables first, then the environments by name. They are not an environment: no menu, no dot. */
+  /**
+   * The global variables first, then the environments by name. They are not an environment: no dot, and their
+   * menu only exports.
+   */
   const rows = $derived<EnvSummary[]>([{ id: GLOBALS_ID, name: strings.environment.globals }, ...workspace.environments]);
 
   const menuItems = $derived.by<MenuItem[]>(() => {
     if (!menu) return [];
     const { environment } = menu;
+    const exportItem: MenuItem = {
+      label: strings.export.item,
+      icon: "export",
+      onselect: () => void tick().then(() => startExport(environment)),
+    };
+    if (environment.id === GLOBALS_ID) return [exportItem];
     const active = environment.id === workspace.activeEnvironmentId;
     return [
       {
@@ -49,6 +64,7 @@
         icon: "edit",
         onselect: () => void tick().then(() => (workspace.renamingEnvironmentId = environment.id)),
       },
+      exportItem,
       {
         label: strings.environment.delete,
         icon: "trash",
@@ -66,12 +82,11 @@
   }
 
   /**
-   * Shows the menu of the row; the global variables have none. A second request for the menu that is already
-   * shown closes it when it comes from the same button, and is ignored otherwise: the key that opens the menu
-   * may be followed by a `contextmenu` event of its own.
+   * Shows the menu of the row. A second request for the menu that is already shown closes it when it comes
+   * from the same button, and is ignored otherwise: the key that opens the menu may be followed by a
+   * `contextmenu` event of its own.
    */
   function openMenu(environment: EnvSummary, anchor: Anchor) {
-    if (environment.id === GLOBALS_ID) return;
     if (menu?.environment.id === environment.id) {
       if (menu.anchor === anchor) menu = null;
       return;
@@ -84,14 +99,19 @@
     openMenu(environment, { x: event.clientX, y: event.clientY });
   }
 
-  /** The keys of a row: what its menu does, without the menu. The global variables are only opened. */
+  /**
+   * The keys of a row: what its menu does, without the menu. The global variables are neither renamed nor
+   * deleted.
+   */
   function onKeydown(event: KeyboardEvent, environment: EnvSummary) {
-    if (environment.id === GLOBALS_ID) return;
+    const isGlobals = environment.id === GLOBALS_ID;
     switch (event.key) {
       case "F2":
+        if (isGlobals) return;
         workspace.renamingEnvironmentId = environment.id;
         break;
       case "Delete":
+        if (isGlobals) return;
         deleting = environment;
         break;
       case "F10":
@@ -149,6 +169,45 @@
       void tab?.flush(api);
     }
   }
+
+  /**
+   * The user asked to export the environment or the global variables. The file is made of what the storage
+   * has, so the pending edit of the open tab is saved first; when that fails — already shown as a
+   * notification — nothing is exported. Secret values go to the file as they are, so the user is warned first.
+   */
+  async function startExport(environment: EnvSummary) {
+    if ((await tabs.environment(environment.id)?.flush(api)) === false) return;
+    let secrets: boolean;
+    try {
+      const { variables } = await api.getEnvironment(environment.id);
+      secrets = variables.some((variable) => variable.secret);
+    } catch (error) {
+      toasts.error(String(error));
+      return;
+    }
+    if (secrets) exporting = environment;
+    else await exportEnvironment(environment.id);
+  }
+
+  /** The user agreed to have the secret values in the file. */
+  function confirmExport() {
+    const environment = exporting;
+    exporting = null;
+    if (environment) void exportEnvironment(environment.id);
+  }
+
+  /**
+   * Writes the environment to a file the user chooses and tells where it is. Closing the window that asks
+   * where to save is not an error and is not told about; a failure is shown as a notification.
+   */
+  async function exportEnvironment(id: string) {
+    try {
+      const path = await api.exportEnvironment(id);
+      if (path !== null) toasts.info(strings.export.saved(path));
+    } catch (error) {
+      toasts.error(String(error));
+    }
+  }
 </script>
 
 <div class="toolbar">
@@ -179,21 +238,19 @@
               <span class="dot" aria-hidden="true"></span>
             {/if}
           </button>
-          {#if environment.id !== GLOBALS_ID}
-            <!-- For the pointer only, as in the tree: the keyboard opens the same menu with Shift+F10 or the
-                 menu key. A press does not take the focus from where it is. -->
-            <!-- svelte-ignore a11y_consider_explicit_label -->
-            <button
-              type="button"
-              class="more"
-              aria-hidden="true"
-              tabindex="-1"
-              onmousedown={(event) => event.preventDefault()}
-              onclick={(event) => openMenu(environment, event.currentTarget)}
-            >
-              <Icon name="more" />
-            </button>
-          {/if}
+          <!-- For the pointer only, as in the tree: the keyboard opens the same menu with Shift+F10 or the
+               menu key. A press does not take the focus from where it is. -->
+          <!-- svelte-ignore a11y_consider_explicit_label -->
+          <button
+            type="button"
+            class="more"
+            aria-hidden="true"
+            tabindex="-1"
+            onmousedown={(event) => event.preventDefault()}
+            onclick={(event) => openMenu(environment, event.currentTarget)}
+          >
+            <Icon name="more" />
+          </button>
         {/if}
       </li>
     {/each}
@@ -212,6 +269,15 @@
     <div class="dialog-actions">
       <Button class="danger" onclick={confirmDelete}>{strings.environment.delete}</Button>
       <Button onclick={() => (deleting = null)}>{strings.environment.cancel}</Button>
+    </div>
+  </Dialog>
+{/if}
+
+{#if exporting}
+  <Dialog title={strings.export.secretsTitle} onclose={() => (exporting = null)}>
+    <div class="dialog-actions">
+      <Button variant="primary" onclick={confirmExport}>{strings.export.confirm}</Button>
+      <Button onclick={() => (exporting = null)}>{strings.export.cancel}</Button>
     </div>
   </Dialog>
 {/if}

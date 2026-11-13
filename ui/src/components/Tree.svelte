@@ -7,7 +7,8 @@
   import EmptyState from "./ui/EmptyState.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
-  import { tabs } from "../lib/tabs.svelte";
+  import { tabs, type AnyTab } from "../lib/tabs.svelte";
+  import { toasts } from "../lib/toasts.svelte";
   import { buildTree, visibleRows, type TreeNode } from "../lib/tree";
   import type { Workspace } from "../lib/workspace.svelte";
 
@@ -35,6 +36,13 @@
       ? workspace.subtree(deleting.id).filter((row) => row.kind === "request").length
       : 0,
   );
+
+  /**
+   * The collection the user asked to export while its open tabs have unsaved edits, until the question is
+   * answered; `null` — no question on the screen.
+   */
+  let exporting = $state.raw<TreeNode | null>(null);
+  const exportingUnsaved = $derived(exporting ? unsavedTabs(exporting.id).length : 0);
 
   const tree = $derived(buildTree(workspace.rows));
   const rows = $derived(visibleRows(tree, workspace.expanded, workspace.filter));
@@ -121,10 +129,51 @@
         if (copyId !== null) await focusNode(copyId);
         break;
       }
+      case "export":
+        // The file is made of what the storage has, so the user decides about the edits it does not have.
+        if (unsavedTabs(node.id).length > 0) exporting = node;
+        else await exportCollection(node.id);
+        break;
       case "delete":
         deleting = node;
         break;
     }
+  }
+
+  /** The open tabs of the collection and of everything inside it that have unsaved edits. */
+  function unsavedTabs(collectionId: string): AnyTab[] {
+    const ids = new Set(workspace.subtree(collectionId).map((row) => row.id));
+    return tabs.list.filter((tab) => tab.dirty && tab.nodeId !== null && ids.has(tab.nodeId));
+  }
+
+  /**
+   * Writes the collection to a file the user chooses and tells where it is. Closing the window that asks
+   * where to save is not an error and is not told about; a failure is shown as a notification.
+   */
+  async function exportCollection(id: string) {
+    try {
+      const path = await api.exportCollection(id);
+      if (path !== null) toasts.info(strings.export.saved(path));
+    } catch (error) {
+      toasts.error(String(error));
+    }
+  }
+
+  /**
+   * The question about the unsaved edits is answered: `save` — the edited tabs are saved first, otherwise the
+   * file gets the stored version and the edits stay in their tabs. A tab that cannot be saved stops the export;
+   * its failure is already shown as a notification.
+   */
+  async function confirmExport(save: boolean) {
+    const node = exporting;
+    exporting = null;
+    if (!node) return;
+    if (save) {
+      for (const tab of unsavedTabs(node.id)) {
+        if (!(await tab.save(api))) return;
+      }
+    }
+    await exportCollection(node.id);
   }
 
   /**
@@ -246,6 +295,17 @@
     <div class="dialog-actions">
       <Button class="danger" onclick={confirmDelete}>{strings.tree.delete}</Button>
       <Button onclick={() => (deleting = null)}>{strings.tree.cancel}</Button>
+    </div>
+  </Dialog>
+{/if}
+
+{#if exporting}
+  <Dialog title={strings.export.unsavedTitle(exportingUnsaved)} onclose={() => (exporting = null)}>
+    <p class="contents">{strings.export.unsavedText}</p>
+    <div class="dialog-actions">
+      <Button variant="primary" onclick={() => confirmExport(true)}>{strings.export.saveAndExport}</Button>
+      <Button onclick={() => confirmExport(false)}>{strings.export.exportAsIs}</Button>
+      <Button onclick={() => (exporting = null)}>{strings.export.cancel}</Button>
     </div>
   </Dialog>
 {/if}

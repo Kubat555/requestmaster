@@ -88,6 +88,18 @@ export const strings = {
     secret: "Секрет",
     unsaved: "не сохранено",
   },
+  export: {
+    /** The item of the menu of a collection, of an environment and of the global variables. */
+    item: "Экспорт…",
+    saved: (path: string) => `Сохранено: ${path}`,
+    unsavedTitle: (count: number) => `В коллекции есть несохранённые изменения (вкладок: ${count})`,
+    unsavedText: "Экспортируется сохранённая версия",
+    saveAndExport: "Сохранить и экспортировать",
+    exportAsIs: "Экспортировать как есть",
+    secretsTitle: "Секретные значения попадут в файл открытым текстом",
+    confirm: "Экспортировать",
+    cancel: "Отмена",
+  },
   tabs: {
     label: "Вкладки",
     unsaved: "есть несохранённые изменения",

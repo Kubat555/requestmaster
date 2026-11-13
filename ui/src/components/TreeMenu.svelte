@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** What the menu of a row can do with its node. */
-  export type TreeAction = "new_request" | "new_folder" | "rename" | "duplicate" | "delete";
+  export type TreeAction = "new_request" | "new_folder" | "rename" | "duplicate" | "export" | "delete";
 </script>
 
 <script lang="ts">
@@ -9,7 +9,7 @@
   import type { NodeKind } from "../lib/types";
 
   interface Props {
-    /** Kind of the node the menu is for: a request has nothing to create in. */
+    /** Kind of the node the menu is for: a request has nothing to create in, and only a collection is exported. */
     kind: NodeKind;
     /** Where the menu appears: under this element, or at this point of the window (a right click). */
     anchor: HTMLElement | { x: number; y: number };
@@ -38,6 +38,7 @@
       ...create,
       item("rename", strings.tree.rename, { icon: "edit" }),
       item("duplicate", strings.tree.duplicate, { icon: "duplicate" }),
+      ...(kind === "collection" ? [item("export", strings.export.item, { icon: "export" })] : []),
       item("delete", strings.tree.delete, { icon: "trash", danger: true }),
     ];
   });

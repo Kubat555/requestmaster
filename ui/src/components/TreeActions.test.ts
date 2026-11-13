@@ -514,7 +514,9 @@ describe("the menu of a row", () => {
   it("opens with the right mouse button instead of the menu of the webview", async () => {
     const { onOpen } = await renderSidebar({}, ["col-1", "fold-users"]);
     const labels = () => within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent!.trim());
-    const containerItems = [NAMES.request, NAMES.folder, strings.tree.rename, strings.tree.duplicate, strings.tree.delete];
+    const folderItems = [NAMES.request, NAMES.folder, strings.tree.rename, strings.tree.duplicate, strings.tree.delete];
+    // Only a collection is exported.
+    const collectionItems = [...folderItems.slice(0, -1), strings.export.item, strings.tree.delete];
 
     const collection = screen.getByRole("treeitem", { name: "Demo API" });
     const event = createEvent.contextMenu(collection);
@@ -522,7 +524,7 @@ describe("the menu of a row", () => {
     const menu = await screen.findByRole("menu");
 
     expect(event.defaultPrevented).toBe(true);
-    expect(labels()).toEqual(containerItems);
+    expect(labels()).toEqual(collectionItems);
     expect(within(menu).getByRole("menuitem", { name: strings.tree.delete }).classList.contains("danger")).toBe(true);
     // The menu is not a part of the row.
     expect(menu.closest('[role="treeitem"]')).toBeNull();
@@ -530,7 +532,7 @@ describe("the menu of a row", () => {
     expect(screen.queryByRole("menu")).toBeNull();
 
     await openRowMenu(screen.getByRole("treeitem", { name: "Users" }));
-    expect(labels()).toEqual(containerItems);
+    expect(labels()).toEqual(folderItems);
     await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     await openRowMenu(screen.getByRole("treeitem", { name: "GET List users" }));
