@@ -192,8 +192,30 @@ describe("RequestEditor", () => {
     expect(tableRows(strings.editor.query)).toHaveLength(2);
   });
 
+  it("deletes a row with a real button that the keyboard reaches", async () => {
+    await openRequest();
+    const remove = within(tableRows(strings.editor.query)[0]).getByRole<HTMLButtonElement>("button", { name: strings.table.remove });
+
+    expect(remove.tagName).toBe("BUTTON");
+    expect(remove.type).toBe("button");
+    expect(remove.classList.contains("remove")).toBe(true);
+    expect(remove.tabIndex).toBe(0);
+    expect(remove.getAttribute("aria-label")).toBe(strings.table.remove);
+    // The empty row at the end has nothing to delete.
+    expect(within(tableRows(strings.editor.query)[2]).queryByRole("button")).toBeNull();
+  });
+
+  it("has no path variables block in Params when the request has none", async () => {
+    await openRequest();
+
+    expect(screen.getByRole("table", { name: strings.editor.query })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: strings.editor.pathVariables })).toBeNull();
+    expect(screen.queryByRole("heading", { name: strings.editor.pathVariables })).toBeNull();
+  });
+
   it("shows the path variables as a group of their own in Params", async () => {
     const { draft } = await openRequest({ method: "GET", url: "https://api.test/users/:id", path_variables: [{ key: "id", value: "7" }] });
+    expect(screen.getByRole("heading", { name: strings.editor.pathVariables })).toBeTruthy();
     const rows = tableRows(strings.editor.pathVariables);
 
     expect(within(rows[0]).getByRole<HTMLInputElement>("textbox", { name: strings.table.key }).value).toBe("id");
@@ -234,6 +256,47 @@ describe("RequestEditor", () => {
 
     expect(draft().body).toEqual({ mode: "raw", data: { text: '{"name":"Ann"}', language: "json" } });
     expect(editor.dataset.language).toBe("json");
+  });
+
+  it("offers Beautify only for a raw JSON body", async () => {
+    await openRequest({ method: "POST", url: "u", body: { mode: "raw", data: { text: "{}", language: "text" } } });
+    await showSection(/^Body/);
+    expect(screen.queryByRole("button", { name: strings.body.beautify })).toBeNull();
+
+    await fireEvent.change(screen.getByRole("combobox", { name: strings.body.language }), { target: { value: "json" } });
+    expect(screen.getByRole("button", { name: strings.body.beautify })).toBeTruthy();
+
+    await fireEvent.change(screen.getByRole("combobox", { name: strings.body.kind }), { target: { value: "url_encoded" } });
+    expect(screen.queryByRole("button", { name: strings.body.beautify })).toBeNull();
+  });
+
+  it("replaces the text of the body with the one the core formatted", async () => {
+    const { api, draft } = await openRequest({ method: "POST", url: "u", body: { mode: "raw", data: { text: '{"a":1}', language: "json" } } });
+    const formatJson = vi.spyOn(api, "formatJson").mockResolvedValue('{\n  "a": 1\n}');
+    await showSection(/^Body/);
+    await fireEvent.input(screen.getByRole("textbox", { name: strings.body.text }), { target: { value: '{"a":1 }' } });
+
+    await fireEvent.click(screen.getByRole("button", { name: strings.body.beautify }));
+
+    await waitFor(() => expect(draft().body).toEqual({ mode: "raw", data: { text: '{\n  "a": 1\n}', language: "json" } }));
+    expect(formatJson).toHaveBeenCalledTimes(1);
+    expect(formatJson).toHaveBeenCalledWith('{"a":1 }');
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.body.text }).value).toBe('{\n  "a": 1\n}');
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("leaves the text and explains when the body is not valid JSON", async () => {
+    const text = '{"id": {{id}}}';
+    const { api, draft } = await openRequest({ method: "POST", url: "u", body: { mode: "raw", data: { text, language: "json" } } });
+    const formatJson = vi.spyOn(api, "formatJson");
+    await showSection(/^Body/);
+
+    await fireEvent.click(screen.getByRole("button", { name: strings.body.beautify }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(strings.body.notJson);
+    expect(formatJson).toHaveBeenCalledWith(text);
+    expect(draft().body).toEqual({ mode: "raw", data: { text, language: "json" } });
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
   });
 
   it("edits the fields of an x-www-form-urlencoded body", async () => {

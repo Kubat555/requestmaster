@@ -1,5 +1,6 @@
 // The key combinations of the application. One listener on the window catches them in the capture phase, so
-// that neither the code editor nor the webview itself gets them first.
+// that neither the code editor nor the webview itself gets them first. Next to them — the guard that keeps the
+// right-click menu of the webview away from everything but text fields.
 
 /** What the combinations do. */
 export interface HotkeyActions {
@@ -50,4 +51,22 @@ export function installHotkeys(actions: HotkeyActions): () => void {
 
   window.addEventListener("keydown", handler, { capture: true });
   return () => window.removeEventListener("keydown", handler, { capture: true });
+}
+
+/** Where the menu of the webview stays: text fields and the text of the code editor need it for copy and paste. */
+const KEEPS_CONTEXT_MENU = 'input, textarea, .cm-content, [contenteditable]:not([contenteditable="false"])';
+
+/**
+ * Cancels the right-click menu of the webview everywhere except text fields, and returns the function that
+ * stops it. The menu has a "Reload" item, and a reload of the page drops every unsaved draft.
+ */
+export function installContextMenuGuard(): () => void {
+  function handler(event: MouseEvent) {
+    const target = event.target;
+    if (target instanceof Element && target.closest(KEEPS_CONTEXT_MENU) !== null) return;
+    event.preventDefault();
+  }
+
+  window.addEventListener("contextmenu", handler);
+  return () => window.removeEventListener("contextmenu", handler);
 }

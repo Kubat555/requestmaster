@@ -25,4 +25,5 @@ pub const COMMANDS: &[&str] = &[
     "cancel_send",
     "response_body",
     "release_body",
+    "format_json",
 ];

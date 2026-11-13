@@ -30,6 +30,11 @@ export interface FakeApi extends Api {
   cancelled: string[];
   /** Ids passed to `releaseBody`, in order. */
   released: string[];
+  /**
+   * The user asks to close the window: calls what was given to `onCloseRequested` and resolves to whether the
+   * window would close.
+   */
+  requestClose(): Promise<boolean>;
 }
 
 /** The default tree: one collection with two folders and three requests. */
@@ -67,6 +72,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
   const nodes = structuredClone(seed.nodes ?? defaultNodes());
   const environments = seed.environments ?? [];
   let activeEnvironment = seed.activeEnvironment ?? null;
+  const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
 
   const findNode = (id: string): NodeDto => {
     const node = nodes.find((n) => n.id === id);
@@ -131,6 +137,22 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     async releaseBody(bodyId) {
       api.released.push(bodyId);
       api.bodies.delete(bodyId);
+    },
+    async formatJson(text) {
+      // Enough for a test double; the application formats in the core, which keeps every token as written.
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        throw "not valid JSON";
+      }
+    },
+    async onCloseRequested(handler) {
+      closeHandlers.push(handler);
+      return () => void closeHandlers.splice(closeHandlers.indexOf(handler), 1);
+    },
+    async requestClose() {
+      const answers = await Promise.all(closeHandlers.map((handler) => handler()));
+      return answers.every(Boolean);
     },
   };
   return api;

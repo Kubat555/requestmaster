@@ -13,7 +13,7 @@ use rqm_http::ProxySetting;
 use rqm_model::{Environment, Node, NodeContent, RequestContent};
 use rqm_store::{Store, StoreError};
 
-pub use body_view::{body_view, BodyView, INLINE_BODY_LIMIT, TRUNCATED_PREVIEW};
+pub use body_view::{body_view, format_json, BodyView, INLINE_BODY_LIMIT, TRUNCATED_PREVIEW};
 pub use cookies_state::{load_cookies, save_cookies, COOKIE_JAR_KEY};
 pub use prepare::{prepare, PrepareError, Prepared, SendWarning};
 pub use send::{send, SendError, SendOutcome};

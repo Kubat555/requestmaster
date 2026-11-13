@@ -85,8 +85,11 @@
 
   <div class="panel scroll" role="tabpanel" id="{id}-panel-params" aria-labelledby="{id}-tab-params" hidden={section !== "params"}>
     <KeyValueTable bind:rows={tab.draft.query} label={strings.editor.query} create={newRow} />
-    <h3>{strings.editor.pathVariables}</h3>
-    <KeyValueTable bind:rows={tab.draft.path_variables} label={strings.editor.pathVariables} create={newRow} />
+    <!-- Path variables come with the request; without any the block would be an empty table. -->
+    {#if tab.draft.path_variables.length > 0}
+      <h3>{strings.editor.pathVariables}</h3>
+      <KeyValueTable bind:rows={tab.draft.path_variables} label={strings.editor.pathVariables} create={newRow} />
+    {/if}
   </div>
   {#if visited.includes("headers")}
     <div class="panel scroll" role="tabpanel" id="{id}-panel-headers" aria-labelledby="{id}-tab-headers" hidden={section !== "headers"}>

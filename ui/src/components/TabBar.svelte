@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { methodClass, methodLabel } from "../lib/format";
   import { strings } from "../lib/strings";
   import type { Tab, Tabs } from "../lib/tabs.svelte";
   import type { RequestDraft } from "../lib/types";
@@ -14,18 +15,9 @@
 
   let bar: HTMLDivElement;
 
-  /** Methods that have a colour of their own, as in the tree. */
-  const COLOURED = ["get", "post", "put", "patch", "delete"];
-  /** A longer method is cut, as in the tree. */
-  const METHOD_MAX = 6;
-
   /** Method of a request tab as its draft has it; `null` for a collection. */
   function methodOf(tab: Tab): string | null {
     return tab.kind === "request" ? (tab.draft as RequestDraft).method : null;
-  }
-
-  function methodClass(method: string): string {
-    return COLOURED.includes(method.toLowerCase()) ? `method-${method.toLowerCase()}` : "method-other";
   }
 
   /** The arrows show the neighbouring tab and move the focus to it. */
@@ -70,7 +62,7 @@
         onkeydown={(event) => onKeydown(event, index)}
       >
         {#if method !== null}
-          <span class={["method", methodClass(method)]}>{method.slice(0, METHOD_MAX)}</span>
+          <span class={["method", methodClass(method)]}>{methodLabel(method)}</span>
         {/if}
         <span class="name">{tab.name}</span>
         {#if tab.dirty}
@@ -166,29 +158,5 @@
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
-  }
-
-  .method-get {
-    color: var(--method-get);
-  }
-
-  .method-post {
-    color: var(--method-post);
-  }
-
-  .method-put {
-    color: var(--method-put);
-  }
-
-  .method-patch {
-    color: var(--method-patch);
-  }
-
-  .method-delete {
-    color: var(--method-delete);
-  }
-
-  .method-other {
-    color: var(--method-other);
   }
 </style>

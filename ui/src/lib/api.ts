@@ -2,6 +2,7 @@
 // (`getContext("api")`) and never import `tauriApi` directly, so that tests can pass an in-memory one.
 
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   EnvSummary,
   GlobalsPolicy,
@@ -40,6 +41,13 @@ export interface Api {
   responseBody(bodyId: string, pretty: boolean): Promise<Uint8Array>;
   /** Deletes the stored body; an unknown id is not an error. */
   releaseBody(bodyId: string): Promise<void>;
+  /** Re-indents JSON text; rejects when the text is not valid JSON. */
+  formatJson(text: string): Promise<string>;
+  /**
+   * Calls `handler` when the user asks to close the window; the window closes only when the handler answers
+   * `true`. Resolves to the function that stops the listening.
+   */
+  onCloseRequested(handler: () => Promise<boolean> | boolean): Promise<() => void>;
 }
 
 /** `Api` over the commands of the Tauri shell; argument keys are `snake_case`, as the commands declare. */
@@ -59,4 +67,12 @@ export const tauriApi: Api = {
   responseBody: async (bodyId, pretty) =>
     new Uint8Array(await invoke<ArrayBuffer>("response_body", { body_id: bodyId, pretty })),
   releaseBody: (bodyId) => invoke<void>("release_body", { body_id: bodyId }),
+  formatJson: (text) => invoke<string>("format_json", { text }),
+  // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself
+  // unless `preventDefault` was called; nothing has to be called afterwards. It needs the permissions
+  // `core:event:allow-listen`, `core:event:allow-unlisten` and `core:window:allow-destroy` of the capability.
+  onCloseRequested: (handler) =>
+    getCurrentWindow().onCloseRequested(async (event) => {
+      if (!(await handler())) event.preventDefault();
+    }),
 };

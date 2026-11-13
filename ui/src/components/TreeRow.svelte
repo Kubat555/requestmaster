@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { methodClass, methodLabel } from "../lib/format";
   import type { TreeNode } from "../lib/tree";
 
   interface Props {
@@ -21,14 +22,8 @@
 
   let { node, depth, expanded, selected, tabbable, onactivate, ontoggle, onkeydown, onfocus }: Props = $props();
 
-  /** Methods that have a colour of their own; any other one is drawn with `--method-other`. */
-  const COLOURED = ["get", "post", "put", "patch", "delete"];
-  /** A longer method is cut so that the names of the requests stay aligned. */
-  const METHOD_MAX = 6;
-
   const isRequest = $derived(node.kind === "request");
   const method = $derived(node.method ?? "");
-  const methodClass = $derived(COLOURED.includes(method.toLowerCase()) ? `method-${method.toLowerCase()}` : "method-other");
 
   function onArrowClick(event: MouseEvent) {
     // The arrow only toggles; without this the click would also activate the row.
@@ -51,7 +46,7 @@
   {onfocus}
 >
   {#if isRequest}
-    <span class={["method", methodClass]} title={method}>{method.slice(0, METHOD_MAX)}</span>
+    <span class={["method", methodClass(method)]} title={method}>{methodLabel(method)}</span>
   {:else}
     <!-- The arrow is for the pointer only: the keyboard expands and collapses with the arrow keys. -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -108,30 +103,6 @@
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
-  }
-
-  .method-get {
-    color: var(--method-get);
-  }
-
-  .method-post {
-    color: var(--method-post);
-  }
-
-  .method-put {
-    color: var(--method-put);
-  }
-
-  .method-patch {
-    color: var(--method-patch);
-  }
-
-  .method-delete {
-    color: var(--method-delete);
-  }
-
-  .method-other {
-    color: var(--method-other);
   }
 
   .name {

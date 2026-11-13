@@ -9,6 +9,13 @@ export const strings = {
     milliseconds: "мс",
     seconds: "с",
   },
+  app: {
+    closeTitle: "Закрыть приложение?",
+    closeText: (count: number) => `Есть несохранённые изменения во вкладках: ${count}`,
+    saveAllAndClose: "Сохранить всё и закрыть",
+    closeWithoutSaving: "Закрыть без сохранения",
+    cancel: "Отмена",
+  },
   sidebar: {
     label: "Коллекции",
     resize: "Ширина боковой панели",
@@ -96,6 +103,8 @@ export const strings = {
       javascript: "JavaScript",
     },
     text: "Текст тела",
+    beautify: "Beautify",
+    notJson: "Тело не является корректным JSON. Переменные {{…}} вне кавычек мешают форматированию",
     fields: "Поля тела",
     empty: "У запроса нет тела",
     readOnly: "Редактирование появится позже",

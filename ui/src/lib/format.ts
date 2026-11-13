@@ -33,3 +33,19 @@ export function statusClass(status: number): StatusClass {
   if (status < 500) return "client";
   return "server";
 }
+
+/** Methods that have a colour of their own; any other one is drawn with `--method-other`. */
+const COLOURED_METHODS = ["get", "post", "put", "patch", "delete"];
+/** A longer method is cut so that the names next to it stay aligned. */
+const METHOD_MAX = 6;
+
+/** CSS class of an HTTP method, the same in the tree and on a tab; the rules are in `styles/base.css`. */
+export function methodClass(method: string): string {
+  const lower = method.toLowerCase();
+  return COLOURED_METHODS.includes(lower) ? `method-${lower}` : "method-other";
+}
+
+/** The method as it is shown: its first {@link METHOD_MAX} characters. */
+export function methodLabel(method: string): string {
+  return method.slice(0, METHOD_MAX);
+}

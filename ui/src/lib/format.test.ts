@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatMs, statusClass } from "./format";
+import { formatBytes, formatMs, methodClass, methodLabel, statusClass } from "./format";
 
 describe("formatBytes", () => {
   it("shows bytes, kilobytes and megabytes with a decimal comma", () => {
@@ -24,5 +24,28 @@ describe("statusClass", () => {
     expect(statusClass(302)).toBe("redirect");
     expect(statusClass(404)).toBe("client");
     expect(statusClass(503)).toBe("server");
+  });
+});
+
+describe("methodClass", () => {
+  it("gives the five coloured methods a class of their own, whatever the case", () => {
+    expect(methodClass("GET")).toBe("method-get");
+    expect(methodClass("post")).toBe("method-post");
+    expect(methodClass("Put")).toBe("method-put");
+    expect(methodClass("PATCH")).toBe("method-patch");
+    expect(methodClass("DELETE")).toBe("method-delete");
+  });
+
+  it("gives any other method the common class", () => {
+    expect(methodClass("PROPFIND")).toBe("method-other");
+    expect(methodClass("")).toBe("method-other");
+  });
+});
+
+describe("methodLabel", () => {
+  it("cuts a method longer than six characters", () => {
+    expect(methodLabel("GET")).toBe("GET");
+    expect(methodLabel("DELETE")).toBe("DELETE");
+    expect(methodLabel("PROPFIND")).toBe("PROPFI");
   });
 });

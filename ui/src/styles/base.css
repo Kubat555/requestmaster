@@ -38,3 +38,28 @@ textarea {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* Colour of an HTTP method, the same in the tree and on a tab; the class comes from `methodClass` (format.ts). */
+.method-get {
+  color: var(--method-get);
+}
+
+.method-post {
+  color: var(--method-post);
+}
+
+.method-put {
+  color: var(--method-put);
+}
+
+.method-patch {
+  color: var(--method-patch);
+}
+
+.method-delete {
+  color: var(--method-delete);
+}
+
+.method-other {
+  color: var(--method-other);
+}

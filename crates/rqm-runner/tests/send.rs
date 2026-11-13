@@ -92,3 +92,20 @@ fn settings() -> AppSettings { AppSettings { proxy: rqm_http::ProxySetting::Off,
     let f = std::fs::File::create(&edge).unwrap(); f.set_len(INLINE_BODY_LIMIT).unwrap();
     assert!(!body_view(&edge, false).unwrap().truncated);
 }
+
+/// A server may put a UTF-8 byte order mark before the JSON; Pretty must still work.
+#[test] fn body_view_skips_a_leading_bom() {
+    let dir = tempfile::tempdir().unwrap();
+    let json = dir.path().join("j"); std::fs::write(&json, b"\xEF\xBB\xBF{\"a\":1}").unwrap();
+    let v = body_view(&json, true).unwrap();
+    assert!(v.pretty && !v.truncated);
+    assert_eq!(v.bytes, b"{\n  \"a\": 1\n}", "the re-indented text has no BOM");
+    assert_eq!(v.total, 10);
+    let raw = body_view(&json, false).unwrap();
+    assert!(!raw.pretty);
+    assert_eq!(raw.bytes, b"\xEF\xBB\xBF{\"a\":1}", "the raw view is the body as stored");
+
+    let garbage = dir.path().join("g"); std::fs::write(&garbage, b"\xEF\xBB\xBFnot json").unwrap();
+    let v = body_view(&garbage, true).unwrap();
+    assert_eq!((v.bytes.as_slice(), v.pretty), (&b"\xEF\xBB\xBFnot json"[..], false));
+}

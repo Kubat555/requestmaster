@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import CodeEditor from "./CodeEditor.svelte";
   import Dialog from "./Dialog.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
+  import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
+  import { toasts } from "../lib/toasts.svelte";
   import type { DraftBody, ParamRow, RawLanguage } from "../lib/types";
 
   interface Props {
@@ -11,6 +14,8 @@
   }
 
   let { body = $bindable() }: Props = $props();
+
+  const api = getContext<Api>("api");
 
   type Mode = DraftBody["mode"];
   type RawBody = Extract<DraftBody, { mode: "raw" }>;
@@ -53,6 +58,18 @@
     pending = null;
   }
 
+  /** Re-indents the JSON text; the core does it, so that every number and key stays as written. */
+  async function beautify() {
+    if (body.mode !== "raw") return;
+    const raw = body;
+    try {
+      raw.data.text = await api.formatJson(raw.data.text);
+    } catch {
+      // Text that is not JSON stays as it is.
+      toasts.error(strings.body.notJson);
+    }
+  }
+
   function newField(): ParamRow {
     return { key: "", value: "", enabled: true, postman_extra: {} };
   }
@@ -74,6 +91,9 @@
           <option value={language}>{strings.body.languages[language]}</option>
         {/each}
       </select>
+      {#if body.data.language === "json"}
+        <button type="button" onclick={beautify}>{strings.body.beautify}</button>
+      {/if}
     {/if}
     {#if readOnly}
       <span class="note">{strings.body.readOnly}</span>
@@ -160,6 +180,19 @@
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  .bar button {
+    height: var(--row-height);
+    padding: 0 calc(var(--space) * 3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+
+  .bar button:hover {
+    border-color: var(--text-muted);
   }
 
   .code {

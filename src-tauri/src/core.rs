@@ -125,12 +125,18 @@ impl AppCore {
     pub fn set_active_environment(&self, id: Option<&str>) -> Result<(), String> {
         let mut store = self.store()?;
         if let Some(id) = id {
-            if !store.environments().map_err(message)?.iter().any(|environment| environment.id == id) {
+            if !environment_exists(&store, id)? {
                 return Err(format!("environment not found: {id}"));
             }
         }
         let value = serde_json::to_string(&id).map_err(message)?;
         store.state_set(ACTIVE_ENVIRONMENT_KEY, &value).map_err(message)
+    }
+
+    /// Re-indents the JSON text of a request body by the rules of [`rqm_runner::format_json`]: only the
+    /// whitespace between tokens changes. Text that is not valid JSON is an error.
+    pub fn format_json(&self, text: &str) -> Result<String, String> {
+        rqm_runner::format_json(text).ok_or_else(|| "not valid JSON".to_string())
     }
 
     /// The store, locked until the guard is dropped.
@@ -186,8 +192,12 @@ pub(crate) fn active_environment_in(store: &Store) -> Result<Option<String>, Str
     else {
         return Ok(None);
     };
-    let exists = store.environments().map_err(message)?.iter().any(|environment| environment.id == id);
-    Ok(exists.then_some(id))
+    Ok(environment_exists(store, &id)?.then_some(id))
+}
+
+/// Whether `store` has an environment with this id; the globals set is not one.
+fn environment_exists(store: &Store, id: &str) -> Result<bool, String> {
+    Ok(store.environments().map_err(message)?.iter().any(|environment| environment.id == id))
 }
 
 /// Message of an error for the window.

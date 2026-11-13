@@ -10,10 +10,11 @@
   import TabBar from "./components/TabBar.svelte";
   import Toasts from "./components/Toasts.svelte";
   import type { Api } from "./lib/api";
-  import { installHotkeys } from "./lib/hotkeys";
+  import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { canSend } from "./lib/sending.svelte";
   import { strings } from "./lib/strings";
   import { tabs, type Tab } from "./lib/tabs.svelte";
+  import { toasts } from "./lib/toasts.svelte";
   import type { CollectionDraft, RequestDraft } from "./lib/types";
   import { workspace } from "./lib/workspace.svelte";
 
@@ -42,6 +43,38 @@
     if (!save || (await tab.save(api))) tabs.close(tab.id);
   }
 
+  /**
+   * The question asked when the window is closed with unsaved edits: `answer` tells the window whether it may
+   * close. `null` — no question on the screen.
+   */
+  let quitting = $state.raw<{ answer: (close: boolean) => void } | null>(null);
+  const dirtyTabs = $derived(tabs.list.filter((tab) => tab.dirty));
+
+  /** The user asked to close the window. Without unsaved edits it closes at once, otherwise after the answer. */
+  function onCloseRequested(): Promise<boolean> | boolean {
+    if (dirtyTabs.length === 0) return true;
+    // The question is already on the screen: this request does not close the window, the answer will.
+    if (quitting) return false;
+    closing = null;
+    return new Promise((resolve) => (quitting = { answer: resolve }));
+  }
+
+  /**
+   * The answer to the question about closing the window. "save" writes every tab with unsaved edits; a failed
+   * save is shown as a notification (by the tab) and leaves the window open.
+   */
+  async function answerQuit(choice: "save" | "discard" | "cancel") {
+    const question = quitting;
+    quitting = null;
+    if (!question) return;
+    let close = choice !== "cancel";
+    if (choice === "save") {
+      // One after another: every save re-reads the tree. The rest is saved even when one fails.
+      for (const tab of dirtyTabs) close = (await tab.save(api)) && close;
+    }
+    question.answer(close);
+  }
+
   function focusUrl() {
     const input = document.querySelector<HTMLInputElement>("[data-tab-panel]:not([hidden]) [data-url-input]");
     input?.focus();
@@ -58,7 +91,7 @@
   onMount(() => {
     workspace.onOpen = (id) => void tabs.open(api, id);
     void workspace.load(api);
-    return installHotkeys({
+    const removeHotkeys = installHotkeys({
       save: () => void tabs.active?.save(api),
       closeTab: () => {
         if (tabs.active) requestClose(tabs.active);
@@ -66,6 +99,23 @@
       focusUrl,
       send: sendActive,
     });
+    const removeContextMenuGuard = installContextMenuGuard();
+    let unmounted = false;
+    let stopCloseListening: (() => void) | undefined;
+    api.onCloseRequested(onCloseRequested).then(
+      (stop) => {
+        if (unmounted) stop();
+        else stopCloseListening = stop;
+      },
+      // Without the listener the window closes without the question; better said than silent.
+      (error) => toasts.error(String(error)),
+    );
+    return () => {
+      unmounted = true;
+      removeHotkeys();
+      removeContextMenuGuard();
+      stopCloseListening?.();
+    };
   });
 </script>
 
@@ -125,6 +175,16 @@
       <button type="button" class="primary" onclick={() => answerClose(true)}>{strings.tabs.save}</button>
       <button type="button" onclick={() => answerClose(false)}>{strings.tabs.discard}</button>
       <button type="button" onclick={() => (closing = null)}>{strings.tabs.cancel}</button>
+    </div>
+  </Dialog>
+{/if}
+{#if quitting}
+  <Dialog title={strings.app.closeTitle} onclose={() => answerQuit("cancel")}>
+    <p class="question">{strings.app.closeText(dirtyTabs.length)}</p>
+    <div class="dialog-actions">
+      <button type="button" class="primary" onclick={() => answerQuit("save")}>{strings.app.saveAllAndClose}</button>
+      <button type="button" onclick={() => answerQuit("discard")}>{strings.app.closeWithoutSaving}</button>
+      <button type="button" onclick={() => answerQuit("cancel")}>{strings.app.cancel}</button>
     </div>
   </Dialog>
 {/if}

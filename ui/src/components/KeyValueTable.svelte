@@ -176,7 +176,17 @@
     color: var(--text);
   }
 
-  .remove:hover {
+  /* The cross is small; the button around it is a square of the row height, never under 24 x 24 px. */
+  .remove {
+    width: var(--row-height);
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    font-size: 15px;
+  }
+
+  .remove:hover,
+  .remove:focus-visible {
     color: var(--danger);
   }
 

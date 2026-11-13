@@ -15,6 +15,7 @@ fn main() {
         "cancel_send",
         "response_body",
         "release_body",
+        "format_json",
     ]));
     // A build script reports a failure by panicking; the message is tauri-build's own.
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

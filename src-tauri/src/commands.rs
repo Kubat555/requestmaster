@@ -57,6 +57,12 @@ pub async fn set_active_environment(core: State<'_, AppCore>, id: Option<String>
     core.set_active_environment(id.as_deref())
 }
 
+/// Re-indents the JSON text of a request body; text that is not valid JSON is an error.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn format_json(core: State<'_, AppCore>, text: String) -> Result<String, String> {
+    core.format_json(&text)
+}
+
 /// Sends the request, or its unsaved `draft`, and waits for the response.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn send_request(

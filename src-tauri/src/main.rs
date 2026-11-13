@@ -27,6 +27,7 @@ fn main() {
                 commands::cancel_send,
                 commands::response_body,
                 commands::release_body,
+                commands::format_json,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

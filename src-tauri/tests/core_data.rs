@@ -249,9 +249,10 @@ fn commands_are_listed_everywhere() {
         "cancel_send",
         "response_body",
         "release_body",
+        "format_json",
     ];
     assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
-    assert_eq!(COMMANDS.len(), 12);
+    assert_eq!(COMMANDS.len(), 13);
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
     let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
@@ -259,8 +260,21 @@ fn commands_are_listed_everywhere() {
         capability["permissions"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
     let allowed: BTreeSet<String> = permissions.iter().map(|p| p.to_string()).collect();
     assert_eq!(allowed.len(), permissions.len(), "a permission is listed twice");
-    let wanted: BTreeSet<String> = COMMANDS.iter().map(|name| format!("allow-{}", name.replace('_', "-"))).collect();
+    let mut wanted: BTreeSet<String> = COMMANDS.iter().map(|name| format!("allow-{}", name.replace('_', "-"))).collect();
+    // What `onCloseRequested` of the JavaScript API calls: it listens to the close request of the window and,
+    // once the window may close, destroys it. Nothing else of the Tauri core is open to the window.
+    wanted.extend(["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-destroy"].map(String::from));
     assert_eq!(allowed, wanted);
+}
+
+#[test]
+fn format_json_reindents_and_rejects_what_is_not_json() {
+    let (core, _dir) = core();
+    assert_eq!(core.format_json("{\"b\":1.50,\"a\":[]}"), Ok("{
+  \"b\": 1.50,
+  \"a\": []
+}".to_string()));
+    assert_eq!(core.format_json("{\"id\": {{id}}}"), Err("not valid JSON".to_string()));
 }
 
 #[test]
