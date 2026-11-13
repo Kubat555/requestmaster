@@ -1,0 +1,21 @@
+/* Visual style "Graphite & Signal": every colour, size and duration of the interface is a variable here. */
+:root {
+  --bg: #14171c; --surface: #1b1f26; --surface-2: #232831; --border: #2c323d;
+  --text: #dde2ea; --text-muted: #98a1b0; --accent: #2fc7c0; --accent-contrast: #0b1416;
+  --method-get: #4cc38a; --method-post: #e5a93b; --method-put: #5b9cf5; --method-patch: #a98bf5;
+  --method-delete: #f07178; --method-other: #98a1b0;
+  --status-ok: #4cc38a; --status-redirect: #5b9cf5; --status-client: #e5a93b; --status-server: #f07178;
+  --danger: #f07178;
+  --font-ui: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --font-size: 13px; --row-height: 28px; --radius: 4px; --radius-popup: 8px; --space: 4px;
+  --dur-1: 83ms; --dur-2: 120ms; --dur-3: 167ms; --dur-4: 250ms; --ease: cubic-bezier(0, 0, 0, 1);
+  /* Not in the plan's list: the only shadow, for popups, kept here so that components hold no colours. */
+  --shadow-popup: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; --dur-4: 0ms;
+  }
+}
