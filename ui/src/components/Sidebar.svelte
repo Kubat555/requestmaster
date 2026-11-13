@@ -12,8 +12,9 @@
   import Segmented from "./ui/Segmented.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
+  import { tabs } from "../lib/tabs.svelte";
   import { toasts } from "../lib/toasts.svelte";
-  import type { GlobalsPolicy, ImportResult } from "../lib/types";
+  import { GLOBALS_ID, type GlobalsPolicy, type ImportResult } from "../lib/types";
   import type { Workspace } from "../lib/workspace.svelte";
 
   interface Props {
@@ -102,11 +103,18 @@
     }
   }
 
-  /** Imports the files in one call, re-reads the tree and the environments and shows the report. */
+  /**
+   * Imports the files in one call, re-reads the tree and the environments and shows the report. The open tab of
+   * the global variables holds its own copy of them and saves the whole set: its pending edit is saved before
+   * the import, and after an import that changed the globals the tab reads them again — otherwise its next save
+   * would erase what was imported.
+   */
   async function importFiles(files: File[]) {
     if (files.length === 0 || importing) return;
     importing = true;
     try {
+      // The failure is already shown as a notification; importing over an unsaved edit would lose one of the two.
+      if ((await tabs.environment(GLOBALS_ID)?.flush(api)) === false) return;
       const payload = await Promise.all(files.map(async (file) => ({ name: file.name, text: await file.text() })));
       const results = await api.importFiles(payload);
       await workspace.load(api);
@@ -118,6 +126,7 @@
           results[index] = await resolveGlobals(result, payload[index].text);
         }
       }
+      if (results.some((result) => result.kind === "globals")) await tabs.environment(GLOBALS_ID)?.reload(api);
       report = results;
     } catch (error) {
       toasts.error(String(error));

@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
-import { createFakeApi, type FakeSeed } from "../lib/testing/fakeApi";
+import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
 import { toasts } from "../lib/toasts.svelte";
+import { GLOBALS_ID, type ImportResult, type VariableRow } from "../lib/types";
 import { workspace } from "../lib/workspace.svelte";
 
 const TEXT = strings.environment;
@@ -707,5 +708,120 @@ describe("closing with a pending save", () => {
     expect(saveNodeContent).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
     expect(save).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("import of global variables with their tab open", () => {
+  const FILE_NAME = "workspace.postman_globals.json";
+  const IMPORTED_VARIABLE: VariableRow = { key: "region", value: "eu", secret: false, enabled: true, postman_extra: {} };
+
+  function globalsResult(conflicts: string[] = []): ImportResult {
+    return { file_name: FILE_NAME, kind: "globals", name: null, root_id: null, report: [], conflicts, error: null };
+  }
+
+  /** Adds {@link IMPORTED_VARIABLE} to the stored globals, as the core does when it applies a file. */
+  function storeImported(api: FakeApi): () => Promise<void> {
+    const getEnvironment = api.getEnvironment.bind(api);
+    const saveEnvironment = api.saveEnvironment.bind(api);
+    return async () => {
+      const { name, variables } = await getEnvironment(GLOBALS_ID);
+      await saveEnvironment(GLOBALS_ID, name, [...variables, IMPORTED_VARIABLE]);
+    };
+  }
+
+  /** Drops a file on the sidebar and waits for the dialog the import ends with. */
+  async function dropFile() {
+    const drop = createEvent.drop(list(), { dataTransfer: { files: [new File(["{}"], FILE_NAME, { type: "application/json" })] } });
+    await fireEvent(list(), drop);
+    return screen.findByRole("dialog");
+  }
+
+  /** The variables of the last call of the spy on `saveEnvironment`. */
+  function lastSaved(save: { mock: { calls: unknown[][] } }): VariableRow[] {
+    return save.mock.calls.at(-1)![2] as VariableRow[];
+  }
+
+  it("shows the imported variables and keeps them in the next save", async () => {
+    const api = await openEnvironments();
+    await openEditor(TEXT.globals);
+    const apply = storeImported(api);
+    vi.spyOn(api, "importFiles").mockImplementation(async () => {
+      await apply();
+      return [globalsResult()];
+    });
+    const save = vi.spyOn(api, "saveEnvironment");
+
+    await dropFile();
+    await waitFor(() => expect(names().map((input) => input.value)).toEqual(["tenant", "region", ""]));
+    expect(save).not.toHaveBeenCalled();
+
+    useFakeTimers();
+    await type(values()[0], "globex");
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(lastSaved(save).map(({ key, value }) => [key, value])).toEqual([
+      ["tenant", "globex"],
+      ["region", "eu"],
+    ]);
+  });
+
+  it("saves the pending edit before the import, so both the edit and the imported variables stay", async () => {
+    const api = await openEnvironments();
+    await openEditor(TEXT.globals);
+    const apply = storeImported(api);
+    const save = vi.spyOn(api, "saveEnvironment");
+    vi.spyOn(api, "importFiles").mockImplementation(async () => {
+      // The edit is in the storage by the time the core merges the file.
+      expect(save).toHaveBeenCalledTimes(1);
+      await apply();
+      return [globalsResult()];
+    });
+
+    await type(values()[0], "globex");
+    await dropFile();
+
+    await waitFor(() => expect(names().map((input) => input.value)).toEqual(["tenant", "region", ""]));
+    expect(values()[0].value).toBe("globex");
+    expect((await api.getEnvironment(GLOBALS_ID)).variables.map(({ key, value }) => [key, value])).toEqual([
+      ["tenant", "globex"],
+      ["region", "eu"],
+    ]);
+  });
+
+  it("reads the globals again after the conflicts are resolved with a policy", async () => {
+    const api = await openEnvironments();
+    await openEditor(TEXT.globals);
+    const apply = storeImported(api);
+    vi.spyOn(api, "importFiles").mockResolvedValue([globalsResult(["tenant"])]);
+    const importGlobals = vi.spyOn(api, "importGlobals").mockImplementation(apply);
+    const save = vi.spyOn(api, "saveEnvironment");
+
+    const question = await dropFile();
+    await fireEvent.click(within(question).getByRole("button", { name: strings.import.keepCurrent }));
+    await waitFor(() => expect(names().map((input) => input.value)).toEqual(["tenant", "region", ""]));
+    expect(importGlobals).toHaveBeenCalledWith("{}", "keep_current");
+
+    useFakeTimers();
+    await type(values()[0], "globex");
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(lastSaved(save).map(({ key }) => key)).toEqual(["tenant", "region"]);
+  });
+
+  it("does not import when the pending edit of the globals cannot be saved", async () => {
+    const api = await openEnvironments();
+    await openEditor(TEXT.globals);
+    const importFiles = vi.spyOn(api, "importFiles");
+    vi.spyOn(api, "saveEnvironment").mockRejectedValue("disk is full");
+
+    await type(values()[0], "globex");
+    const drop = createEvent.drop(list(), { dataTransfer: { files: [new File(["{}"], FILE_NAME)] } });
+    await fireEvent(list(), drop);
+
+    await waitFor(() => expect(toasts.items).toHaveLength(1));
+    expect(importFiles).not.toHaveBeenCalled();
+    expect(values()[0].value).toBe("globex");
   });
 });

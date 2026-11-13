@@ -184,6 +184,26 @@ export class EnvironmentTab implements TabLike {
     this.#timer = null;
   }
 
+  /**
+   * Reads the variables from the storage again: something other than the editor changed them — an import of
+   * global variables. Call {@link flush} before that change: an edit that is not saved by now is dropped, or the
+   * next save would write the old set over the changed one. A failure to read is shown as a notification and
+   * leaves the variables as they are.
+   */
+  async reload(api: Api): Promise<void> {
+    let environment: EnvironmentDto;
+    try {
+      environment = await api.getEnvironment(this.environmentId);
+    } catch (error) {
+      toasts.error(String(error));
+      return;
+    }
+    this.suspend();
+    this.#unsaved = false;
+    this.failed = false;
+    this.variables = environment.variables;
+  }
+
   /** Drops the pending save: the tab is removed with whatever is not saved. */
   dispose(): void {
     this.suspend();
