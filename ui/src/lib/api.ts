@@ -10,6 +10,7 @@ import type {
   ImportResult,
   NodeContent,
   NodeDto,
+  NodeKind,
   RequestContent,
   SendResult,
   TreeRow,
@@ -23,6 +24,17 @@ export interface Api {
   getNode(id: string): Promise<NodeDto>;
   /** Replaces the content of the node. */
   saveNodeContent(id: string, content: NodeContent): Promise<void>;
+  /**
+   * Creates a node as the last child of `parentId` (`null` — as the last collection) and resolves to its id.
+   * The name is trimmed; an empty one is rejected.
+   */
+  createNode(parentId: string | null, kind: NodeKind, name: string): Promise<string>;
+  /** Changes the name of the node; the name is trimmed, an empty one is rejected. */
+  renameNode(id: string, name: string): Promise<void>;
+  /** Copies the node with everything inside right after the original; resolves to the id of the copy. */
+  duplicateNode(id: string): Promise<string>;
+  /** Deletes the node with everything inside. */
+  deleteNode(id: string): Promise<void>;
   /** Imports Postman files; every file gets its own result. */
   importFiles(files: ImportFile[]): Promise<ImportResult[]>;
   /** Merges a globals file with the policy the user chose for the conflicts. */
@@ -57,6 +69,10 @@ export const tauriApi: Api = {
   tree: () => invoke<TreeRow[]>("tree"),
   getNode: (id) => invoke<NodeDto>("get_node", { id }),
   saveNodeContent: (id, content) => invoke<void>("save_node_content", { id, content }),
+  createNode: (parentId, kind, name) => invoke<string>("create_node", { parent_id: parentId, kind, name }),
+  renameNode: (id, name) => invoke<void>("rename_node", { id, name }),
+  duplicateNode: (id) => invoke<string>("duplicate_node", { id }),
+  deleteNode: (id) => invoke<void>("delete_node", { id }),
   importFiles: (files) => invoke<ImportResult[]>("import_files", { files }),
   importGlobals: (text, policy) => invoke<void>("import_globals", { text, policy }),
   environments: () => invoke<EnvSummary[]>("environments"),

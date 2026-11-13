@@ -1,7 +1,7 @@
 // In-memory `Api` for component tests. Not imported by the application, so it is not part of its build.
 
 import type { Api } from "../api";
-import type { EnvSummary, NodeDto, RequestContent, SendResult } from "../types";
+import type { EnvSummary, NodeDto, NodeKind, RequestContent, SendResult } from "../types";
 
 /** Answers `sendRequest` in a test. */
 export type SendHandler = (sendId: string, requestId: string, draft: RequestContent | null) => Promise<SendResult>;
@@ -73,11 +73,30 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
   const environments = seed.environments ?? [];
   let activeEnvironment = seed.activeEnvironment ?? null;
   const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
+  let lastId = 0;
+  const newId = () => `new-${++lastId}`;
 
   const findNode = (id: string): NodeDto => {
     const node = nodes.find((n) => n.id === id);
     if (!node) throw `node not found: ${id}`;
     return node;
+  };
+
+  /** The name as the core stores it: trimmed and not empty. */
+  const nodeName = (name: string): string => {
+    const trimmed = name.trim();
+    if (trimmed === "") throw "name is empty";
+    return trimmed;
+  };
+
+  /** The nodes under `id` at any depth, parents before children. */
+  const descendants = (id: string): NodeDto[] =>
+    nodes.filter((node) => node.parent_id === id).flatMap((child) => [child, ...descendants(child.id)]);
+
+  /** A new node of the kind with the content the core gives it. */
+  const blankNode = (parentId: string | null, kind: NodeKind, name: string): NodeDto => {
+    const base = { id: newId(), parent_id: parentId, name };
+    return kind === "request" ? { ...base, kind, content: { method: "GET", url: "" } } : { ...base, kind, content: {} };
   };
 
   const api: FakeApi = {
@@ -109,6 +128,37 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       // The kind comes from the stored node, as in the core; the content is taken as is.
       const node = findNode(id);
       (node as { content: unknown }).content = structuredClone(content);
+    },
+    async createNode(parentId, kind, name) {
+      // The rules of the tree, as the core has them: collections are the roots, a request has no children.
+      const parent = parentId === null ? null : findNode(parentId);
+      if ((kind === "collection") !== (parent === null)) throw "a collection is a root, anything else is not";
+      if (parent?.kind === "request") throw "a request cannot have children";
+      // The position among the siblings is the order of the list, so the last place is its end.
+      const node = blankNode(parentId, kind, nodeName(name));
+      nodes.push(node);
+      return node.id;
+    },
+    async renameNode(id, name) {
+      findNode(id).name = nodeName(name);
+    },
+    async duplicateNode(id) {
+      const original = findNode(id);
+      const ids = new Map<string, string>([[id, newId()]]);
+      const copies = descendants(id).map((node) => {
+        ids.set(node.id, newId());
+        return { ...structuredClone(node), id: ids.get(node.id)!, parent_id: ids.get(node.parent_id!)! };
+      });
+      const copy = { ...structuredClone(original), id: ids.get(id)!, name: `${original.name} Copy` };
+      // Right after the original among its siblings; where the descendants stand in the list does not matter.
+      nodes.splice(nodes.indexOf(original) + 1, 0, copy, ...copies);
+      return copy.id;
+    },
+    async deleteNode(id) {
+      const removed = new Set([findNode(id), ...descendants(id)]);
+      for (let index = nodes.length - 1; index >= 0; index--) {
+        if (removed.has(nodes[index])) nodes.splice(index, 1);
+      }
     },
     async importFiles() {
       return [];

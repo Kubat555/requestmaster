@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenameInput from "./RenameInput.svelte";
   import Icon from "./ui/Icon.svelte";
   import { methodClass, methodLabel } from "../lib/format";
   import type { TreeNode } from "../lib/tree";
@@ -15,15 +16,22 @@
     tabbable: boolean;
     /** Whether the open tab of the node has unsaved edits. */
     dirty: boolean;
+    /** Whether the row shows a field instead of the name. */
+    renaming: boolean;
     /** The user activated the row: a click, or Enter. */
     onactivate: () => void;
     /** The user clicked the arrow of a collection or a folder. */
     ontoggle: () => void;
     onkeydown: (event: KeyboardEvent) => void;
     onfocus: () => void;
+    /** The user asked for the menu of the row: at the point of a right click, or under the "…" button. */
+    onmenu: (anchor: HTMLElement | { x: number; y: number }) => void;
+    /** The renaming is over; see `RenameInput`. */
+    onrenamed: (name: string | null, byKey: boolean) => void;
   }
 
-  let { node, depth, expanded, selected, tabbable, dirty, onactivate, ontoggle, onkeydown, onfocus }: Props = $props();
+  let { node, depth, expanded, selected, tabbable, dirty, renaming, onactivate, ontoggle, onkeydown, onfocus, onmenu, onrenamed }: Props =
+    $props();
 
   const isRequest = $derived(node.kind === "request");
   const method = $derived(node.method ?? "");
@@ -32,6 +40,35 @@
     // The arrow only toggles; without this the click would also activate the row.
     event.stopPropagation();
     ontoggle();
+  }
+
+  /**
+   * Whether the event came from the field for the name. The field keeps its events to itself; this is the
+   * second lock, so that a key typed into a name can never become a command of the tree.
+   */
+  function fromInput(event: Event): boolean {
+    return event.target instanceof HTMLInputElement;
+  }
+
+  function onRowClick(event: MouseEvent) {
+    if (!fromInput(event)) onactivate();
+  }
+
+  function onRowKeydown(event: KeyboardEvent) {
+    if (!fromInput(event)) onkeydown(event);
+  }
+
+  /** Our menu instead of the one of the webview; a text field keeps its own, with copy and paste. */
+  function onContextMenu(event: MouseEvent) {
+    if (fromInput(event)) return;
+    event.preventDefault();
+    onmenu({ x: event.clientX, y: event.clientY });
+  }
+
+  function onMoreClick(event: MouseEvent) {
+    // The button only shows the menu; without this the click would also activate the row.
+    event.stopPropagation();
+    onmenu(event.currentTarget as HTMLElement);
   }
 </script>
 
@@ -44,8 +81,9 @@
   aria-expanded={isRequest ? undefined : expanded}
   aria-selected={selected}
   style:padding-left="calc(var(--space) + {depth * 16}px)"
-  onclick={onactivate}
-  {onkeydown}
+  onclick={onRowClick}
+  onkeydown={onRowKeydown}
+  oncontextmenu={onContextMenu}
   {onfocus}
 >
   {#if isRequest}
@@ -57,11 +95,29 @@
       <Icon name={expanded ? "chevron-down" : "chevron-right"} />
     </span>
   {/if}
-  <span class="name">{node.name}</span>
+  {#if renaming}
+    <RenameInput value={node.name} ondone={onrenamed} />
+  {:else}
+    <span class="name">{node.name}</span>
+  {/if}
   {#if dirty}
     <!-- Decoration: the tab of the node says the same in words. -->
     <span class="dirty" aria-hidden="true"></span>
   {/if}
+  <!-- For the pointer only, hence hidden from the accessibility tree and nameless: a name here would become a
+       part of the name of the row. The keyboard opens the same menu with Shift+F10 or the menu key. A press
+       does not take the focus: it stays on the row it was on. -->
+  <!-- svelte-ignore a11y_consider_explicit_label -->
+  <button
+    type="button"
+    class="more"
+    aria-hidden="true"
+    tabindex="-1"
+    onmousedown={(event) => event.preventDefault()}
+    onclick={onMoreClick}
+  >
+    <Icon name="more" />
+  </button>
 </div>
 
 <style>
@@ -116,5 +172,31 @@
     height: 6px;
     background: var(--accent);
     border-radius: 50%;
+  }
+
+  /* Takes its place always, so that the name does not jump; seen while the pointer is over the row. */
+  .more {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    cursor: pointer;
+    visibility: hidden;
+  }
+
+  .row:hover .more {
+    visibility: visible;
+  }
+
+  .more:hover {
+    background: var(--border);
+    color: var(--text);
   }
 </style>

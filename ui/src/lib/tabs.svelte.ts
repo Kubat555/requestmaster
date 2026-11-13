@@ -30,8 +30,8 @@ export class Tab<C extends TabContent = TabContent> {
   readonly id: string;
   readonly nodeId: string;
   readonly kind: "request" | "collection";
-  /** Name of the node, as it was when the tab was opened. */
-  readonly name: string;
+  /** Name of the node; follows a renaming in the tree. */
+  name: string;
   /** Content as it is in the storage, normalized. Replaced as a whole, never edited. */
   saved: C;
   /** The copy the editors change. */
@@ -46,7 +46,7 @@ export class Tab<C extends TabContent = TabContent> {
     this.id = node.id;
     this.nodeId = node.id;
     this.kind = node.kind;
-    this.name = node.name;
+    this.name = $state(node.name);
     this.saved = $state.raw(structuredClone(content));
     this.draft = $state(structuredClone(content));
     this.dirty = $derived(!deepEqual(this.draft, this.saved));
@@ -136,6 +136,20 @@ export class Tabs {
     this.list[index].sending.dispose();
     this.list.splice(index, 1);
     if (this.#activeId === tabId) this.#activeId = (this.list[index] ?? this.list[index - 1])?.id ?? null;
+  }
+
+  /** The node was renamed: its tab, if open, shows the new name; the draft is not touched. */
+  rename(nodeId: string, name: string): void {
+    const tab = this.list.find((candidate) => candidate.nodeId === nodeId);
+    if (tab) tab.name = name;
+  }
+
+  /**
+   * The nodes were deleted: their tabs are closed with whatever their drafts hold, as {@link close} does —
+   * nothing is left to save them to.
+   */
+  closeNodes(nodeIds: string[]): void {
+    for (const tab of this.list.filter((candidate) => nodeIds.includes(candidate.nodeId))) this.close(tab.id);
   }
 
   /** Shows the tab of the node if it is open. */

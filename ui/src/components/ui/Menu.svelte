@@ -8,6 +8,10 @@
     icon?: IconName;
     /** The action destroys something: drawn in the colour of danger. */
     danger?: boolean;
+    /** The action is not available now: the item stays in its place and can be walked to, but does nothing. */
+    disabled?: boolean;
+    /** Tooltip, e.g. why the item is disabled. */
+    title?: string;
     onselect: () => void;
   }
 </script>
@@ -71,6 +75,7 @@
 
   /** The menu goes away first, so that the focus is back in its place before the action starts. */
   function select(item: MenuItem) {
+    if (item.disabled) return;
     onclose();
     item.onselect();
   }
@@ -121,7 +126,15 @@
 >
   {#each items as item, index (index)}
     <!-- The arrows walk the items; the handler of the menu answers Enter, so a click is the pointer alone. -->
-    <button type="button" role="menuitem" tabindex="-1" class:danger={item.danger} onclick={() => select(item)}>
+    <button
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      class:danger={item.danger}
+      aria-disabled={item.disabled ? "true" : undefined}
+      title={item.title}
+      onclick={() => select(item)}
+    >
       {#if item.icon}
         <Icon name={item.icon} />
       {/if}
@@ -183,6 +196,12 @@
 
   button.danger {
     color: var(--danger);
+  }
+
+  button[aria-disabled="true"] {
+    color: var(--text-muted);
+    cursor: default;
+    opacity: 0.6;
   }
 
   .label {

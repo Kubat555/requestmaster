@@ -2,8 +2,9 @@
 
 import { SvelteSet } from "svelte/reactivity";
 import type { Api } from "./api";
+import { strings } from "./strings";
 import { toasts } from "./toasts.svelte";
-import type { EnvSummary, TreeRow } from "./types";
+import type { EnvSummary, NodeKind, TreeRow } from "./types";
 
 /** The state of one window. The application uses {@link workspace}; a test creates its own. */
 export class Workspace {
@@ -15,6 +16,13 @@ export class Workspace {
   filter = $state("");
   /** Id of the node highlighted in the tree. */
   selectedId = $state<string | null>(null);
+  /**
+   * Id of the row of the tree that had the keyboard focus last. A click on a folder does not select it, so the
+   * commands of the tree act on this row, not on the selected one.
+   */
+  focusedId = $state<string | null>(null);
+  /** Id of the node whose row shows a field instead of the name; `null` — nothing is being renamed. */
+  renamingId = $state<string | null>(null);
   /** Environments of the switcher, by name. */
   environments = $state<EnvSummary[]>([]);
   /** Id of the active environment; `null` — none. */
@@ -51,6 +59,109 @@ export class Workspace {
     } catch (error) {
       toasts.error(String(error));
     }
+  }
+
+  /**
+   * Where the "+" button creates: the row that had the focus last, without it the selected node, without
+   * that the first collection; `null` while there are no collections.
+   */
+  get createTarget(): TreeRow | null {
+    const collections = this.rows.filter((row) => row.kind === "collection");
+    return (
+      this.#row(this.focusedId) ??
+      this.#row(this.selectedId) ??
+      collections.sort((a, b) => a.sort_order - b.sort_order)[0] ??
+      null
+    );
+  }
+
+  /**
+   * Creates a node with the default name of its kind at the end of `parentId` (`null` — a collection) and
+   * resolves to its id. The new node is selected, its ancestors are expanded, its row starts in the renaming
+   * mode, and a request is opened. A failure is shown as a notification, leaves the tree as it was and
+   * resolves to `null`.
+   */
+  async createNode(api: Api, parentId: string | null, kind: NodeKind): Promise<string | null> {
+    let id: string;
+    try {
+      id = await api.createNode(parentId, kind, strings.tree.newNode[kind]);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadTree(api);
+    // A filter would hide a row whose name does not match it, and the field for the name with it.
+    this.filter = "";
+    for (let row = this.#row(id); row?.parent_id; row = this.#row(row.parent_id)) this.expanded.add(row.parent_id);
+    this.selectedId = id;
+    this.renamingId = id;
+    if (kind === "request") this.onOpen(id);
+    return id;
+  }
+
+  /**
+   * Renames the node and re-reads the tree; resolves to the name the node has now. A failure is shown as a
+   * notification, leaves the tree as it was and resolves to `null`.
+   */
+  async renameNode(api: Api, id: string, name: string): Promise<string | null> {
+    try {
+      await api.renameNode(id, name);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadTree(api);
+    return this.#row(id)?.name ?? name;
+  }
+
+  /**
+   * Copies the node with everything inside right under the original and selects the copy; resolves to its
+   * id. A failure is shown as a notification, leaves the tree as it was and resolves to `null`.
+   */
+  async duplicateNode(api: Api, id: string): Promise<string | null> {
+    let copyId: string;
+    try {
+      copyId = await api.duplicateNode(id);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadTree(api);
+    this.selectedId = copyId;
+    return copyId;
+  }
+
+  /**
+   * Deletes the node with everything inside and resolves to the ids of all deleted nodes, so that the caller
+   * closes their tabs. A failure is shown as a notification, leaves the tree as it was and resolves to `null`.
+   */
+  async deleteNode(api: Api, id: string): Promise<string[] | null> {
+    const removed = this.subtree(id).map((row) => row.id);
+    try {
+      await api.deleteNode(id);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadTree(api);
+    for (const removedId of removed) this.expanded.delete(removedId);
+    if (this.selectedId !== null && removed.includes(this.selectedId)) this.selectedId = null;
+    if (this.focusedId !== null && removed.includes(this.focusedId)) this.focusedId = null;
+    if (this.renamingId !== null && removed.includes(this.renamingId)) this.renamingId = null;
+    return removed;
+  }
+
+  /** The node and everything under it at any depth; empty when there is no such node. */
+  subtree(id: string): TreeRow[] {
+    const root = this.#row(id);
+    if (!root) return [];
+    const under = (parentId: string): TreeRow[] =>
+      this.rows.filter((row) => row.parent_id === parentId).flatMap((child) => [child, ...under(child.id)]);
+    return [root, ...under(id)];
+  }
+
+  #row(id: string | null): TreeRow | undefined {
+    return this.rows.find((row) => row.id === id);
   }
 
   /** Expands a collapsed node and collapses an expanded one. */

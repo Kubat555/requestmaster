@@ -24,6 +24,25 @@ export const strings = {
     filter: "Фильтр по имени",
     nothingFound: "Ничего не найдено",
   },
+  tree: {
+    add: "Создать",
+    /** The items that create a node, and the names the new nodes get. */
+    newNode: {
+      collection: "Новая коллекция",
+      folder: "Новая папка",
+      request: "Новый запрос",
+    },
+    needCollection: "Сначала создайте коллекцию",
+    menu: "Действия",
+    rename: "Переименовать",
+    duplicate: "Дублировать",
+    delete: "Удалить",
+    renameLabel: "Новое имя",
+    emptyName: "Имя не может быть пустым",
+    deleteTitle: (name: string) => `Удалить „${name}“?`,
+    deleteContents: (requests: number) => `Будет удалено и всё содержимое: запросов ${requests}`,
+    cancel: "Отмена",
+  },
   import: {
     button: "Импорт",
     reportTitle: "Отчёт импорта",

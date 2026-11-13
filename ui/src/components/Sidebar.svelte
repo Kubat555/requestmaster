@@ -6,6 +6,8 @@
   import Button from "./ui/Button.svelte";
   import EmptyState from "./ui/EmptyState.svelte";
   import Field from "./ui/Field.svelte";
+  import IconButton from "./ui/IconButton.svelte";
+  import Menu, { type MenuItem } from "./ui/Menu.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
@@ -22,6 +24,36 @@
 
   let root: HTMLDivElement;
   let fileInput: HTMLInputElement;
+
+  /** The frame of the "+" button: its menu appears under it. */
+  let addAnchor = $state<HTMLSpanElement>();
+  let adding = $state(false);
+
+  /**
+   * What the "+" button offers. A folder and a request go into the target of the tree — the focused row,
+   * else the selected node, else the first collection; next to the target when it is a request. Without a
+   * collection there is nowhere to put them.
+   */
+  const addItems = $derived.by<MenuItem[]>(() => {
+    const target = workspace.createTarget;
+    const parentId = target === null ? null : target.kind === "request" ? target.parent_id : target.id;
+    const inside = (kind: "folder" | "request", icon: MenuItem["icon"]): MenuItem => ({
+      label: strings.tree.newNode[kind],
+      icon,
+      disabled: parentId === null,
+      title: parentId === null ? strings.tree.needCollection : undefined,
+      onselect: () => void workspace.createNode(api, parentId, kind),
+    });
+    return [
+      {
+        label: strings.tree.newNode.collection,
+        icon: "collection",
+        onselect: () => void workspace.createNode(api, null, "collection"),
+      },
+      inside("folder", "folder"),
+      inside("request", "plus"),
+    ];
+  });
 
   /** An import is running, its questions included; another one does not start until it ends. */
   let importing = false;
@@ -112,10 +144,17 @@
   });
 </script>
 
+{#if adding && addAnchor}
+  <Menu label={strings.tree.add} items={addItems} anchor={addAnchor} onclose={() => (adding = false)} />
+{/if}
+
 <div bind:this={root} class="sidebar">
   <div class="toolbar">
     <Button icon="import" onclick={() => fileInput.click()}>{strings.import.button}</Button>
     <input bind:this={fileInput} type="file" multiple accept=".json" hidden onchange={onFilesChosen} />
+    <span bind:this={addAnchor} class="add">
+      <IconButton icon="plus" label={strings.tree.add} aria-haspopup="menu" aria-expanded={adding} onclick={() => (adding = !adding)} />
+    </span>
     <Field type="search" icon="search" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
   </div>
   <div class="content">
@@ -159,6 +198,11 @@
     gap: calc(var(--space) * 2);
     padding: calc(var(--space) * 2);
     border-bottom: 1px solid var(--border);
+  }
+
+  .add {
+    flex: none;
+    display: flex;
   }
 
   .content {
