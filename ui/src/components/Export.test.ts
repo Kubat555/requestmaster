@@ -105,15 +105,17 @@ afterEach(() => {
 });
 
 describe("export of a collection", () => {
-  it("is offered for a collection only", async () => {
+  // One row per test: three menus in one test, the first render of the file among them, came close to the time limit.
+  it.each([
+    ["Demo API", true],
+    ["Users", false],
+    ["GET Ping", false],
+  ])("is offered for a collection only: the menu of \"%s\" has it — %s", async (name, offered) => {
     await renderSidebar();
-    const has = (menu: HTMLElement) => within(menu).queryByRole("menuitem", { name: TEXT.item }) !== null;
 
-    expect(has(await openMenu(collectionRow()))).toBe(true);
-    await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-    expect(has(await openMenu(screen.getByRole("treeitem", { name: "Users" })))).toBe(false);
-    await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-    expect(has(await openMenu(screen.getByRole("treeitem", { name: "GET Ping" })))).toBe(false);
+    const menu = await openMenu(screen.getByRole("treeitem", { name }));
+
+    expect(within(menu).queryByRole("menuitem", { name: TEXT.item }) !== null).toBe(offered);
   });
 
   it("exports a collection without unsaved edits with one call and tells the path", async () => {
