@@ -2,6 +2,7 @@
   import { getContext, onMount } from "svelte";
   import CollectionEditor from "./components/CollectionEditor.svelte";
   import Dialog from "./components/Dialog.svelte";
+  import EnvironmentEditor from "./components/EnvironmentEditor.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
   import ResponsePanel from "./components/ResponsePanel.svelte";
@@ -15,7 +16,7 @@
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { canSend } from "./lib/sending.svelte";
   import { strings } from "./lib/strings";
-  import { tabs, type Tab } from "./lib/tabs.svelte";
+  import { tabs, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
   import { toasts } from "./lib/toasts.svelte";
   import type { CollectionDraft, RequestDraft } from "./lib/types";
   import { workspace } from "./lib/workspace.svelte";
@@ -31,10 +32,19 @@
   /** The tab with unsaved edits the user asked to close;  — no question on the screen. */
   let closing = $state<Tab | null>(null);
 
-  /** Closes the tab; one with unsaved edits is closed only after the user says what to do with them. */
-  function requestClose(tab: Tab) {
-    if (tab.dirty) closing = tab;
+  /**
+   * Closes the tab; one with unsaved edits is closed only after the user says what to do with them. An
+   * environment has nothing to ask about: it saves by itself.
+   */
+  function requestClose(tab: AnyTab) {
+    if (tab.kind === "environment") void closeEnvironment(tab);
+    else if (tab.dirty) closing = tab;
     else tabs.close(tab.id);
+  }
+
+  /** The save that was waiting for its time is done first; when it fails, the tab stays with its edits. */
+  async function closeEnvironment(tab: EnvironmentTab) {
+    if (await tab.flush(api)) tabs.close(tab.id);
   }
 
   /** The answer to the question about unsaved edits. A failed save leaves the tab open. */
@@ -52,8 +62,18 @@
   let quitting = $state.raw<{ answer: (close: boolean) => void } | null>(null);
   const dirtyTabs = $derived(tabs.list.filter((tab) => tab.dirty));
 
-  /** The user asked to close the window. Without unsaved edits it closes at once, otherwise after the answer. */
-  function onCloseRequested(): Promise<boolean> | boolean {
+  /**
+   * The user asked to close the window. First the environments save what was waiting for its time; a failed
+   * save is shown as a notification (by the tab) and leaves the window open. Then, without unsaved edits the
+   * window closes at once, otherwise after the answer.
+   */
+  async function onCloseRequested(): Promise<boolean> {
+    let saved = true;
+    // One after another, and all of them even when one fails.
+    for (const tab of [...tabs.list]) {
+      if (tab.kind === "environment") saved = (await tab.flush(api)) && saved;
+    }
+    if (!saved) return false;
     if (dirtyTabs.length === 0) return true;
     // The question is already on the screen: this request does not close the window, the answer will.
     if (quitting) return false;
@@ -147,6 +167,8 @@
           <div class="tab-panel" data-tab-panel hidden={tabs.active !== tab}>
             {#if tab.kind === "request"}
               <RequestEditor tab={tab as Tab<RequestDraft>} />
+            {:else if tab.kind === "environment"}
+              <EnvironmentEditor {tab} />
             {:else}
               <CollectionEditor tab={tab as Tab<CollectionDraft>} />
             {/if}

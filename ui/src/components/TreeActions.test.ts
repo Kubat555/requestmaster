@@ -406,7 +406,7 @@ describe("deleting in the tree", () => {
     await tabs.open(api, "req-create-user");
     await tabs.open(api, "req-get-order");
     // One tab of the folder has unsaved edits, another one is sending.
-    (tabs.list[1].draft as RequestDraft).url = "https://api.example.test/changed";
+    ((tabs.list[1] as Tab).draft as RequestDraft).url = "https://api.example.test/changed";
     const sendingTab = tabs.list[0] as Tab<RequestDraft>;
     void sendingTab.sending.send(api, sendingTab);
     const sendId = (onSend.mock.calls[0] as unknown as [string])[0];

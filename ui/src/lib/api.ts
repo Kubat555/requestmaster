@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   EnvSummary,
+  EnvironmentDto,
   GlobalsPolicy,
   ImportFile,
   ImportResult,
@@ -14,6 +15,7 @@ import type {
   RequestContent,
   SendResult,
   TreeRow,
+  VariableRow,
 } from "./types";
 
 /** Everything the window asks the core for. A failed call rejects with a string in English. */
@@ -45,6 +47,17 @@ export interface Api {
   activeEnvironment(): Promise<string | null>;
   /** Chooses the active environment; `null` clears the choice. */
   setActiveEnvironment(id: string | null): Promise<void>;
+  /** The environment with its variables; the id `globals` — the set of global variables. An unknown id is rejected. */
+  getEnvironment(id: string): Promise<EnvironmentDto>;
+  /**
+   * Replaces the name and the variables of the environment. The name is trimmed, an empty one is rejected;
+   * for the id `globals` it is ignored. An unknown id is rejected: nothing is created.
+   */
+  saveEnvironment(id: string, name: string, variables: VariableRow[]): Promise<void>;
+  /** Creates an environment without variables and resolves to its id. The name is trimmed; an empty one is rejected. */
+  createEnvironment(name: string): Promise<string>;
+  /** Deletes the environment; the active one stops being active. The globals cannot be deleted. */
+  deleteEnvironment(id: string): Promise<void>;
   /** Sends the request, or its unsaved `draft`. `sendId` is made by the caller so that it can cancel. */
   sendRequest(sendId: string, requestId: string, draft: RequestContent | null): Promise<SendResult>;
   /** Stops the send; an unknown id is not an error. */
@@ -78,6 +91,10 @@ export const tauriApi: Api = {
   environments: () => invoke<EnvSummary[]>("environments"),
   activeEnvironment: () => invoke<string | null>("active_environment"),
   setActiveEnvironment: (id) => invoke<void>("set_active_environment", { id }),
+  getEnvironment: (id) => invoke<EnvironmentDto>("get_environment", { id }),
+  saveEnvironment: (id, name, variables) => invoke<void>("save_environment", { id, name, variables }),
+  createEnvironment: (name) => invoke<string>("create_environment", { name }),
+  deleteEnvironment: (id) => invoke<void>("delete_environment", { id }),
   sendRequest: (sendId, requestId, draft) =>
     invoke<SendResult>("send_request", { send_id: sendId, request_id: requestId, draft }),
   cancelSend: (sendId) => invoke<void>("cancel_send", { send_id: sendId }),

@@ -3,21 +3,21 @@
   import IconButton from "./ui/IconButton.svelte";
   import { methodClass, methodLabel } from "../lib/format";
   import { strings } from "../lib/strings";
-  import type { Tab, Tabs } from "../lib/tabs.svelte";
+  import type { AnyTab, Tabs } from "../lib/tabs.svelte";
   import type { RequestDraft } from "../lib/types";
 
   interface Props {
     tabs: Tabs;
     /** The user asked to close the tab: the cross or the middle mouse button. The owner decides what happens. */
-    onclose: (tab: Tab) => void;
+    onclose: (tab: AnyTab) => void;
   }
 
   let { tabs, onclose }: Props = $props();
 
   let bar: HTMLDivElement;
 
-  /** Method of a request tab as its draft has it; `null` for a collection. */
-  function methodOf(tab: Tab): string | null {
+  /** Method of a request tab as its draft has it; `null` for any other tab. */
+  function methodOf(tab: AnyTab): string | null {
     return tab.kind === "request" ? (tab.draft as RequestDraft).method : null;
   }
 
@@ -32,7 +32,7 @@
     bar.querySelectorAll<HTMLElement>('[role="tab"]')[index + step]?.focus();
   }
 
-  function onAuxClick(event: MouseEvent, tab: Tab) {
+  function onAuxClick(event: MouseEvent, tab: AnyTab) {
     if (event.button !== 1) return;
     event.preventDefault();
     onclose(tab);

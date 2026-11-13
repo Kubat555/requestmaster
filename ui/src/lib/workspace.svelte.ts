@@ -27,6 +27,8 @@ export class Workspace {
   environments = $state<EnvSummary[]>([]);
   /** Id of the active environment; `null` — none. */
   activeEnvironmentId = $state<string | null>(null);
+  /** Id of the environment whose row of the list shows a field instead of the name; `null` — none. */
+  renamingEnvironmentId = $state<string | null>(null);
   /** Called when the user opens a request or a collection in the tree. */
   onOpen: (id: string) => void = () => {};
 
@@ -59,6 +61,72 @@ export class Workspace {
     } catch (error) {
       toasts.error(String(error));
     }
+  }
+
+  /**
+   * Reads the environments and the active one again, after an environment was created, renamed or deleted.
+   * A failure is shown as a notification and leaves them as they were.
+   */
+  async reloadEnvironments(api: Api): Promise<void> {
+    try {
+      const [environments, activeEnvironmentId] = await Promise.all([api.environments(), api.activeEnvironment()]);
+      this.environments = environments;
+      this.activeEnvironmentId = activeEnvironmentId;
+    } catch (error) {
+      toasts.error(String(error));
+    }
+  }
+
+  /**
+   * Creates an environment with the default name and resolves to its id; its row of the list starts in the
+   * renaming mode. A failure is shown as a notification and resolves to `null`.
+   */
+  async createEnvironment(api: Api): Promise<string | null> {
+    let id: string;
+    try {
+      id = await api.createEnvironment(strings.environment.newName);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadEnvironments(api);
+    this.renamingEnvironmentId = id;
+    return id;
+  }
+
+  /**
+   * Renames the environment, keeping the variables the storage has, and resolves to the name it has now.
+   * A failure is shown as a notification, leaves the environment as it was and resolves to `null`.
+   */
+  async renameEnvironment(api: Api, id: string, name: string): Promise<string | null> {
+    try {
+      // There is no command for the name alone: it is saved together with the variables.
+      const { variables } = await api.getEnvironment(id);
+      await api.saveEnvironment(id, name, variables);
+    } catch (error) {
+      toasts.error(String(error));
+      return null;
+    }
+    await this.reloadEnvironments(api);
+    return this.environments.find((environment) => environment.id === id)?.name ?? name;
+  }
+
+  /**
+   * Deletes the environment and tells whether it is gone; a deleted active environment leaves none chosen.
+   * A failure is shown as a notification and leaves everything as it was.
+   */
+  async deleteEnvironment(api: Api, id: string): Promise<boolean> {
+    try {
+      await api.deleteEnvironment(id);
+    } catch (error) {
+      toasts.error(String(error));
+      return false;
+    }
+    // The core has cleared the choice too; this holds even when the re-reading below fails.
+    if (this.activeEnvironmentId === id) this.activeEnvironmentId = null;
+    if (this.renamingEnvironmentId === id) this.renamingEnvironmentId = null;
+    await this.reloadEnvironments(api);
+    return true;
   }
 
   /**

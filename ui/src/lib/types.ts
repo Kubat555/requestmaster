@@ -284,6 +284,16 @@ export interface EnvSummary {
   name: string;
 }
 
+/** Id under which the commands of the environments take the set of global variables. */
+export const GLOBALS_ID = "globals";
+
+/** An environment, or the set of global variables, with its variables; every key of a variable is present. */
+export interface EnvironmentDto {
+  id: string;
+  name: string;
+  variables: VariableRow[];
+}
+
 /** A cookie set by the response. */
 export interface CookieDto {
   name: string;

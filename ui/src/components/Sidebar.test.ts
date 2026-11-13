@@ -2,7 +2,7 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from "@testin
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar.svelte";
 import { strings } from "../lib/strings";
-import { tabs } from "../lib/tabs.svelte";
+import { tabs, type Tab } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
 import type { ImportResult, RequestDraft, TreeRow } from "../lib/types";
 import { Workspace } from "../lib/workspace.svelte";
@@ -262,7 +262,7 @@ describe("Sidebar", () => {
     await tabs.open(api, "req-list-users");
     expect(row.querySelector(".dirty")).toBeNull();
 
-    (tabs.list[0].draft as RequestDraft).url = "https://api.example.test/people";
+    ((tabs.list[0] as Tab).draft as RequestDraft).url = "https://api.example.test/people";
 
     await waitFor(() => expect(row.querySelector(".dirty")).not.toBeNull());
     const dot = row.querySelector(".dirty")!;
@@ -276,7 +276,7 @@ describe("Sidebar", () => {
     expect(screen.getByRole("treeitem", { name: /Create user/ }).querySelector(".dirty")).toBeNull();
     expect(screen.getByRole("treeitem", { name: "Users" }).querySelector(".dirty")).toBeNull();
 
-    tabs.list[0].revert();
+    (tabs.list[0] as Tab).revert();
     await waitFor(() => expect(row.querySelector(".dirty")).toBeNull());
   });
 

@@ -1,7 +1,7 @@
 // In-memory `Api` for component tests. Not imported by the application, so it is not part of its build.
 
 import type { Api } from "../api";
-import type { EnvSummary, NodeDto, NodeKind, RequestContent, SendResult } from "../types";
+import { GLOBALS_ID, type EnvSummary, type NodeDto, type NodeKind, type RequestContent, type SendResult, type Variable, type VariableRow } from "../types";
 
 /** Answers `sendRequest` in a test. */
 export type SendHandler = (sendId: string, requestId: string, draft: RequestContent | null) => Promise<SendResult>;
@@ -12,6 +12,8 @@ export interface FakeSeed {
   nodes?: NodeDto[];
   /** Environments of the switcher; default — none. */
   environments?: EnvSummary[];
+  /** Variables by the id of their environment, `globals` for the global ones; default — none. */
+  variables?: Record<string, Variable[]>;
   /** Id of the active environment; default — `null`. */
   activeEnvironment?: string | null;
   /** Answers `sendRequest`; without it a send rejects. */
@@ -70,7 +72,19 @@ export function defaultNodes(): NodeDto[] {
 /** Creates an in-memory `Api`. Like the real one, a failed call rejects with a string. */
 export function createFakeApi(seed: FakeSeed = {}): FakeApi {
   const nodes = structuredClone(seed.nodes ?? defaultNodes());
-  const environments = seed.environments ?? [];
+  /** A variable as the core returns it: with every key. */
+  const variableRow = (variable: Variable): VariableRow => ({
+    ...variable,
+    secret: variable.secret ?? false,
+    enabled: variable.enabled ?? true,
+    postman_extra: variable.postman_extra ?? {},
+  });
+  const variablesOf = (id: string): VariableRow[] => structuredClone(seed.variables?.[id] ?? []).map(variableRow);
+  // The globals are kept next to the environments, as in the storage, but are not one of them.
+  const environments = [{ id: GLOBALS_ID, name: "Globals" }, ...(seed.environments ?? [])].map((environment) => ({
+    ...environment,
+    variables: variablesOf(environment.id),
+  }));
   let activeEnvironment = seed.activeEnvironment ?? null;
   const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
   let lastId = 0;
@@ -80,6 +94,12 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     const node = nodes.find((n) => n.id === id);
     if (!node) throw `node not found: ${id}`;
     return node;
+  };
+
+  const findEnvironment = (id: string) => {
+    const environment = environments.find((candidate) => candidate.id === id);
+    if (!environment) throw "environment not found";
+    return environment;
   };
 
   /** The name as the core stores it: trimmed and not empty. */
@@ -165,13 +185,37 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     },
     async importGlobals() {},
     async environments() {
-      return [...environments];
+      // By the lower-cased name, as the core returns them; the globals are not an environment.
+      const key = (environment: EnvSummary) => environment.name.toLowerCase();
+      return environments
+        .filter((environment) => environment.id !== GLOBALS_ID)
+        .map(({ id, name }) => ({ id, name }))
+        .sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
     },
     async activeEnvironment() {
       return activeEnvironment;
     },
     async setActiveEnvironment(id) {
       activeEnvironment = id;
+    },
+    async getEnvironment(id) {
+      const { name, variables } = findEnvironment(id);
+      return { id, name, variables: structuredClone(variables) };
+    },
+    async saveEnvironment(id, name, variables) {
+      const environment = findEnvironment(id);
+      if (id !== GLOBALS_ID) environment.name = nodeName(name);
+      environment.variables = structuredClone(variables).map(variableRow);
+    },
+    async createEnvironment(name) {
+      const environment = { id: newId(), name: nodeName(name), variables: [] };
+      environments.push(environment);
+      return environment.id;
+    },
+    async deleteEnvironment(id) {
+      if (id === GLOBALS_ID) throw "globals cannot be deleted";
+      environments.splice(environments.indexOf(findEnvironment(id)), 1);
+      if (activeEnvironment === id) activeEnvironment = null;
     },
     sendRequest(sendId, requestId, draft) {
       return api.onSend(sendId, requestId, draft);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
   import Dialog from "./Dialog.svelte";
+  import EnvironmentList from "./EnvironmentList.svelte";
   import ImportReport from "./ImportReport.svelte";
   import Tree from "./Tree.svelte";
   import Button from "./ui/Button.svelte";
@@ -8,6 +9,7 @@
   import Field from "./ui/Field.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import Menu, { type MenuItem } from "./ui/Menu.svelte";
+  import Segmented from "./ui/Segmented.svelte";
   import type { Api } from "../lib/api";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
@@ -21,6 +23,15 @@
   let { workspace }: Props = $props();
 
   const api = getContext<Api>("api");
+
+  /** What the sidebar shows under its header. Kept while the window is open; a new window starts with the collections. */
+  type Section = "collections" | "environments" | "history";
+  const SECTIONS: { value: Section; label: string }[] = [
+    { value: "collections", label: strings.sidebar.collections },
+    { value: "environments", label: strings.sidebar.environments },
+    { value: "history", label: strings.sidebar.history },
+  ];
+  let section = $state<Section>("collections");
 
   let root: HTMLDivElement;
   let fileInput: HTMLInputElement;
@@ -149,21 +160,33 @@
 {/if}
 
 <div bind:this={root} class="sidebar">
-  <div class="toolbar">
-    <Button icon="import" onclick={() => fileInput.click()}>{strings.import.button}</Button>
-    <input bind:this={fileInput} type="file" multiple accept=".json" hidden onchange={onFilesChosen} />
-    <span bind:this={addAnchor} class="add">
-      <IconButton icon="plus" label={strings.tree.add} aria-haspopup="menu" aria-expanded={adding} onclick={() => (adding = !adding)} />
-    </span>
-    <Field type="search" icon="search" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
+  <div class="sections">
+    <Segmented options={SECTIONS} bind:value={section} label={strings.sidebar.sections} />
   </div>
-  <div class="content">
-    {#if workspace.rows.length === 0}
-      <EmptyState icon="collection" title={strings.sidebar.emptyTitle} text={strings.sidebar.empty} />
-    {:else}
-      <Tree {workspace} />
-    {/if}
-  </div>
+  <!-- Outside the sections: the field belongs to the import, which a dropped file starts in any of them. -->
+  <input bind:this={fileInput} type="file" multiple accept=".json" hidden onchange={onFilesChosen} />
+  {#if section === "collections"}
+    <div class="toolbar">
+      <Button icon="import" onclick={() => fileInput.click()}>{strings.import.button}</Button>
+      <span bind:this={addAnchor} class="add">
+        <IconButton icon="plus" label={strings.tree.add} aria-haspopup="menu" aria-expanded={adding} onclick={() => (adding = !adding)} />
+      </span>
+      <Field type="search" icon="search" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
+    </div>
+    <div class="content">
+      {#if workspace.rows.length === 0}
+        <EmptyState icon="collection" title={strings.sidebar.emptyTitle} text={strings.sidebar.empty} />
+      {:else}
+        <Tree {workspace} />
+      {/if}
+    </div>
+  {:else if section === "environments"}
+    <EnvironmentList {workspace} />
+  {:else}
+    <div class="content">
+      <EmptyState icon="history" title={strings.sidebar.historyEmpty} />
+    </div>
+  {/if}
 </div>
 
 {#if question}
@@ -190,6 +213,11 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+  }
+
+  .sections {
+    flex: none;
+    padding: calc(var(--space) * 2) calc(var(--space) * 2) 0;
   }
 
   .toolbar {
