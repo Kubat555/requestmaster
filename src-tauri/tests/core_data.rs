@@ -1,0 +1,334 @@
+//! `AppCore` without a window: tree, nodes, import, environments. The store lives in memory unless a test
+//! needs to look into the database file itself; all Postman JSON is synthetic.
+
+use std::collections::BTreeSet;
+
+use requestmaster_lib::dto::{ImportFile, ImportResult, TreeRow};
+use requestmaster_lib::{AppCore, CoreConfig, COMMANDS};
+use rqm_model::{NodeContent, NodeKind};
+use serde_json::{json, Value};
+use tempfile::TempDir;
+
+const SCHEMA_V21: &str = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json";
+const SCHEMA_V20: &str = "https://schema.getpostman.com/json/collection/v2.0.0/collection.json";
+
+/// A core over an in-memory store; the directory must outlive the core.
+fn core() -> (AppCore, TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let core = AppCore::new(CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies") }).unwrap();
+    (core, dir)
+}
+
+fn file(name: &str, json: &Value) -> ImportFile {
+    ImportFile { name: name.to_string(), text: json.to_string() }
+}
+
+/// A collection with a folder holding one request and one more request next to the folder.
+fn collection(name: &str) -> Value {
+    json!({
+        "info": { "name": name, "schema": SCHEMA_V21 },
+        "item": [
+            {
+                "name": "Users",
+                "item": [
+                    { "name": "List users", "request": { "method": "GET", "url": { "raw": "http://127.0.0.1/users" } } }
+                ]
+            },
+            { "name": "Create user", "request": { "method": "POST", "url": { "raw": "http://127.0.0.1/users" } } }
+        ]
+    })
+}
+
+fn environment(name: &str) -> Value {
+    json!({
+        "name": name,
+        "values": [{ "key": "host", "value": "127.0.0.1", "enabled": true }],
+        "_postman_variable_scope": "environment"
+    })
+}
+
+fn globals(value: &str) -> Value {
+    json!({
+        "name": "Globals",
+        "values": [{ "key": "token", "value": value, "enabled": true }],
+        "_postman_variable_scope": "globals"
+    })
+}
+
+/// Imports one file and returns its result.
+fn import_one(core: &AppCore, name: &str, json: &Value) -> ImportResult {
+    let mut results = core.import_files(vec![file(name, json)]);
+    assert_eq!(results.len(), 1);
+    results.remove(0)
+}
+
+/// The results as the window receives them.
+fn as_json<T: serde::Serialize>(value: &T) -> Value {
+    serde_json::to_value(value).unwrap()
+}
+
+/// Id of the tree row with this name.
+fn id_by_name(core: &AppCore, name: &str) -> String {
+    core.tree().unwrap().into_iter().find(|row| row.name == name).unwrap().id
+}
+
+#[test]
+fn import_collection_then_tree_and_node() {
+    let (core, _dir) = core();
+    let result = import_one(&core, "demo.json", &collection("Demo"));
+    let sent = as_json(&result);
+    assert_eq!(sent["file_name"], "demo.json");
+    assert_eq!(sent["kind"], "collection");
+    assert_eq!(sent["name"], "Demo");
+    assert_eq!(sent["error"], Value::Null);
+    let root_id = result.root_id.clone().expect("a collection result carries the id of its root");
+
+    let tree = core.tree().unwrap();
+    assert_eq!(tree.len(), 4);
+    // kind, parent and method of a row
+    let facts = |row: &TreeRow| (row.kind, row.parent_id.clone(), row.method.clone());
+    let root = tree.iter().find(|row| row.id == root_id).unwrap();
+    assert_eq!(facts(root), (NodeKind::Collection, None, None));
+    let folder = tree.iter().find(|row| row.name == "Users").unwrap();
+    assert_eq!(facts(folder), (NodeKind::Folder, Some(root_id.clone()), None));
+    let list = tree.iter().find(|row| row.name == "List users").unwrap();
+    assert_eq!(facts(list), (NodeKind::Request, Some(folder.id.clone()), Some("GET".to_string())));
+    let create = tree.iter().find(|row| row.name == "Create user").unwrap();
+    assert_eq!(facts(create), (NodeKind::Request, Some(root_id.clone()), Some("POST".to_string())));
+
+    // the window gets the tree with the contract's key names
+    let sent_tree = as_json(&tree);
+    let sent_create = sent_tree.as_array().unwrap().iter().find(|row| row["name"] == "Create user").unwrap();
+    assert_eq!(sent_create["kind"], "request");
+    assert_eq!(sent_create["method"], "POST");
+    assert_eq!(sent_create["parent_id"], root_id.as_str());
+    assert_eq!(sent_create["sort_order"], 1);
+
+    let node = core.get_node(&create.id).unwrap();
+    assert_eq!(node.id, create.id);
+    assert_eq!(node.parent_id.as_deref(), Some(root_id.as_str()));
+    assert_eq!(node.kind, NodeKind::Request);
+    assert_eq!(node.name, "Create user");
+    assert_eq!(node.content["method"], "POST");
+    assert_eq!(node.content["url"], "http://127.0.0.1/users");
+}
+
+#[test]
+fn import_reports_each_file_independently() {
+    let (core, _dir) = core();
+    let old_collection = json!({ "info": { "name": "Old", "schema": SCHEMA_V20 }, "item": [] });
+    let results = core.import_files(vec![
+        ImportFile { name: "picture.png".to_string(), text: "\u{fffd}PNG\r\n\u{1a}\n\0\0\0\rIHDR".to_string() },
+        file("old.json", &old_collection),
+        file("demo.json", &collection("Demo")),
+        file("dev.json", &environment("Dev")),
+    ]);
+    let sent = as_json(&results);
+    let sent = sent.as_array().unwrap();
+    assert_eq!(sent.len(), 4);
+    let names: Vec<&str> = sent.iter().map(|r| r["file_name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["picture.png", "old.json", "demo.json", "dev.json"]);
+    let kinds: Vec<&str> = sent.iter().map(|r| r["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["error", "error", "collection", "environment"]);
+    assert_eq!(sent[0]["error"], "not a JSON file");
+    assert_eq!(sent[1]["error"], "Collection v2.0 is not supported yet");
+    assert_eq!(sent[2]["error"], Value::Null);
+    assert_eq!(sent[3]["error"], Value::Null);
+    assert_eq!(sent[3]["name"], "Dev");
+    assert_eq!(sent[3]["root_id"], Value::Null);
+
+    // JSON that is not a Postman export
+    let unknown = import_one(&core, "package.json", &json!({ "name": "x", "version": "1.0.0" }));
+    assert_eq!(as_json(&unknown)["kind"], "error");
+    assert_eq!(unknown.error.as_deref(), Some("unknown format"));
+
+    let tree = core.tree().unwrap();
+    assert_eq!(tree.iter().filter(|row| row.kind == NodeKind::Collection).count(), 1);
+    assert_eq!(tree.len(), 4);
+    let environments = core.environments().unwrap();
+    assert_eq!(environments.len(), 1);
+    assert_eq!(environments[0].name, "Dev");
+    assert_eq!(as_json(&environments), json!([{ "id": environments[0].id, "name": "Dev" }]));
+}
+
+#[test]
+fn second_import_appends_collection() {
+    let (core, _dir) = core();
+    let first = import_one(&core, "a.json", &collection("First")).root_id.unwrap();
+    let second = import_one(&core, "b.json", &collection("Second")).root_id.unwrap();
+    let roots: Vec<(String, String, i64)> = core
+        .tree()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.parent_id.is_none())
+        .map(|row| (row.id, row.name, row.sort_order))
+        .collect();
+    assert_eq!(roots, [(first, "First".to_string(), 0), (second, "Second".to_string(), 1)]);
+}
+
+#[test]
+fn save_node_content_round_trip_and_rejects_garbage() {
+    let (core, _dir) = core();
+    import_one(&core, "demo.json", &collection("Demo"));
+    let id = id_by_name(&core, "Create user");
+
+    let mut content = core.get_node(&id).unwrap().content;
+    content["url"] = json!("http://127.0.0.1/people");
+    core.save_node_content(&id, content.clone()).unwrap();
+    let saved = core.get_node(&id).unwrap().content;
+    assert_eq!(saved["url"], "http://127.0.0.1/people");
+    assert_eq!(saved, content);
+
+    assert!(core.save_node_content(&id, json!("x")).is_err());
+    assert_eq!(core.get_node(&id).unwrap().content, content);
+
+    assert!(core.save_node_content("no-such-node", content).is_err());
+    assert!(core.get_node("no-such-node").is_err());
+}
+
+#[test]
+fn postman_extra_never_reaches_the_window_and_survives_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("app.db");
+    let core =
+        AppCore::new(CoreConfig { db_path: Some(db_path.clone()), bodies_dir: dir.path().join("bodies") }).unwrap();
+    let saved_example = json!([{ "name": "Example", "code": 200, "body": "{\"id\":12345678901234567890}" }]);
+    let source = json!({
+        "info": { "name": "Demo", "schema": SCHEMA_V21 },
+        "item": [{
+            "name": "Get user",
+            "x_unknown": { "kept": true },
+            "request": {
+                "method": "GET",
+                "header": [{ "key": "Accept", "value": "application/json", "description": "what we want back" }],
+                "url": { "raw": "http://127.0.0.1/user" }
+            },
+            "response": saved_example
+        }]
+    });
+    import_one(&core, "demo.json", &source);
+    let id = id_by_name(&core, "Get user");
+
+    let stored_extra = |id: &str| {
+        let store = rqm_store::Store::open(&db_path).unwrap();
+        match store.node(id).unwrap().content {
+            NodeContent::Request(request) => (request.url, request.postman_extra),
+            other => panic!("expected a request, got {other:?}"),
+        }
+    };
+    let (_, extra_before) = stored_extra(&id);
+    assert_eq!(extra_before["response"], saved_example);
+    assert_eq!(extra_before["x_unknown"], json!({ "kept": true }));
+
+    let mut content = core.get_node(&id).unwrap().content;
+    assert!(content.get("postman_extra").is_none());
+    // the row's own source object stays: the window returns it untouched
+    assert_eq!(content["headers"][0]["postman_extra"]["description"], "what we want back");
+
+    content["url"] = json!("http://127.0.0.1/account");
+    core.save_node_content(&id, content).unwrap();
+
+    let (url_after, extra_after) = stored_extra(&id);
+    assert_eq!(url_after, "http://127.0.0.1/account");
+    assert_eq!(extra_after, extra_before);
+    assert!(core.get_node(&id).unwrap().content.get("postman_extra").is_none());
+}
+
+#[test]
+fn commands_are_listed_everywhere() {
+    let expected = [
+        "tree",
+        "get_node",
+        "save_node_content",
+        "import_files",
+        "import_globals",
+        "environments",
+        "active_environment",
+        "set_active_environment",
+    ];
+    assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
+    assert_eq!(COMMANDS.len(), 8);
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
+    let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let permissions: Vec<&str> =
+        capability["permissions"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
+    let allowed: BTreeSet<String> = permissions.iter().map(|p| p.to_string()).collect();
+    assert_eq!(allowed.len(), permissions.len(), "a permission is listed twice");
+    let wanted: BTreeSet<String> = COMMANDS.iter().map(|name| format!("allow-{}", name.replace('_', "-"))).collect();
+    assert_eq!(allowed, wanted);
+}
+
+#[test]
+fn globals_without_conflicts_merge_and_conflicts_wait_for_choice() {
+    let (core, _dir) = core();
+    let (first, second) = (globals("one"), globals("two"));
+    let (text1, text2) = (first.to_string(), second.to_string());
+    let no_conflicts: Vec<String> = Vec::new();
+    let conflict = vec!["token".to_string()];
+
+    let applied = import_one(&core, "g1.json", &first);
+    assert_eq!(as_json(&applied)["kind"], "globals");
+    assert_eq!(applied.conflicts, no_conflicts);
+    assert_eq!(applied.error, None);
+
+    // a different value of the same variable: nothing is applied, the window has to ask
+    let waiting = import_one(&core, "g2.json", &second);
+    assert_eq!(as_json(&waiting)["kind"], "globals");
+    assert_eq!(waiting.conflicts, conflict);
+    assert_eq!(waiting.error, None);
+    assert_eq!(import_one(&core, "g2.json", &second).conflicts, conflict);
+
+    core.import_globals(&text2, "take_incoming").unwrap();
+    assert_eq!(import_one(&core, "g2.json", &second).conflicts, no_conflicts);
+    assert_eq!(import_one(&core, "g1.json", &first).conflicts, conflict);
+
+    core.import_globals(&text1, "keep_current").unwrap();
+    assert_eq!(import_one(&core, "g2.json", &second).conflicts, no_conflicts);
+
+    assert!(core.import_globals(&text1, "nope").is_err());
+    assert_eq!(import_one(&core, "g2.json", &second).conflicts, no_conflicts);
+
+    // globals are not an environment of the switcher
+    assert!(core.environments().unwrap().is_empty());
+}
+
+#[test]
+fn active_environment_rules() {
+    let (core, _dir) = core();
+    assert_eq!(core.active_environment().unwrap(), None);
+
+    import_one(&core, "dev.json", &environment("Dev"));
+    let id = core.environments().unwrap()[0].id.clone();
+    core.set_active_environment(Some(&id)).unwrap();
+    assert_eq!(core.active_environment().unwrap(), Some(id.clone()));
+
+    assert!(core.set_active_environment(Some("no-such-environment")).is_err());
+    assert_eq!(core.active_environment().unwrap(), Some(id));
+
+    core.set_active_environment(None).unwrap();
+    assert_eq!(core.active_environment().unwrap(), None);
+}
+
+#[test]
+fn report_items_use_contract_names() {
+    let (core, _dir) = core();
+    let source = json!({
+        "info": { "name": "Signed", "schema": SCHEMA_V21 },
+        "auth": { "type": "awsv4", "awsv4": [{ "key": "region", "value": "eu-west-1", "type": "string" }] },
+        "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('ok', () => {});"] } }],
+        "item": []
+    });
+    let result = import_one(&core, "signed.json", &source);
+    let root_id = result.root_id.clone().unwrap();
+    let sent = as_json(&result);
+    let report = sent["report"].as_array().unwrap();
+    let kinds: Vec<&str> = report.iter().map(|item| item["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["unsupported_auth", "has_scripts"]);
+    assert_eq!(report[0]["detail"], "awsv4");
+    for item in report {
+        assert_eq!(item["node_id"], root_id.as_str());
+        assert_eq!(item["node_path"], "Signed");
+        assert!(item["detail"].is_string());
+    }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "requestmaster"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: the window — a thin Tauri shell over the rqm-* core."
+
+[lib]
+# `_lib` suffix keeps the lib name distinct from the bin name (cargo issue 8519 on Windows).
+name = "requestmaster_lib"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "requestmaster"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+rqm-model = { path = "../crates/rqm-model" }
+rqm-postman = { path = "../crates/rqm-postman" }
+rqm-store = { path = "../crates/rqm-store" }
+tauri = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

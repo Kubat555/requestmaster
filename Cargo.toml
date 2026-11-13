@@ -1,6 +1,6 @@
-# RequestMaster workspace: the core crates `rqm-*` live in `crates/`.
+# RequestMaster workspace: the core crates `rqm-*` live in `crates/`, the window shell in `src-tauri/`.
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "src-tauri"]
 # The stage 0 probes in `spike/` are standalone packages, not part of this workspace.
 exclude = ["spike"]
 resolver = "2"
@@ -42,6 +42,9 @@ wiremock = "=0.6.5"
 # the stage 0 HTTP probe (removed after stage 1A).
 rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+# Window shell `src-tauri`, same versions as verified by the stage 0 window probe (spike/shell).
+tauri = "=2.12.5"
+tauri-build = "=2.7.4"
 
 # Size-oriented release profile, same as in spike/shell/src-tauri/Cargo.toml.
 [profile.release]
