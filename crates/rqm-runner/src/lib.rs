@@ -16,7 +16,7 @@ use rqm_store::{Store, StoreError};
 pub use body_view::{body_view, format_json, BodyView, INLINE_BODY_LIMIT, TRUNCATED_PREVIEW};
 pub use cookies_state::{load_cookies, save_cookies, COOKIE_JAR_KEY};
 pub use prepare::{prepare, PrepareError, Prepared, SendWarning};
-pub use send::{send, SendError, SendOutcome};
+pub use send::{send, PreparedSummary, SendError, SendOutcome};
 
 /// Application-wide settings of a send; a request may override `verify_tls` with its own `strict_ssl`.
 #[derive(Debug, Clone, PartialEq)]

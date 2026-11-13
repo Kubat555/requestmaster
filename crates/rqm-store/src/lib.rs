@@ -1,9 +1,12 @@
-//! RequestMaster store: one SQLite file with the collections tree, environments and application state.
+//! RequestMaster store: one SQLite file with the collections tree, environments, application state and the
+//! history of sends.
 //!
-//! The schema is `schema.sql` (three tables, no indexes); its version is kept in `PRAGMA user_version`.
+//! The schema is `schema.sql` (the three tables of version 1) plus `schema_v2.sql` (the `history` table):
+//! four tables, no indexes; its version is kept in `PRAGMA user_version`.
 //! Every operation that changes several rows runs in one transaction.
 
 mod environments;
+mod history;
 mod nodes;
 mod state;
 
@@ -11,13 +14,18 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+pub use history::HistoryRow;
 pub use nodes::TreeRow;
 
-/// DDL of the store, executed once on an empty database.
+/// DDL of schema version 1, executed once on an empty database.
 const SCHEMA: &str = include_str!("schema.sql");
 
-/// Version written to `PRAGMA user_version` together with [`SCHEMA`].
-const SCHEMA_VERSION: i64 = 1;
+/// DDL that turns schema version 1 into version 2: executed on an empty database right after [`SCHEMA`],
+/// and alone on a database of version 1.
+const SCHEMA_V2: &str = include_str!("schema_v2.sql");
+
+/// Version written to `PRAGMA user_version` once [`SCHEMA`] and [`SCHEMA_V2`] are in place.
+const SCHEMA_VERSION: i64 = 2;
 
 /// Why a store operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -82,23 +90,28 @@ impl Store {
         Ok(PathBuf::from(local_app_data).join("RequestMaster").join("app.db"))
     }
 
-    /// Switches foreign keys on and brings the schema to [`SCHEMA_VERSION`].
+    /// Switches foreign keys on and brings the schema to [`SCHEMA_VERSION`]: an empty database gets both DDL
+    /// files, a database of version 1 only the second one (its tables and data are not touched). Each case
+    /// is one transaction.
     fn prepare(conn: Connection) -> Result<Self, StoreError> {
         conn.execute_batch("PRAGMA foreign_keys = ON")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > SCHEMA_VERSION {
-            return Err(StoreError::NewerSchema(version));
-        }
-        if version != SCHEMA_VERSION {
-            let tables: i64 =
-                conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |row| row.get(0))?;
-            if tables != 0 {
-                return Err(StoreError::Sqlite(format!(
-                    "the file has tables but schema version {version}: not a RequestMaster database"
-                )));
+        let ddl = match version {
+            SCHEMA_VERSION => return Ok(Store { conn }),
+            newer if newer > SCHEMA_VERSION => return Err(StoreError::NewerSchema(newer)),
+            1 => SCHEMA_V2.to_string(),
+            _ => {
+                let tables: i64 =
+                    conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |row| row.get(0))?;
+                if tables != 0 {
+                    return Err(StoreError::Sqlite(format!(
+                        "the file has tables but schema version {version}: not a RequestMaster database"
+                    )));
+                }
+                format!("{SCHEMA}\n{SCHEMA_V2}")
             }
-            conn.execute_batch(&format!("BEGIN;\n{SCHEMA}\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"))?;
-        }
+        };
+        conn.execute_batch(&format!("BEGIN;\n{ddl}\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"))?;
         Ok(Store { conn })
     }
 }

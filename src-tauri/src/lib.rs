@@ -5,6 +5,8 @@
 pub mod commands;
 pub mod core;
 pub mod dto;
+mod export;
+mod history;
 mod send;
 
 pub use crate::core::{AppCore, CoreConfig, ACTIVE_ENVIRONMENT_KEY};
@@ -26,4 +28,18 @@ pub const COMMANDS: &[&str] = &[
     "response_body",
     "release_body",
     "format_json",
+    "create_node",
+    "rename_node",
+    "duplicate_node",
+    "delete_node",
+    "get_environment",
+    "save_environment",
+    "create_environment",
+    "delete_environment",
+    "export_collection",
+    "export_environment",
+    "history_list",
+    "history_get",
+    "history_clear",
+    "copy_response_body",
 ];

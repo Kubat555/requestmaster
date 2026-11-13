@@ -45,6 +45,8 @@ tokio-rustls = { version = "=0.26.6", default-features = false, features = ["rin
 # Window shell `src-tauri`, same versions as verified by the stage 0 window probe (spike/shell).
 tauri = "=2.12.5"
 tauri-build = "=2.7.4"
+# System "Save as" window of the export commands. The last 2.x release (needs tauri ^2.12); 3.0 is an alpha.
+tauri-plugin-dialog = "=2.8.4"
 
 # Size-oriented release profile, same as in spike/shell/src-tauri/Cargo.toml.
 [profile.release]

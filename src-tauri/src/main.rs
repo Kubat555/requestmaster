@@ -7,12 +7,14 @@ use requestmaster_lib::{commands, AppCore, CoreConfig};
 fn create_core() -> Result<AppCore, String> {
     let db_path = rqm_store::Store::default_path().map_err(|e| e.to_string())?;
     let bodies_dir = std::env::temp_dir().join("RequestMaster").join("bodies");
-    AppCore::new(CoreConfig { db_path: Some(db_path), bodies_dir })
+    AppCore::new(CoreConfig { db_path: Some(db_path), bodies_dir, history_keep: None })
 }
 
 fn main() {
     let finished = create_core().and_then(|core| {
         tauri::Builder::default()
+            // The system "Save as" window of the export commands; without the plugin the first export panics.
+            .plugin(tauri_plugin_dialog::init())
             .manage(core)
             .invoke_handler(tauri::generate_handler![
                 commands::tree,
@@ -28,6 +30,20 @@ fn main() {
                 commands::response_body,
                 commands::release_body,
                 commands::format_json,
+                commands::create_node,
+                commands::rename_node,
+                commands::duplicate_node,
+                commands::delete_node,
+                commands::get_environment,
+                commands::save_environment,
+                commands::create_environment,
+                commands::delete_environment,
+                commands::export_collection,
+                commands::export_environment,
+                commands::history_list,
+                commands::history_get,
+                commands::history_clear,
+                commands::copy_response_body,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

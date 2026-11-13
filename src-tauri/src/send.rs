@@ -84,11 +84,15 @@ impl AppCore {
                 .map_err(message)?
         };
 
+        // The moment of the send for its history entry; the name is always known to `system_dynamic`.
+        let sent_at = rqm_vars::system_dynamic("isoTimestamp").unwrap_or_default();
         let cancel = CancellationToken::new();
         let outcome = {
             let _running = RunningSend::register(&self.send.running, send_id, cancel.clone());
             rqm_runner::send(&self.send.engine, &input, cancel).await
         };
+        // Whatever the outcome, the send goes to the history: now, while the body file is still in place.
+        self.record_history(request_id, &input, &sent_at, &outcome);
 
         // Cookies are saved after a failed send too: the redirects before the failure may have set some.
         let cookies_saved = self.store().and_then(|mut store| save_cookies(&mut store, &self.send.jar).map_err(message));
@@ -131,6 +135,13 @@ impl AppCore {
         let path = lock(&self.send.bodies).get(body_id).cloned().ok_or("response body is gone")?;
         let view = body_view(&path, pretty).map_err(|error| format!("cannot read the response body: {error}"))?;
         Ok(view.bytes)
+    }
+
+    /// The text of a response body for the clipboard: what [`AppCore::response_body`] returns, so a body too
+    /// large to show whole is copied as shown. Bytes that are not UTF-8 are replaced with U+FFFD.
+    pub fn copy_response_body(&self, body_id: &str, pretty: bool) -> Result<String, String> {
+        let bytes = self.response_body(body_id, pretty)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     /// Deletes the file of a response body and forgets its id. An unknown id is not an error.
@@ -187,12 +198,12 @@ fn request_from_draft(draft: serde_json::Value) -> Result<RequestContent, String
 }
 
 /// Fractional milliseconds of a duration.
-fn milliseconds(duration: Duration) -> f64 {
+pub(crate) fn milliseconds(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
 /// The core's send error under the kind the window knows; `message` is the core's own text.
-fn error_dto(error: SendError) -> SendErrorDto {
+pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
     let message = error.to_string();
     let (kind, fields) = match error {
         SendError::Prepare(PrepareError::UnconfirmedFiles { fields }) => (SendErrorKind::UnconfirmedFiles, fields),
@@ -215,7 +226,7 @@ fn error_dto(error: SendError) -> SendErrorDto {
 }
 
 /// The core's send warning under the kind the window knows.
-fn warning_dto(warning: SendWarning) -> Warning {
+pub(crate) fn warning_dto(warning: SendWarning) -> Warning {
     let (kind, items) = match warning {
         SendWarning::ScriptsNotExecuted { nodes } => (WarningKind::ScriptsNotExecuted, nodes),
         SendWarning::UnsupportedAuth { auth_type } => (WarningKind::UnsupportedAuth, vec![auth_type]),

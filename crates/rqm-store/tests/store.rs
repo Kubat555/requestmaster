@@ -21,7 +21,7 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     s.tree().unwrap().into_iter().filter(|r| r.parent_id.as_deref() == Some(parent)).map(|r| (r.name, r.sort_order)).collect()
 }
 
-#[test] fn schema_has_exactly_three_tables_and_version_1() {
+#[test] fn schema_has_exactly_four_tables_and_version_2() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sub").join("app.db");
     drop(Store::open(&path).unwrap());
@@ -29,9 +29,9 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     let mut names: Vec<String> = conn.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap()
         .query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
     names.sort();
-    assert_eq!(names, vec!["app_state", "environment", "node"]);
-    assert_eq!(conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
-    for table in ["node", "environment", "app_state"] {
+    assert_eq!(names, vec!["app_state", "environment", "history", "node"]);
+    assert_eq!(conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+    for table in ["node", "environment", "app_state", "history"] {
         let sql: String = conn.query_row("SELECT sql FROM sqlite_master WHERE name = ?1", [table], |r| r.get(0)).unwrap();
         assert!(sql.matches("--").count() >= 4, "{table}: table and column comments must be stored with the schema");
     }
@@ -43,8 +43,8 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     let path = dir.path().join("app.db");
     { let mut s = Store::open(&path).unwrap(); s.create_node(None, NodeKind::Collection, "Привет", &collection()).unwrap(); }
     assert_eq!(Store::open(&path).unwrap().tree().unwrap()[0].name, "Привет");
-    rusqlite::Connection::open(&path).unwrap().execute_batch("PRAGMA user_version = 2").unwrap();
-    assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema(2))));
+    rusqlite::Connection::open(&path).unwrap().execute_batch("PRAGMA user_version = 3").unwrap();
+    assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema(3))));
 }
 #[test] fn database_path_with_non_ascii_characters_works() {
     let dir = tempfile::tempdir().unwrap();
@@ -146,4 +146,75 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     s.state_set("cookie_jar", "[]").unwrap();
     s.state_set("cookie_jar", "[1]").unwrap();
     assert_eq!(s.state_get("cookie_jar").unwrap().as_deref(), Some("[1]"));
+}
+
+/// DDL of schema version 1: `schema.sql` has not changed since that version.
+const SCHEMA_V1: &str = include_str!("../src/schema.sql");
+
+fn user_version(conn: &rusqlite::Connection) -> i64 { conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap() }
+fn table_names(conn: &rusqlite::Connection) -> Vec<String> {
+    conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap()
+        .query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+}
+
+#[test] fn database_of_version_1_gets_history_and_keeps_its_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(&format!("BEGIN;\n{SCHEMA_V1}\nPRAGMA user_version = 1;\nCOMMIT;")).unwrap();
+        conn.execute("INSERT INTO node (id, parent_id, kind, name, sort_order, content) VALUES ('c1', NULL, 'collection', 'Старая', 0, '{}')", []).unwrap();
+        conn.execute("INSERT INTO app_state (key, value) VALUES ('k', 'v')", []).unwrap();
+        assert_eq!(table_names(&conn), vec!["app_state", "environment", "node"]);
+    }
+    {
+        let mut s = Store::open(&path).unwrap();
+        let rows = s.tree().unwrap();
+        assert_eq!(rows.iter().map(|r| (r.id.as_str(), r.name.as_str())).collect::<Vec<_>>(), vec![("c1", "Старая")]);
+        assert_eq!(s.state_get("k").unwrap().as_deref(), Some("v"));
+        assert!(s.history_list(10, None).unwrap().is_empty());
+        s.history_add("2026-11-13T10:42:07.123Z", "{}", "{}", 500).unwrap();
+    }
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(user_version(&conn), 2);
+    assert_eq!(table_names(&conn), vec!["app_state", "environment", "history", "node"]);
+    drop(conn);
+    // the upgraded file opens again like any database of version 2
+    let s = Store::open(&path).unwrap();
+    assert_eq!(s.tree().unwrap().len(), 1);
+    assert_eq!(s.history_list(10, None).unwrap().len(), 1);
+}
+#[test] fn file_with_tables_but_version_0_is_still_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("other.db");
+    rusqlite::Connection::open(&path).unwrap().execute_batch("CREATE TABLE something (x INTEGER)").unwrap();
+    assert!(matches!(Store::open(&path), Err(StoreError::Sqlite(_))));
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!((user_version(&conn), table_names(&conn)), (0, vec!["something".to_string()]), "the foreign file is left as it was");
+}
+#[test] fn history_add_keeps_only_the_newest() {
+    let mut s = Store::open_in_memory().unwrap();
+    let ids: Vec<i64> = (1..=5).map(|n| s.history_add(&format!("t{n}"), &format!("s{n}"), &format!("d{n}"), 3).unwrap()).collect();
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids grow: {ids:?}");
+    let rows = s.history_list(10, None).unwrap();
+    assert_eq!(rows.iter().map(|r| r.summary.as_str()).collect::<Vec<_>>(), vec!["s5", "s4", "s3"]);
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![ids[4], ids[3], ids[2]]);
+    assert!(matches!(s.history_detail(ids[0]), Err(StoreError::NotFound(_))), "the oldest entries are gone");
+    assert_eq!(s.history_detail(ids[4]).unwrap(), "d5");
+}
+#[test] fn history_list_detail_and_clear() {
+    let mut s = Store::open_in_memory().unwrap();
+    let ids: Vec<i64> = (1..=4).map(|n| s.history_add(&format!("t{n}"), &format!("s{n}"), &format!("d{n}"), 500).unwrap()).collect();
+    let all = s.history_list(10, None).unwrap();
+    assert_eq!(all[0], HistoryRow { id: ids[3], sent_at: "t4".into(), summary: "s4".into() });
+    assert_eq!(all.iter().map(|r| r.id).collect::<Vec<_>>(), vec![ids[3], ids[2], ids[1], ids[0]], "newest first");
+    assert_eq!(s.history_list(2, None).unwrap().iter().map(|r| r.id).collect::<Vec<_>>(), vec![ids[3], ids[2]]);
+    assert_eq!(s.history_list(2, Some(ids[2])).unwrap().iter().map(|r| r.id).collect::<Vec<_>>(), vec![ids[1], ids[0]]);
+    assert!(s.history_list(10, Some(ids[0])).unwrap().is_empty());
+    assert_eq!(s.history_detail(ids[1]).unwrap(), "d2");
+    assert!(matches!(s.history_detail(987_654), Err(StoreError::NotFound(_))));
+    s.history_clear().unwrap();
+    assert!(s.history_list(10, None).unwrap().is_empty());
+    assert!(matches!(s.history_detail(ids[1]), Err(StoreError::NotFound(_))));
+    s.history_clear().unwrap();
 }

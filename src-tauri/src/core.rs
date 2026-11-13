@@ -3,15 +3,21 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use rqm_model::{Environment, Extra, NodeContent};
+use rqm_model::{
+    Body, CollectionContent, EnvKind, Environment, Extra, FolderContent, NodeContent, NodeKind, RequestContent,
+    RequestSettings, Scripts, GLOBALS_ID,
+};
 use rqm_postman::{Detected, ImportError, MergePolicy};
-use rqm_store::Store;
+use rqm_store::{Store, StoreError};
 
-use crate::dto::{EnvSummary, ImportFile, ImportKind, ImportResult, NodeDto, TreeRow};
+use crate::dto::{EnvSummary, EnvironmentDto, ImportFile, ImportKind, ImportResult, NodeDto, TreeRow, VariableDto};
 use crate::send::SendState;
 
 /// Key of `app_state` holding the id of the active environment as JSON: a string, or `null` when none is chosen.
 pub const ACTIVE_ENVIRONMENT_KEY: &str = "active_environment";
+
+/// How many history entries are kept when [`CoreConfig::history_keep`] does not say.
+const DEFAULT_HISTORY_KEEP: usize = 500;
 
 /// Where the core keeps its data.
 pub struct CoreConfig {
@@ -20,6 +26,8 @@ pub struct CoreConfig {
     /// Folder for the files of response bodies. It belongs to the core entirely: whatever a previous run
     /// left there is deleted when the core is created.
     pub bodies_dir: PathBuf,
+    /// How many history entries are kept, the newest ones; `None` = 500.
+    pub history_keep: Option<usize>,
 }
 
 /// Everything the window needs, without any Tauri type. One instance per application.
@@ -28,6 +36,8 @@ pub struct AppCore {
     store: Mutex<Store>,
     /// The engine, the cookies, the sends in flight and the stored response bodies (see `send.rs`).
     pub(crate) send: SendState,
+    /// How many history entries are kept (see `history.rs`).
+    pub(crate) history_keep: usize,
 }
 
 impl AppCore {
@@ -47,7 +57,8 @@ impl AppCore {
         std::fs::create_dir_all(&config.bodies_dir)
             .map_err(|error| format!("cannot create the response bodies folder: {error}"))?;
         let send = SendState::new(&store, config.bodies_dir)?;
-        Ok(AppCore { store: Mutex::new(store), send })
+        let history_keep = config.history_keep.unwrap_or(DEFAULT_HISTORY_KEEP);
+        Ok(AppCore { store: Mutex::new(store), send, history_keep })
     }
 
     /// All nodes without content, ordered by (parent, position).
@@ -74,6 +85,35 @@ impl AppCore {
             .map_err(|error| format!("invalid content: {error}"))?;
         *top_extra(&mut updated) = std::mem::take(top_extra(&mut stored.content));
         store.update_content(id, &updated).map_err(message)
+    }
+
+    /// Creates a node as the last child of `parent_id` (`None` = as the last collection) and returns its id.
+    /// The name is trimmed and must not be empty. A collection and a folder start empty; a request starts as
+    /// `GET` with an empty address, no body and inherited authorization. A place the tree rules forbid is
+    /// the store's error.
+    pub fn create_node(&self, parent_id: Option<&str>, kind: NodeKind, name: &str) -> Result<String, String> {
+        let name = node_name(name)?;
+        self.store()?.create_node(parent_id, kind, name, &blank_content(kind)).map_err(|error| match error {
+            // Nothing is moved here, so the window gets the broken rule itself: "a request cannot have children".
+            StoreError::InvalidMove(rule) => rule,
+            other => message(other),
+        })
+    }
+
+    /// Changes the name of the node; the name is trimmed and must not be empty.
+    pub fn rename_node(&self, id: &str, name: &str) -> Result<(), String> {
+        let name = node_name(name)?;
+        self.store()?.rename_node(id, name).map_err(message)
+    }
+
+    /// Copies the node with its descendants right after the original; returns the id of the copy.
+    pub fn duplicate_node(&self, id: &str) -> Result<String, String> {
+        self.store()?.duplicate_node(id).map_err(message)
+    }
+
+    /// Deletes the node with its descendants.
+    pub fn delete_node(&self, id: &str) -> Result<(), String> {
+        self.store()?.delete_node(id).map_err(message)
     }
 
     /// Imports Postman files. Every file is independent: one that cannot be imported gives a result of kind
@@ -131,6 +171,58 @@ impl AppCore {
         }
         let value = serde_json::to_string(&id).map_err(message)?;
         store.state_set(ACTIVE_ENVIRONMENT_KEY, &value).map_err(message)
+    }
+
+    /// The environment with its variables; the id `globals` gives the globals set, empty while nothing is
+    /// stored. Any other id that is not an environment is an error.
+    pub fn get_environment(&self, id: &str) -> Result<EnvironmentDto, String> {
+        let environment = stored_environment(&*self.store()?, id)?;
+        Ok(EnvironmentDto {
+            id: environment.id,
+            name: environment.name,
+            variables: environment.variables.into_iter().map(VariableDto::from).collect(),
+        })
+    }
+
+    /// Replaces the name and the variables of the environment. The name is trimmed and must not be empty;
+    /// for the id `globals` it is ignored: the globals set keeps its name. The Postman source object of the
+    /// environment stays as stored. An id that is not an environment is an error: nothing is created.
+    pub fn save_environment(&self, id: &str, name: &str, variables: Vec<VariableDto>) -> Result<(), String> {
+        let mut store = self.store()?;
+        let mut environment = stored_environment(&store, id)?;
+        if id != GLOBALS_ID {
+            environment.name = node_name(name)?.to_string();
+        }
+        environment.variables = variables.into_iter().map(Into::into).collect();
+        store.save_environment(&environment).map_err(message)
+    }
+
+    /// Creates an environment without variables and returns its id; the name is trimmed and must not be empty.
+    pub fn create_environment(&self, name: &str) -> Result<String, String> {
+        let environment = Environment {
+            id: rqm_model::new_id(),
+            kind: EnvKind::Environment,
+            name: node_name(name)?.to_string(),
+            variables: Vec::new(),
+            postman_extra: Extra::new(),
+        };
+        self.store()?.save_environment(&environment).map_err(message)?;
+        Ok(environment.id)
+    }
+
+    /// Deletes the environment; when it was the active one, the choice is cleared. The globals set cannot
+    /// be deleted.
+    pub fn delete_environment(&self, id: &str) -> Result<(), String> {
+        if id == GLOBALS_ID {
+            return Err("globals cannot be deleted".to_string());
+        }
+        let mut store = self.store()?;
+        let was_active = active_environment_in(&store)?.as_deref() == Some(id);
+        store.delete_environment(id).map_err(message)?;
+        if was_active {
+            store.state_set(ACTIVE_ENVIRONMENT_KEY, "null").map_err(message)?;
+        }
+        Ok(())
     }
 
     /// Re-indents the JSON text of a request body by the rules of [`rqm_runner::format_json`]: only the
@@ -198,6 +290,53 @@ pub(crate) fn active_environment_in(store: &Store) -> Result<Option<String>, Str
 /// Whether `store` has an environment with this id; the globals set is not one.
 fn environment_exists(store: &Store, id: &str) -> Result<bool, String> {
     Ok(store.environments().map_err(message)?.iter().any(|environment| environment.id == id))
+}
+
+/// The environment `id` of `store`, or the globals set for the id `globals` (empty while nothing is stored).
+/// Any other id is an error: the store itself would create an environment under an unknown id on saving.
+pub(crate) fn stored_environment(store: &Store, id: &str) -> Result<Environment, String> {
+    if id == GLOBALS_ID {
+        return store.globals().map_err(message);
+    }
+    let environments = store.environments().map_err(message)?;
+    environments.into_iter().find(|environment| environment.id == id).ok_or_else(|| format!("environment not found: {id}"))
+}
+
+/// The name of a node or an environment as it is stored: trimmed; an empty one is an error.
+fn node_name(name: &str) -> Result<&str, String> {
+    match name.trim() {
+        "" => Err("name is empty".to_string()),
+        trimmed => Ok(trimmed),
+    }
+}
+
+/// Content of a node created in the application: an empty collection or folder, or a `GET` request with an
+/// empty address, no body and inherited authorization.
+fn blank_content(kind: NodeKind) -> NodeContent {
+    match kind {
+        NodeKind::Collection => NodeContent::Collection(CollectionContent {
+            auth: None,
+            variables: Vec::new(),
+            scripts: Scripts::default(),
+            postman_extra: Extra::new(),
+        }),
+        NodeKind::Folder => {
+            NodeContent::Folder(FolderContent { auth: None, scripts: Scripts::default(), postman_extra: Extra::new() })
+        }
+        NodeKind::Request => NodeContent::Request(RequestContent {
+            method: "GET".to_string(),
+            url: String::new(),
+            query: Vec::new(),
+            path_variables: Vec::new(),
+            headers: Vec::new(),
+            body: Body::None,
+            auth: None,
+            scripts: Scripts::default(),
+            settings: RequestSettings::default(),
+            disabled_auto_headers: Vec::new(),
+            postman_extra: Extra::new(),
+        }),
+    }
 }
 
 /// Message of an error for the window.

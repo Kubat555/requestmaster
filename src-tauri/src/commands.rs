@@ -4,9 +4,14 @@
 //! the window; the store lock is taken and released inside the `AppCore` method and is never held across
 //! an `.await`. `cancel_send` alone is synchronous: it only fires a token.
 
+use rqm_model::NodeKind;
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 
-use crate::dto::{EnvSummary, ImportFile, ImportResult, NodeDto, SendResult, TreeRow};
+use crate::dto::{
+    EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, SendResult, TreeRow,
+    VariableDto,
+};
 use crate::AppCore;
 
 /// All nodes of the tree without their content.
@@ -95,4 +100,127 @@ pub async fn response_body(
 pub async fn release_body(core: State<'_, AppCore>, body_id: String) -> Result<(), String> {
     core.release_body(&body_id);
     Ok(())
+}
+
+/// Creates a node under `parent_id` (`null` = a new collection) and returns its id.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn create_node(
+    core: State<'_, AppCore>,
+    parent_id: Option<String>,
+    kind: NodeKind,
+    name: String,
+) -> Result<String, String> {
+    core.create_node(parent_id.as_deref(), kind, &name)
+}
+
+/// Renames the node.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn rename_node(core: State<'_, AppCore>, id: String, name: String) -> Result<(), String> {
+    core.rename_node(&id, &name)
+}
+
+/// Copies the node with its descendants; returns the id of the copy.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn duplicate_node(core: State<'_, AppCore>, id: String) -> Result<String, String> {
+    core.duplicate_node(&id)
+}
+
+/// Deletes the node with its descendants.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn delete_node(core: State<'_, AppCore>, id: String) -> Result<(), String> {
+    core.delete_node(&id)
+}
+
+/// The environment with its variables; the id `globals` gives the globals set.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_environment(core: State<'_, AppCore>, id: String) -> Result<EnvironmentDto, String> {
+    core.get_environment(&id)
+}
+
+/// Replaces the name and the variables of the environment; the id `globals` saves the globals set.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_environment(
+    core: State<'_, AppCore>,
+    id: String,
+    name: String,
+    variables: Vec<VariableDto>,
+) -> Result<(), String> {
+    core.save_environment(&id, &name, variables)
+}
+
+/// Creates an environment without variables; returns its id.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn create_environment(core: State<'_, AppCore>, name: String) -> Result<String, String> {
+    core.create_environment(&name)
+}
+
+/// Deletes the environment.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn delete_environment(core: State<'_, AppCore>, id: String) -> Result<(), String> {
+    core.delete_environment(&id)
+}
+
+/// Saves the collection as a Postman file the user chooses; returns its path, or `null` when the user
+/// closed the "Save as" window.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn export_collection(
+    app: tauri::AppHandle,
+    core: State<'_, AppCore>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (file_name, text) = core.export_collection_text(&id)?;
+    save_as(&app, &file_name, &text)
+}
+
+/// Saves the environment (the id `globals` = the globals set) as a Postman file the user chooses; returns
+/// its path, or `null` when the user closed the "Save as" window.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn export_environment(
+    app: tauri::AppHandle,
+    core: State<'_, AppCore>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (file_name, text) = core.export_environment_text(&id)?;
+    save_as(&app, &file_name, &text)
+}
+
+/// History entries, newest first; `before_id` continues the list below that entry.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn history_list(
+    core: State<'_, AppCore>,
+    limit: usize,
+    before_id: Option<i64>,
+) -> Result<Vec<HistoryItem>, String> {
+    core.history_list(limit, before_id)
+}
+
+/// One history entry with the request and the response as they were kept.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn history_get(core: State<'_, AppCore>, id: i64) -> Result<HistoryEntry, String> {
+    core.history_get(id)
+}
+
+/// Deletes the whole history.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn history_clear(core: State<'_, AppCore>) -> Result<(), String> {
+    core.history_clear()
+}
+
+/// The text of a response body for the clipboard, re-indented when `pretty` and the body is JSON.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn copy_response_body(core: State<'_, AppCore>, body_id: String, pretty: bool) -> Result<String, String> {
+    core.copy_response_body(&body_id, pretty)
+}
+
+/// Asks the user where to save a file named `file_name` and writes `text` there. `None` when the user
+/// closed the window without choosing. The blocking dialog is allowed here: the export commands are `async`
+/// and do not run on the main thread.
+fn save_as(app: &tauri::AppHandle, file_name: &str, text: &str) -> Result<Option<String>, String> {
+    let chosen = app.dialog().file().set_file_name(file_name).add_filter("JSON", &["json"]).blocking_save_file();
+    let Some(chosen) = chosen else {
+        return Ok(None);
+    };
+    let path = chosen.into_path().map_err(|error| format!("cannot use the chosen place: {error}"))?;
+    std::fs::write(&path, text).map_err(|error| format!("cannot write the file: {error}"))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }

@@ -23,7 +23,11 @@ rqm-postman = { path = "../crates/rqm-postman" }
 rqm-store = { path = "../crates/rqm-store" }
 rqm-http = { path = "../crates/rqm-http" }
 rqm-runner = { path = "../crates/rqm-runner" }
+# The moment of a send for its history entry.
+rqm-vars = { path = "../crates/rqm-vars" }
 tauri = { workspace = true }
+# System "Save as" window of the export commands.
+tauri-plugin-dialog = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # The cancellation token of a send.
@@ -32,5 +36,7 @@ tokio-util = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 wiremock = { workspace = true }
+# Only for tests/core_history.rs: breaks the history table behind the back of the core.
+rusqlite = { workspace = true }
 # Runtime of the send tests; the application itself runs on the runtime Tauri starts.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

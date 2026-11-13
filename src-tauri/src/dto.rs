@@ -314,3 +314,133 @@ pub struct Warning {
     /// Depends on `kind`, see [`WarningKind`].
     pub items: Vec<String>,
 }
+
+/// `serde(default)` helper: a variable is enabled unless the window says otherwise.
+fn enabled_by_default() -> bool {
+    true
+}
+
+/// A variable in the environment editor. Unlike the model's `Variable`, which skips default values when it
+/// is written to the store, all five keys are always present in the JSON the window receives. On the way
+/// back a missing `secret`, `enabled` or `postman_extra` means `false`, `true` and `{}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VariableDto {
+    /// Name used in `{{name}}`.
+    pub key: String,
+    /// Value as text.
+    pub value: String,
+    /// `true` = the value is masked in the interface.
+    #[serde(default)]
+    pub secret: bool,
+    /// `false` = the variable is kept but not substituted.
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    /// Original Postman object of the variable; the window returns it untouched, so the export loses nothing.
+    #[serde(default)]
+    pub postman_extra: rqm_model::Extra,
+}
+
+impl From<rqm_model::Variable> for VariableDto {
+    fn from(variable: rqm_model::Variable) -> Self {
+        VariableDto {
+            key: variable.key,
+            value: variable.value,
+            secret: variable.secret,
+            enabled: variable.enabled,
+            postman_extra: variable.postman_extra,
+        }
+    }
+}
+
+impl From<VariableDto> for rqm_model::Variable {
+    fn from(variable: VariableDto) -> Self {
+        rqm_model::Variable {
+            key: variable.key,
+            value: variable.value,
+            secret: variable.secret,
+            enabled: variable.enabled,
+            postman_extra: variable.postman_extra,
+        }
+    }
+}
+
+/// An environment, or the globals set under the id `globals`, as the environment editor opens it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnvironmentDto {
+    /// Id of the environment; `globals` for the globals set.
+    pub id: String,
+    /// Name shown in the switcher.
+    pub name: String,
+    /// Variables in their order.
+    pub variables: Vec<VariableDto>,
+}
+
+/// The short facts of a history entry. Stored as JSON in the `summary` column of `history`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySummary {
+    /// Id of the request in the tree at the moment of the send; the node may be gone by now.
+    pub node_id: Option<String>,
+    /// Name of the request at the moment of the send.
+    pub name: String,
+    /// Method as it went to the network; as typed when the request could not be prepared.
+    pub method: String,
+    /// Address as it went to the network; as typed when the request could not be prepared.
+    pub url: String,
+    /// Status code of the response; `None` when there is no response.
+    pub status: Option<u16>,
+    /// Why there is no response; `None` when there is one.
+    pub error_kind: Option<SendErrorKind>,
+    /// Milliseconds of the whole exchange; `None` when there is no response.
+    pub total_ms: Option<f64>,
+    /// Size of the decoded response body in bytes; `None` when there is no response.
+    pub size: Option<u64>,
+}
+
+/// A history entry as the list shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryItem {
+    /// Number of the entry; a newer entry has a greater one.
+    pub id: i64,
+    /// Moment the send started, UTC, like `2026-11-13T10:42:07.123Z`.
+    pub sent_at: String,
+    /// The short facts, as keys of this object.
+    #[serde(flatten)]
+    pub summary: HistorySummary,
+}
+
+/// What a history entry holds beyond the list. Stored as JSON in the `detail` column of `history`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryDetail {
+    /// Headers of the request as they went to the network (automatic ones included when there is a
+    /// response); empty when the request could not be prepared.
+    pub request_headers: Vec<(String, String)>,
+    /// Text form of the request body, at most 1 MiB of it; `None` when no body was sent.
+    pub request_body: Option<String>,
+    /// `true` when the request body was longer than 1 MiB and `request_body` is its beginning.
+    pub request_body_truncated: bool,
+    /// Response headers as received; empty when there is no response.
+    pub response_headers: Vec<(String, String)>,
+    /// The response body as text, at most 1 MiB of it; `None` when there is no response or it is not text.
+    pub response_body: Option<String>,
+    /// `true` when the response body was longer than 1 MiB and `response_body` is its beginning.
+    pub response_body_truncated: bool,
+    /// `true` when the response body is not UTF-8 text and is therefore not kept.
+    pub response_body_binary: bool,
+    /// Text of the send error; `None` when there is a response.
+    pub error_message: Option<String>,
+    /// Warnings of the send.
+    pub warnings: Vec<Warning>,
+}
+
+/// A whole history entry: the list item, the detail and whether the request still exists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    /// What the list shows, as keys of this object.
+    #[serde(flatten)]
+    pub item: HistoryItem,
+    /// What was stored beyond the list, as keys of this object.
+    #[serde(flatten)]
+    pub detail: HistoryDetail,
+    /// Whether the node `node_id` is in the tree now.
+    pub node_exists: bool,
+}

@@ -15,7 +15,7 @@ const SCHEMA_V20: &str = "https://schema.getpostman.com/json/collection/v2.0.0/c
 /// A core over an in-memory store; the directory must outlive the core.
 fn core() -> (AppCore, TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let core = AppCore::new(CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies") }).unwrap();
+    let core = AppCore::new(CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies"), history_keep: None }).unwrap();
     (core, dir)
 }
 
@@ -191,7 +191,7 @@ fn postman_extra_never_reaches_the_window_and_survives_save() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("app.db");
     let core =
-        AppCore::new(CoreConfig { db_path: Some(db_path.clone()), bodies_dir: dir.path().join("bodies") }).unwrap();
+        AppCore::new(CoreConfig { db_path: Some(db_path.clone()), bodies_dir: dir.path().join("bodies"), history_keep: None }).unwrap();
     let saved_example = json!([{ "name": "Example", "code": 200, "body": "{\"id\":12345678901234567890}" }]);
     let source = json!({
         "info": { "name": "Demo", "schema": SCHEMA_V21 },
@@ -250,9 +250,23 @@ fn commands_are_listed_everywhere() {
         "response_body",
         "release_body",
         "format_json",
+        "create_node",
+        "rename_node",
+        "duplicate_node",
+        "delete_node",
+        "get_environment",
+        "save_environment",
+        "create_environment",
+        "delete_environment",
+        "export_collection",
+        "export_environment",
+        "history_list",
+        "history_get",
+        "history_clear",
+        "copy_response_body",
     ];
     assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
-    assert_eq!(COMMANDS.len(), 13);
+    assert_eq!(COMMANDS.len(), 27);
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
     let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

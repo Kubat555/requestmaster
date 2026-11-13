@@ -26,7 +26,7 @@ fn bypass_system_proxy() {
 /// A core over the database at `db_path` (`None` = in memory) with its bodies in `<dir>/bodies`.
 fn core_at(dir: &TempDir, db_path: Option<PathBuf>) -> AppCore {
     bypass_system_proxy();
-    AppCore::new(CoreConfig { db_path, bodies_dir: bodies_dir(dir) }).unwrap()
+    AppCore::new(CoreConfig { db_path, bodies_dir: bodies_dir(dir), history_keep: None }).unwrap()
 }
 
 /// A core over an in-memory store; the directory must outlive the core.
