@@ -1,5 +1,6 @@
 // The open tabs of the window. The tab of a request or of a collection holds the stored content of its node and
-// the copy the user edits; the tab of an environment holds its variables and saves every edit by itself.
+// the copy the user edits; the tab of an environment holds its variables and saves every edit by itself; the tab
+// of a history entry only shows it.
 
 import type { Api } from "./api";
 import { Sending } from "./sending.svelte";
@@ -10,18 +11,22 @@ import {
   normalizeContent,
   type CollectionDraft,
   type EnvironmentDto,
+  type HistoryEntry,
   type NodeDto,
   type RequestDraft,
   type VariableRow,
 } from "./types";
 import { workspace } from "./workspace.svelte";
 
-/** What a tab shows. A tab of the history comes with the history itself. */
+/** What a tab shows. */
 export type TabKind = "request" | "collection" | "environment" | "history";
 
 /** What every tab has, whatever it shows. */
 export interface TabLike {
-  /** Unique among the open tabs: the id of the node, or `env:` + the id of the environment. */
+  /**
+   * Unique among the open tabs: the id of the node, `env:` + the id of the environment, or `history:` + the id
+   * of the history entry.
+   */
   readonly id: string;
   readonly kind: TabKind;
   /** Id of the node of a request or a collection; `null` — the tab is not of a node. */
@@ -231,8 +236,40 @@ export class EnvironmentTab implements TabLike {
   }
 }
 
+/** Id of the tab of the history entry. */
+export function historyTabId(entryId: number): string {
+  return `history:${entryId}`;
+}
+
+/** The tab of a history entry: a send as it was, to read. Nothing in it changes, so it is never `dirty`. */
+export class HistoryTab implements TabLike {
+  readonly id: string;
+  readonly kind = "history";
+  /** The tab is not of a node, even while the request of the entry exists: deleting that request leaves it open. */
+  readonly nodeId = null;
+  /** Says whose send it is; the name the request had then. */
+  name: string;
+  /** The entry as it was read when the tab was opened. */
+  readonly entry: HistoryEntry;
+  readonly dirty = false;
+
+  constructor(entry: HistoryEntry) {
+    this.id = historyTabId(entry.id);
+    this.name = strings.history.tabName(entry.name);
+    this.entry = entry;
+  }
+
+  /** Ctrl+S has nothing to do here. */
+  save(): Promise<boolean> {
+    return Promise.resolve(true);
+  }
+
+  /** Nothing was started. */
+  dispose(): void {}
+}
+
 /** Any tab of the window. */
-export type AnyTab = Tab | EnvironmentTab;
+export type AnyTab = Tab | EnvironmentTab | HistoryTab;
 
 /** Makes the tab of a node; a folder has no tab. */
 function createTab(node: NodeDto): Tab | null {
@@ -302,6 +339,31 @@ export class Tabs {
   environment(environmentId: string): EnvironmentTab | null {
     const tab = this.list.find((candidate) => candidate.id === environmentTabId(environmentId));
     return tab?.kind === "environment" ? tab : null;
+  }
+
+  /**
+   * Opens the entry of the history in a tab and shows it; one that is already open is only shown. A failure to
+   * read the entry is shown as a notification.
+   */
+  async openHistory(api: Api, entryId: number): Promise<void> {
+    const tabId = historyTabId(entryId);
+    if (this.activate(tabId)) return;
+    let entry: HistoryEntry;
+    try {
+      entry = await api.historyGet(entryId);
+    } catch (error) {
+      toasts.error(String(error));
+      return;
+    }
+    // The same entry may have been opened while this one was being read.
+    if (this.activate(tabId)) return;
+    this.list.push(new HistoryTab(entry));
+    this.#activeId = tabId;
+  }
+
+  /** The history was cleared: the tabs of its entries are closed. */
+  closeHistory(): void {
+    for (const tab of this.list.filter((candidate) => candidate.kind === "history")) this.close(tab.id);
   }
 
   /** Shows the tab; tells whether there is such a tab. */

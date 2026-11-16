@@ -4,6 +4,7 @@
   import Dialog from "./components/Dialog.svelte";
   import EnvironmentEditor from "./components/EnvironmentEditor.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
+  import HistoryEntryView from "./components/HistoryEntryView.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
   import ResponsePanel from "./components/ResponsePanel.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -34,11 +35,11 @@
 
   /**
    * Closes the tab; one with unsaved edits is closed only after the user says what to do with them. An
-   * environment has nothing to ask about: it saves by itself.
+   * environment has nothing to ask about: it saves by itself; a history entry has nothing to save.
    */
   function requestClose(tab: AnyTab) {
     if (tab.kind === "environment") void closeEnvironment(tab);
-    else if (tab.dirty) closing = tab;
+    else if (tab.kind !== "history" && tab.dirty) closing = tab;
     else tabs.close(tab.id);
   }
 
@@ -61,6 +62,8 @@
    */
   let quitting = $state.raw<{ answer: (close: boolean) => void } | null>(null);
   const dirtyTabs = $derived(tabs.list.filter((tab) => tab.dirty));
+  /** A history entry shows its own response, so its tab takes the area of the response too. */
+  const whole = $derived(tabs.active?.kind === "history");
 
   /**
    * The user asked to close the window. First the environments save what was waiting for its time; a failed
@@ -156,7 +159,7 @@
       <EnvironmentSwitcher {workspace} />
     </div>
     <!-- Without tabs the editor takes the whole area and says what to do; there is no response to show. -->
-    <div class="work" class:idle={tabs.list.length === 0}>
+    <div class="work" class:idle={tabs.list.length === 0} class:whole>
       <section class="editor" aria-label={strings.editor.label}>
         {#if tabs.list.length === 0}
           <EmptyState icon="collection" title={strings.editor.emptyTitle} text={strings.editor.emptyText} />
@@ -169,13 +172,15 @@
               <RequestEditor tab={tab as Tab<RequestDraft>} />
             {:else if tab.kind === "environment"}
               <EnvironmentEditor {tab} />
+            {:else if tab.kind === "history"}
+              <HistoryEntryView {tab} />
             {:else}
               <CollectionEditor tab={tab as Tab<CollectionDraft>} />
             {/if}
           </div>
         {/each}
       </section>
-      <section class="response" aria-label={strings.response.label} hidden={tabs.list.length === 0}>
+      <section class="response" aria-label={strings.response.label} hidden={tabs.list.length === 0 || whole}>
         <!-- Kept for every request tab, like the editors: the response of a tab that is not shown stays. -->
         {#each tabs.list as tab (tab.id)}
           {#if tab.kind === "request"}
@@ -283,8 +288,9 @@
     }
   }
 
-  /* No tab is open: one cell, with the hint in the middle of it. */
-  .work.idle {
+  /* No tab is open: one cell, with the hint in the middle of it. The tab of a history entry: one cell too. */
+  .work.idle,
+  .work.whole {
     grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   }
 

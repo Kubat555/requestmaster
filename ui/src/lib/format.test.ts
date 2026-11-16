@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatMs, methodClass, methodLabel, statusClass } from "./format";
+import { dayLabel, formatBytes, formatClock, formatMs, methodClass, methodLabel, statusClass } from "./format";
 
 describe("formatBytes", () => {
   it("shows bytes, kilobytes and megabytes with a decimal comma", () => {
@@ -47,5 +47,33 @@ describe("methodLabel", () => {
     expect(methodLabel("GET")).toBe("GET");
     expect(methodLabel("DELETE")).toBe("DELETE");
     expect(methodLabel("PROPFIND")).toBe("PROPFI");
+  });
+});
+
+// The inputs are built from the local time, so that the tests do not depend on the time zone of the machine.
+describe("formatClock", () => {
+  it("shows the local time of a moment as hours, minutes and seconds", () => {
+    expect(formatClock(new Date(2026, 10, 13, 9, 5, 7).toISOString())).toBe("09:05:07");
+    expect(formatClock(new Date(2026, 10, 13, 23, 59, 59).toISOString())).toBe("23:59:59");
+  });
+});
+
+describe("dayLabel", () => {
+  const now = new Date(2026, 10, 13, 12, 0);
+
+  it("calls the day of `now` today, whatever the time", () => {
+    expect(dayLabel(new Date(2026, 10, 13, 0, 0, 1).toISOString(), now)).toBe("Сегодня");
+    expect(dayLabel(new Date(2026, 10, 13, 23, 59, 59).toISOString(), now)).toBe("Сегодня");
+  });
+
+  it("calls the day before yesterday, up to its last second", () => {
+    expect(dayLabel(new Date(2026, 10, 12, 23, 59, 59).toISOString(), now)).toBe("Вчера");
+    expect(dayLabel(new Date(2026, 10, 12, 0, 0, 0).toISOString(), now)).toBe("Вчера");
+  });
+
+  it("shows any other day as a date", () => {
+    expect(dayLabel(new Date(2026, 10, 1, 12, 0).toISOString(), now)).toBe("01.11.2026");
+    expect(dayLabel(new Date(2026, 10, 11, 23, 59, 59).toISOString(), now)).toBe("11.11.2026");
+    expect(dayLabel(new Date(2025, 11, 31, 8, 0).toISOString(), now)).toBe("31.12.2025");
   });
 });

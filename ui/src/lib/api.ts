@@ -7,6 +7,8 @@ import type {
   EnvSummary,
   EnvironmentDto,
   GlobalsPolicy,
+  HistoryEntry,
+  HistoryItem,
   ImportFile,
   ImportResult,
   NodeContent,
@@ -78,6 +80,15 @@ export interface Api {
   /** Re-indents JSON text; rejects when the text is not valid JSON. */
   formatJson(text: string): Promise<string>;
   /**
+   * Sends of the history, the newest first: at most `limit` (1 to 200) of them, with `beforeId` — only the ones
+   * older than that entry.
+   */
+  historyList(limit: number, beforeId: number | null): Promise<HistoryItem[]>;
+  /** One entry of the history with the request and the response as they were kept; an unknown id is rejected. */
+  historyGet(id: number): Promise<HistoryEntry>;
+  /** Deletes the whole history. */
+  historyClear(): Promise<void>;
+  /**
    * Calls `handler` when the user asks to close the window; the window closes only when the handler answers
    * `true`. Resolves to the function that stops the listening.
    */
@@ -113,6 +124,9 @@ export const tauriApi: Api = {
   copyResponseBody: (bodyId, pretty) => invoke<string>("copy_response_body", { body_id: bodyId, pretty }),
   releaseBody: (bodyId) => invoke<void>("release_body", { body_id: bodyId }),
   formatJson: (text) => invoke<string>("format_json", { text }),
+  historyList: (limit, beforeId) => invoke<HistoryItem[]>("history_list", { limit, before_id: beforeId }),
+  historyGet: (id) => invoke<HistoryEntry>("history_get", { id }),
+  historyClear: () => invoke<void>("history_clear"),
   // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself
   // unless `preventDefault` was called; nothing has to be called afterwards. It needs the permissions
   // `core:event:allow-listen`, `core:event:allow-unlisten` and `core:window:allow-destroy` of the capability.

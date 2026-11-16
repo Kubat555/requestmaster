@@ -1,6 +1,7 @@
 // Sending the request of a tab: whether a send is running and the result the response panel shows.
 
 import type { Api } from "./api";
+import { history } from "./history.svelte";
 import type { Tab } from "./tabs.svelte";
 import { toasts } from "./toasts.svelte";
 import type { RequestDraft, SendResult } from "./types";
@@ -45,6 +46,8 @@ export class Sending {
    * Sends the draft of the tab, saved or not, and waits for the outcome. A send started while another one
    * runs takes its place: only the result of the last send is kept, any other is dropped and its body
    * released. A failure of the command itself is shown as a notification and leaves the previous result.
+   * Whatever the command ends with, the shell has written the send to the history by then, so the list of the
+   * history is read again — also for a result that is dropped.
    */
   async send(api: Api, tab: Sendable): Promise<void> {
     const sendId = crypto.randomUUID();
@@ -54,7 +57,8 @@ export class Sending {
 
     let result: SendResult;
     try {
-      result = await api.sendRequest(sendId, tab.nodeId, plainCopy(tab.draft));
+      // Not waited for: the history has nothing to do with what the send shows.
+      result = await api.sendRequest(sendId, tab.nodeId, plainCopy(tab.draft)).finally(() => void history.reload(api));
     } catch (error) {
       // A send that was cancelled or replaced is of no interest any more, and neither is its failure.
       if (this.#awaited !== sendId) return;
@@ -75,7 +79,8 @@ export class Sending {
 
   /**
    * Stops the running send. The tab is idle with a "cancelled" result at once; whatever the send returns
-   * later is dropped. Does nothing when no send is running.
+   * later is dropped. Does nothing when no send is running. The history is not read here: the shell writes the
+   * cancelled send when its command returns, and {@link send} reads the history then.
    */
   cancel(api: Api): void {
     const sendId = this.#awaited;

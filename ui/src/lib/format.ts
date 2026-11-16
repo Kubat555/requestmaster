@@ -1,4 +1,5 @@
-// Display helpers for sizes, durations and status codes. Numbers use a decimal comma: the interface is Russian.
+// Display helpers for sizes, durations, moments and status codes. Numbers use a decimal comma: the interface is
+// Russian.
 
 import { strings } from "./strings";
 
@@ -21,6 +22,34 @@ export function formatMs(ms: number): string {
   const rounded = Math.round(ms);
   if (rounded < 1000) return `${rounded} ${strings.units.milliseconds}`;
   return `${decimal(ms / 1000, 2)} ${strings.units.seconds}`;
+}
+
+/** `7` -> `07`. */
+function twoDigits(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** The local time of a moment given as ISO text (`2026-11-13T10:42:07.123Z`): `ЧЧ:ММ:СС`. */
+export function formatClock(iso: string): string {
+  const date = new Date(iso);
+  return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}:${twoDigits(date.getSeconds())}`;
+}
+
+/** The local date of a moment given as ISO text: `ДД.ММ.ГГГГ`. */
+export function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return `${twoDigits(date.getDate())}.${twoDigits(date.getMonth() + 1)}.${date.getFullYear()}`;
+}
+
+/** The local day of a moment given as ISO text, as seen at `now`: "today", "yesterday", or the date. */
+export function dayLabel(iso: string, now: Date): string {
+  const date = new Date(iso);
+  // Compared by the calendar, not by 24 hours: one second after midnight is already another day.
+  const sameDay = (other: Date) =>
+    date.getFullYear() === other.getFullYear() && date.getMonth() === other.getMonth() && date.getDate() === other.getDate();
+  if (sameDay(now)) return strings.history.today;
+  if (sameDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return strings.history.yesterday;
+  return formatDate(iso);
 }
 
 /** Colour group of an HTTP status code; matches the `--status-*` tokens. */

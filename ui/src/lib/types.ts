@@ -332,18 +332,21 @@ export interface ResponseDto {
   body: { id: string; total: number; truncated: boolean; json: boolean };
 }
 
+/** Kind of the reason a send produced no response. */
+export type SendErrorKind =
+  | "cancelled"
+  | "timeout"
+  | "invalid_url"
+  | "connect"
+  | "tls"
+  | "too_many_redirects"
+  | "io"
+  | "unconfirmed_files"
+  | "other";
+
 /** Why a send produced no response. */
 export interface SendErrorDto {
-  kind:
-    | "cancelled"
-    | "timeout"
-    | "invalid_url"
-    | "connect"
-    | "tls"
-    | "too_many_redirects"
-    | "io"
-    | "unconfirmed_files"
-    | "other";
+  kind: SendErrorKind;
   message: string;
   /** `unconfirmed_files` only: names of the form fields. */
   fields: string[];
@@ -360,4 +363,51 @@ export interface SendResult {
   response: ResponseDto | null;
   error: SendErrorDto | null;
   warnings: Warning[];
+}
+
+/** A send as the list of the history shows it. */
+export interface HistoryItem {
+  /** Number of the entry; a newer entry has a greater one. */
+  id: number;
+  /** Moment the send started, UTC, like `2026-11-13T10:42:07.123Z`. */
+  sent_at: string;
+  /** Id of the request in the tree at the moment of the send; the node may be gone by now. */
+  node_id: string | null;
+  /** Name of the request at the moment of the send. */
+  name: string;
+  /** Method and address as they went to the network; as typed when the request could not be prepared. */
+  method: string;
+  url: string;
+  /** Status code of the response; `null` when there is no response. */
+  status: number | null;
+  /** Why there is no response; `null` when there is one. */
+  error_kind: SendErrorKind | null;
+  /** Milliseconds of the whole exchange; `null` when there is no response. */
+  total_ms: number | null;
+  /** Size of the decoded response body in bytes; `null` when there is no response. */
+  size: number | null;
+}
+
+/** A whole entry of the history: the request and the response as they were kept. */
+export interface HistoryEntry extends HistoryItem {
+  /** Headers of the request as they went to the network; empty when the request could not be prepared. */
+  request_headers: [string, string][];
+  /** Text form of the request body, at most 1 MiB of it; `null` when no body was sent. */
+  request_body: string | null;
+  /** The request body was longer than 1 MiB and `request_body` is its beginning. */
+  request_body_truncated: boolean;
+  /** Response headers as received; empty when there is no response. */
+  response_headers: [string, string][];
+  /** The response body as text, at most 1 MiB of it; `null` when there is no response or it is not text. */
+  response_body: string | null;
+  /** The response body was longer than 1 MiB and `response_body` is its beginning. */
+  response_body_truncated: boolean;
+  /** The response body is not text and is therefore not kept. */
+  response_body_binary: boolean;
+  /** Text of the send error; `null` when there is a response. */
+  error_message: string | null;
+  /** Warnings of the send. */
+  warnings: Warning[];
+  /** Whether the node `node_id` is in the tree now. */
+  node_exists: boolean;
 }

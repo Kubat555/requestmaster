@@ -2,6 +2,7 @@
   import { getContext, onMount } from "svelte";
   import Dialog from "./Dialog.svelte";
   import EnvironmentList from "./EnvironmentList.svelte";
+  import HistoryList from "./HistoryList.svelte";
   import ImportReport from "./ImportReport.svelte";
   import Tree from "./Tree.svelte";
   import Button from "./ui/Button.svelte";
@@ -192,9 +193,7 @@
   {:else if section === "environments"}
     <EnvironmentList {workspace} />
   {:else}
-    <div class="content">
-      <EmptyState icon="history" title={strings.sidebar.historyEmpty} />
-    </div>
+    <HistoryList />
   {/if}
 </div>
 

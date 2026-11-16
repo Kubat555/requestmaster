@@ -1,7 +1,21 @@
 // In-memory `Api` for component tests. Not imported by the application, so it is not part of its build.
 
 import type { Api } from "../api";
-import { GLOBALS_ID, type EnvSummary, type NodeDto, type NodeKind, type RequestContent, type SendResult, type Variable, type VariableRow } from "../types";
+import {
+  GLOBALS_ID,
+  type EnvSummary,
+  type HistoryEntry,
+  type HistoryItem,
+  type NodeDto,
+  type NodeKind,
+  type RequestContent,
+  type SendResult,
+  type Variable,
+  type VariableRow,
+} from "../types";
+
+/** An entry of the history as the storage keeps it: whether its request still exists is told by the tree. */
+export type StoredHistoryEntry = Omit<HistoryEntry, "node_exists">;
 
 /** Answers `sendRequest` in a test. */
 export type SendHandler = (sendId: string, requestId: string, draft: RequestContent | null) => Promise<SendResult>;
@@ -20,6 +34,8 @@ export interface FakeSeed {
   onSend?: SendHandler;
   /** Response bodies by id; `responseBody` and `copyResponseBody` return them whatever `pretty` is. */
   bodies?: Record<string, Uint8Array>;
+  /** Entries of the history, in any order; default — none. A send does not add one: a test does. */
+  history?: StoredHistoryEntry[];
 }
 
 /** `Api` in memory plus what a test inspects or changes after creation. */
@@ -32,6 +48,8 @@ export interface FakeApi extends Api {
   cancelled: string[];
   /** Ids passed to `releaseBody`, in order. */
   released: string[];
+  /** Entries of the history, in any order; a test may add to them at any time. */
+  history: StoredHistoryEntry[];
   /**
    * The user asks to close the window: calls what was given to `onCloseRequested` and resolves to whether the
    * window would close.
@@ -124,6 +142,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     bodies: new Map(Object.entries(seed.bodies ?? {})),
     cancelled: [],
     released: [],
+    history: structuredClone(seed.history ?? []),
 
     async tree() {
       // `sort_order` is the position among the siblings, 0..n, in the order of the seed.
@@ -254,6 +273,35 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       } catch {
         throw "not valid JSON";
       }
+    },
+    async historyList(limit, beforeId) {
+      if (limit < 1 || limit > 200) throw "limit must be from 1 to 200";
+      return api.history
+        .filter((entry) => beforeId === null || entry.id < beforeId)
+        .sort((a, b) => b.id - a.id)
+        .slice(0, limit)
+        .map(
+          ({ id, sent_at, node_id, name, method, url, status, error_kind, total_ms, size }): HistoryItem => ({
+            id,
+            sent_at,
+            node_id,
+            name,
+            method,
+            url,
+            status,
+            error_kind,
+            total_ms,
+            size,
+          }),
+        );
+    },
+    async historyGet(id) {
+      const entry = api.history.find((candidate) => candidate.id === id);
+      if (!entry) throw `history entry not found: ${id}`;
+      return { ...structuredClone(entry), node_exists: nodes.some((node) => node.id === entry.node_id) };
+    },
+    async historyClear() {
+      api.history.length = 0;
     },
     async onCloseRequested(handler) {
       closeHandlers.push(handler);
