@@ -20,7 +20,7 @@ export const strings = {
     label: "Коллекции",
     resize: "Ширина боковой панели",
     emptyTitle: "Коллекций пока нет",
-    empty: "Перетащите сюда файл коллекции Postman или нажмите „Импорт“",
+    empty: "Перетащите сюда файл коллекции Postman или нажмите кнопку импорта над списком",
     filter: "Фильтр по имени",
     nothingFound: "Ничего не найдено",
     sections: "Разделы боковой панели",
@@ -281,6 +281,18 @@ export const strings = {
       body_pruned: (methods: string[]) => `Тело не отправлено: метод ${methods.join(", ")} его не передаёт`,
       unsupported_auth: (types: string[]) => `Авторизация ${types.join(", ")} не поддерживается, запрос отправлен без неё`,
     },
+  },
+  layout: {
+    /** The button in the row of the tabs and its menu. */
+    button: "Расположение ответа",
+    placements: {
+      right: "Ответ справа",
+      bottom: "Ответ снизу",
+      left: "Ответ слева",
+      top: "Ответ сверху",
+      auto: "Авто",
+    },
+    resize: "Размер редактора и ответа",
   },
   toasts: {
     label: "Уведомления",

@@ -72,11 +72,20 @@ describe("CollectionEditor", () => {
     expect(secret.type).toBe("password");
     expect(screen.queryByDisplayValue("hunter2")).toBe(secret);
 
-    await fireEvent.click(within(rows[1]).getByRole("button", { name: strings.table.show }));
+    // An icon alone (an eye): the name is said to a screen reader and shown as the tooltip.
+    const show = within(rows[1]).getByRole("button", { name: strings.table.show });
+    expect(show.title).toBe(strings.table.show);
+    expect(show.textContent!.trim()).toBe("");
+    expect(show.getAttribute("aria-pressed")).toBe("false");
+
+    await fireEvent.click(show);
     expect(secret.type).toBe("text");
     expect(secret.value).toBe("hunter2");
 
-    await fireEvent.click(within(rows[1]).getByRole("button", { name: strings.table.hide }));
+    const hide = within(rows[1]).getByRole("button", { name: strings.table.hide });
+    expect(hide.title).toBe(strings.table.hide);
+    expect(hide.getAttribute("aria-pressed")).toBe("true");
+    await fireEvent.click(hide);
     expect(secret.type).toBe("password");
   });
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Button from "./ui/Button.svelte";
+  import IconButton from "./ui/IconButton.svelte";
   import { formatBytes, formatMs, statusClass } from "../lib/format";
   import { strings } from "../lib/strings";
   import type { ResponseDto } from "../lib/types";
@@ -37,7 +37,7 @@
     <!-- A response without a body has nothing to copy. -->
     {#if response.body.total > 0}
       <span class="copy">
-        <Button variant="ghost" size="sm" icon="copy" onclick={oncopy}>{strings.response.copy}</Button>
+        <IconButton icon="copy" size="sm" label={strings.response.copy} onclick={oncopy} />
       </span>
     {/if}
   </div>

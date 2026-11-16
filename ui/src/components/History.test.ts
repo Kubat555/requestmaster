@@ -402,18 +402,21 @@ describe("a history entry", () => {
     await tabs.open(api, "req-list-users");
     await screen.findByRole("tab", { name: /List users/ });
     expect(responseArea().hidden).toBe(false);
-    expect(responseArea().closest(".work")!.classList.contains("whole")).toBe(false);
+    // `data-side` is on the area only while the editor and the response share it.
+    expect(responseArea().closest(".work")!.hasAttribute("data-side")).toBe(true);
+    expect(screen.queryByRole("separator", { name: strings.layout.resize })).not.toBeNull();
 
     await openEntry(1);
 
     // The only "response" on the screen is the one of the entry, inside the panel of its tab.
     expect(responseArea().hidden).toBe(true);
-    expect(responseArea().closest(".work")!.classList.contains("whole")).toBe(true);
+    expect(responseArea().closest(".work")!.hasAttribute("data-side")).toBe(false);
+    expect(screen.queryByRole("separator", { name: strings.layout.resize })).toBeNull();
     expect(screen.getByRole("region", { name: TEXT.response }).closest("[data-tab-panel]")).not.toBeNull();
 
     tabs.activate("req-list-users");
     await waitFor(() => expect(responseArea().hidden).toBe(false));
-    expect(responseArea().closest(".work")!.classList.contains("whole")).toBe(false);
+    expect(responseArea().closest(".work")!.hasAttribute("data-side")).toBe(true);
   });
 
   it("shows an entry that is already open instead of opening it again", async () => {

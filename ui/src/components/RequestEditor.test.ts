@@ -367,8 +367,14 @@ describe("RequestEditor", () => {
     expect(draft().auth).toEqual({ type: "bearer", token: "abc" });
     // The token is masked until the button is pressed.
     expect(token.type).toBe("password");
-    await fireEvent.click(screen.getByRole("button", { name: `${strings.table.show}: ${strings.auth.token}` }));
+    const show = screen.getByRole("button", { name: `${strings.table.show}: ${strings.auth.token}` });
+    expect(show.title).toBe(`${strings.table.show}: ${strings.auth.token}`);
+    expect(show.textContent!.trim()).toBe("");
+    await fireEvent.click(show);
     expect(token.type).toBe("text");
+    expect(screen.getByRole("button", { name: `${strings.table.hide}: ${strings.auth.token}` }).title).toBe(
+      `${strings.table.hide}: ${strings.auth.token}`,
+    );
   });
 
   it("sets auth to null when the request inherits it", async () => {

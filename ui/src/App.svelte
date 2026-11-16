@@ -5,6 +5,7 @@
   import EnvironmentEditor from "./components/EnvironmentEditor.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
   import HistoryEntryView from "./components/HistoryEntryView.svelte";
+  import LayoutSwitcher from "./components/LayoutSwitcher.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
   import ResponsePanel from "./components/ResponsePanel.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -15,6 +16,7 @@
   import EmptyState from "./components/ui/EmptyState.svelte";
   import type { Api } from "./lib/api";
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
+  import { layout, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN } from "./lib/layout.svelte";
   import { canSend } from "./lib/sending.svelte";
   import { strings } from "./lib/strings";
   import { tabs, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
@@ -29,6 +31,12 @@
   const SIDEBAR_MAX = 480;
 
   let sidebarWidth = $state(SIDEBAR_DEFAULT);
+
+  // What was remembered is read before the first draw, so the window does not open in another layout.
+  layout.load();
+  let windowWidth = $state(window.innerWidth);
+  /** The area of the editor and the response: the divider counts its way in shares of it. */
+  let work = $state<HTMLDivElement>();
 
   /** The tab with unsaved edits the user asked to close;  — no question on the screen. */
   let closing = $state<Tab | null>(null);
@@ -64,6 +72,18 @@
   const dirtyTabs = $derived(tabs.list.filter((tab) => tab.dirty));
   /** A history entry shows its own response, so its tab takes the area of the response too. */
   const whole = $derived(tabs.active?.kind === "history");
+  /** The editor and the response share the area; otherwise there is one cell and nothing to divide. */
+  const divided = $derived(tabs.list.length > 0 && !whole);
+  /** The side of the editor the response stands on. */
+  const side = $derived(layout.side(windowWidth));
+  /** The response beside the editor, not above or below it: the divider is a vertical line. */
+  const beside = $derived(side === "right" || side === "left");
+
+  /** Percents of the area in one pixel along the way of the divider. */
+  function percentsPerPixel(): number {
+    const size = (beside ? work?.clientWidth : work?.clientHeight) ?? 0;
+    return size > 0 ? 100 / size : 0;
+  }
 
   /**
    * The user asked to close the window. First the environments save what was waiting for its time; a failed
@@ -144,6 +164,8 @@
   });
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} />
+
 <div class="app">
   <nav class="sidebar" aria-label={strings.sidebar.label} style:width="{sidebarWidth}px">
     <Sidebar {workspace} />
@@ -157,9 +179,20 @@
         {/if}
       </section>
       <EnvironmentSwitcher {workspace} />
+      <LayoutSwitcher {layout} />
     </div>
-    <!-- Without tabs the editor takes the whole area and says what to do; there is no response to show. -->
-    <div class="work" class:idle={tabs.list.length === 0} class:whole>
+    <!-- Without tabs the editor takes the whole area and says what to do; there is no response to show.
+         The editor always comes first in the markup and the response second, for the keyboard and for screen
+         readers; the side the response is drawn on is a matter of the grid alone. -->
+    <div
+      bind:this={work}
+      class="work"
+      class:idle={tabs.list.length === 0}
+      data-placement={layout.placement}
+      data-side={divided ? side : undefined}
+      style:--editor-share="{layout.split}fr"
+      style:--response-share="{100 - layout.split}fr"
+    >
       <section class="editor" aria-label={strings.editor.label}>
         {#if tabs.list.length === 0}
           <EmptyState icon="collection" title={strings.editor.emptyTitle} text={strings.editor.emptyText} />
@@ -180,7 +213,24 @@
           </div>
         {/each}
       </section>
-      <section class="response" aria-label={strings.response.label} hidden={tabs.list.length === 0 || whole}>
+      {#if divided}
+        <!-- With the response on the left or above, the editor stands after the divider. -->
+        <div class="divider">
+          <Splitter
+            bind:value={() => layout.split, (split) => layout.resize(split)}
+            min={SPLIT_MIN}
+            max={SPLIT_MAX}
+            step={2}
+            digits={1}
+            reset={SPLIT_DEFAULT}
+            orientation={beside ? "vertical" : "horizontal"}
+            reverse={side === "left" || side === "top"}
+            scale={percentsPerPixel}
+            label={strings.layout.resize}
+          />
+        </div>
+      {/if}
+      <section class="response" aria-label={strings.response.label} hidden={!divided}>
         <!-- Kept for every request tab, like the editors: the response of a tab that is not shown stays. -->
         {#each tabs.list as tab (tab.id)}
           {#if tab.kind === "request"}
@@ -260,38 +310,77 @@
     overflow-wrap: anywhere;
   }
 
-  /* The editor above the response; side by side when the window is at least 1280 px wide. */
+  /* One cell until the editor and the response share the area (`data-side`): no tab is open, or the tab is a
+     history entry. Then three tracks — editor, divider, response — in the order of the chosen side; the track
+     of the divider has no size, the divider itself lies over the edges of its neighbours. */
   .work {
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template: minmax(0, 1fr) minmax(0, 1fr) / minmax(0, 1fr);
+    grid-template: "editor" minmax(0, 1fr) / minmax(0, 1fr);
   }
 
-  .editor,
-  .response {
+  .work[data-side="right"] {
+    grid-template: "editor divider response" minmax(0, 1fr) / minmax(0, var(--editor-share)) 0 minmax(0, var(--response-share));
+  }
+
+  .work[data-side="left"] {
+    grid-template: "response divider editor" minmax(0, 1fr) / minmax(0, var(--response-share)) 0 minmax(0, var(--editor-share));
+  }
+
+  .work[data-side="bottom"] {
+    grid-template:
+      "editor" minmax(0, var(--editor-share))
+      "divider" 0
+      "response" minmax(0, var(--response-share))
+      / minmax(0, 1fr);
+  }
+
+  .work[data-side="top"] {
+    grid-template:
+      "response" minmax(0, var(--response-share))
+      "divider" 0
+      "editor" minmax(0, var(--editor-share))
+      / minmax(0, 1fr);
+  }
+
+  .editor {
+    grid-area: editor;
     overflow: auto;
   }
 
   .response {
+    grid-area: response;
+    overflow: auto;
+  }
+
+  .divider {
+    grid-area: divider;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .work[data-side="bottom"] .divider,
+  .work[data-side="top"] .divider {
+    flex-direction: column;
+  }
+
+  /* The line between the two is drawn on the edge of the response that faces the editor. */
+  .work[data-side="right"] .response {
+    border-left: 1px solid var(--border);
+  }
+
+  .work[data-side="left"] .response {
+    border-right: 1px solid var(--border);
+  }
+
+  .work[data-side="bottom"] .response {
     border-top: 1px solid var(--border);
   }
 
-  @media (min-width: 1280px) {
-    .work {
-      grid-template: minmax(0, 1fr) / minmax(0, 1fr) minmax(0, 1fr);
-    }
-
-    .response {
-      border-top: none;
-      border-left: 1px solid var(--border);
-    }
-  }
-
-  /* No tab is open: one cell, with the hint in the middle of it. The tab of a history entry: one cell too. */
-  .work.idle,
-  .work.whole {
-    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  .work[data-side="top"] .response {
+    border-bottom: 1px solid var(--border);
   }
 
   .work.idle .editor {

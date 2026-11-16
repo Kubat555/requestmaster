@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Button from "./ui/Button.svelte";
+  import IconButton from "./ui/IconButton.svelte";
   import Field from "./ui/Field.svelte";
   import { strings } from "../lib/strings";
   import type { ApiKeyPlacement, Auth } from "../lib/types";
@@ -70,13 +70,12 @@
         {value}
         oninput={(event) => set(event.currentTarget.value)}
       />
-      <Button
+      <IconButton
+        icon={shown ? "eye-off" : "eye"}
+        label="{shown ? strings.table.hide : strings.table.show}: {label}"
         aria-pressed={shown}
-        aria-label="{shown ? strings.table.hide : strings.table.show}: {label}"
         onclick={() => toggleRevealed(label)}
-      >
-        {shown ? strings.table.hide : strings.table.show}
-      </Button>
+      />
     </span>
   </div>
 {/snippet}

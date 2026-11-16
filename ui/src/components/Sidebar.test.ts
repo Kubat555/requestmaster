@@ -66,7 +66,11 @@ describe("Sidebar", () => {
 
   it("has a hidden input for several .json files behind the import button", async () => {
     const { fileInput } = await renderSidebar();
-    expect(screen.getByRole("button", { name: strings.import.button })).toBeTruthy();
+    // An icon alone: the name is said to a screen reader and shown as the tooltip.
+    const button = screen.getByRole("button", { name: strings.import.button });
+    expect(button.title).toBe(strings.import.button);
+    expect(button.textContent!.trim()).toBe("");
+    expect(button.querySelector("svg")).not.toBeNull();
     expect(fileInput.multiple).toBe(true);
     expect(fileInput.accept).toBe(".json");
     expect(fileInput.hidden).toBe(true);

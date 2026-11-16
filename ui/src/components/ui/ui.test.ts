@@ -188,6 +188,40 @@ describe("Menu", () => {
     expect(document.activeElement).toBe(item("Rename"));
   });
 
+  it("announces items with `checked` as radio items, marks the current one and walks them like the others", async () => {
+    const left = vi.fn();
+    const onclose = vi.fn();
+    render(Menu, {
+      props: {
+        label: "Side",
+        anchor: { x: 10, y: 20 },
+        items: [
+          { label: "Left", checked: false, onselect: left },
+          { label: "Right", checked: true, onselect: vi.fn() },
+        ],
+        onclose,
+      },
+    });
+    const radios = screen.getAllByRole("menuitemradio");
+
+    expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+    expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+    expect(radios.map((radio) => radio.querySelectorAll("svg").length)).toEqual([0, 1]);
+    expect(document.activeElement).toBe(radios[0]);
+
+    await fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(radios[1]);
+    await fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    await fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    expect(left).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves plain items without `aria-checked`", () => {
+    openMenu();
+    expect(screen.getAllByRole("menuitem").every((element) => !element.hasAttribute("aria-checked"))).toBe(true);
+  });
+
   it("moves the focus with the arrows, round the ends", async () => {
     openMenu();
 

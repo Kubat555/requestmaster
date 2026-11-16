@@ -17,6 +17,8 @@
   --dur-1: 83ms; --dur-2: 120ms; --dur-3: 167ms; --dur-4: 250ms; --ease: cubic-bezier(0, 0, 0, 1);
   /* Not in the plan's list: the only shadow, for popups, kept here so that components hold no colours. */
   --shadow-popup: 0 8px 24px rgb(0 0 0 / 0.4);
+  /* Scrollbar thumb, at rest and under the pointer: a quiet grey one step lighter than the borders. */
+  --scroll-thumb: #3a4250; --scroll-thumb-hover: #5b6575;
 }
 
 @media (prefers-reduced-motion: reduce) {

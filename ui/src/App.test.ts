@@ -1,6 +1,7 @@
-import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.svelte";
+import { layout } from "./lib/layout.svelte";
 import { strings } from "./lib/strings";
 import { tabs } from "./lib/tabs.svelte";
 import { createFakeApi } from "./lib/testing/fakeApi";
@@ -30,10 +31,12 @@ async function contextMenuPrevented(target: Element): Promise<boolean> {
   return event.defaultPrevented;
 }
 
-// The tabs and the notifications of the window live in modules; every test starts without them.
+// The tabs, the notifications and the layout of the window live in modules; every test starts without them.
 afterEach(() => {
   for (const tab of [...tabs.list]) tabs.close(tab.id);
   toasts.items = [];
+  localStorage.clear();
+  layout.load();
 });
 
 /** Width of the sidebar in pixels as the layout applies it. */
@@ -42,6 +45,187 @@ function sidebarWidth(): number {
 }
 
 describe("App", () => {
+  describe("placement of the response", () => {
+    const PLACEMENTS = ["right", "bottom", "left", "top", "auto"] as const;
+    const WINDOW_WIDTH = window.innerWidth;
+
+    afterEach(() => {
+      window.innerWidth = WINDOW_WIDTH;
+    });
+
+    /** The area the editor and the response share. */
+    const work = () => document.querySelector<HTMLElement>("main .work")!;
+    const editor = () => screen.getByRole("region", { name: strings.editor.label });
+    const response = () => screen.getByRole("region", { name: strings.response.label });
+    const divider = () => screen.getByRole("separator", { name: strings.layout.resize });
+    const split = () => Number(divider().getAttribute("aria-valuenow"));
+
+    /** Draws the window with a request tab open: the editor and the response share the area. */
+    async function renderWithTab() {
+      const api = renderApp();
+      await tabs.open(api, "req-list-users");
+      await waitFor(() => expect(work().hasAttribute("data-side")).toBe(true));
+      return api;
+    }
+
+    /** Chooses the placement in the menu of the button in the row of the tabs. */
+    async function choose(placement: (typeof PLACEMENTS)[number]) {
+      await fireEvent.click(screen.getByRole("button", { name: strings.layout.button }));
+      await fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: strings.layout.placements[placement] }));
+    }
+
+    it("has an icon button with a name and the same tooltip next to the environment switcher", () => {
+      renderApp();
+      const button = screen.getByRole("button", { name: strings.layout.button });
+
+      expect(button.title).toBe(strings.layout.button);
+      expect(button.textContent!.trim()).toBe("");
+      expect(button.getAttribute("aria-haspopup")).toBe("menu");
+      expect(button.closest(".top")).not.toBeNull();
+    });
+
+    it("offers the five placements with an icon each and marks the current one", async () => {
+      renderApp();
+      await fireEvent.click(screen.getByRole("button", { name: strings.layout.button }));
+      const items = within(screen.getByRole("menu", { name: strings.layout.button })).getAllByRole("menuitemradio");
+
+      expect(items.map((item) => item.textContent!.trim())).toEqual(PLACEMENTS.map((placement) => strings.layout.placements[placement]));
+      expect(items.every((item) => item.querySelector("svg") !== null)).toBe(true);
+      expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "false", "true"]);
+
+      await fireEvent.click(items[2]);
+      expect(screen.queryByRole("menu")).toBeNull();
+      await fireEvent.click(screen.getByRole("button", { name: strings.layout.button }));
+      expect(screen.getAllByRole("menuitemradio").map((item) => item.getAttribute("aria-checked"))).toEqual([
+        "false",
+        "false",
+        "true",
+        "false",
+        "false",
+      ]);
+    });
+
+    it.each(["right", "bottom", "left", "top"] as const)("puts the response on the chosen side: %s", async (placement) => {
+      await renderWithTab();
+      await choose(placement);
+
+      expect(work().dataset.placement).toBe(placement);
+      expect(work().dataset.side).toBe(placement);
+      expect(divider().getAttribute("aria-orientation")).toBe(placement === "right" || placement === "left" ? "vertical" : "horizontal");
+    });
+
+    it("on Auto puts the response below in a narrow window and on the right in a wide one", async () => {
+      window.innerWidth = 1024;
+      await renderWithTab();
+      await choose("left");
+      await choose("auto");
+
+      expect(work().dataset.placement).toBe("auto");
+      expect(work().dataset.side).toBe("bottom");
+      expect(divider().getAttribute("aria-orientation")).toBe("horizontal");
+
+      window.innerWidth = 1280;
+      await fireEvent(window, new Event("resize"));
+      expect(work().dataset.side).toBe("right");
+      expect(divider().getAttribute("aria-orientation")).toBe("vertical");
+    });
+
+    it.each(PLACEMENTS)("keeps the editor before the response in the markup: %s", async (placement) => {
+      await renderWithTab();
+      await choose(placement);
+
+      const following = Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(editor().compareDocumentPosition(divider()) & following).toBe(following);
+      expect(divider().compareDocumentPosition(response()) & following).toBe(following);
+      expect([...work().children].map((child) => child.className.split(" ")[0])).toEqual(["editor", "divider", "response"]);
+    });
+
+    it.each(PLACEMENTS)("remembers the choice for the next window: %s", async (placement) => {
+      await renderWithTab();
+      await choose(placement);
+      await fireEvent.keyDown(divider(), { key: placement === "right" || placement === "left" ? "ArrowLeft" : "ArrowUp" });
+      const remembered = split();
+      expect(remembered).not.toBe(50);
+
+      cleanup();
+      // The module forgets: the next window has only what was written down.
+      layout.placement = placement === "auto" ? "right" : "auto";
+      layout.split = 50;
+      renderApp();
+
+      expect(work().dataset.placement).toBe(placement);
+      expect(split()).toBe(remembered);
+      expect(work().style.getPropertyValue("--editor-share")).toBe(`${remembered}fr`);
+      expect(work().style.getPropertyValue("--response-share")).toBe(`${100 - remembered}fr`);
+    });
+
+    it("moves the divider by 2 points with the arrows, the way they point", async () => {
+      await renderWithTab();
+      await choose("right");
+      expect(split()).toBe(50);
+      expect(divider().getAttribute("aria-valuemin")).toBe("20");
+      expect(divider().getAttribute("aria-valuemax")).toBe("80");
+
+      // The editor is on the left: the divider going right makes it bigger.
+      await fireEvent.keyDown(divider(), { key: "ArrowRight" });
+      expect(split()).toBe(52);
+      await fireEvent.keyDown(divider(), { key: "ArrowLeft" });
+      await fireEvent.keyDown(divider(), { key: "ArrowLeft" });
+      expect(split()).toBe(48);
+      // The other pair of arrows is not for a vertical line.
+      await fireEvent.keyDown(divider(), { key: "ArrowDown" });
+      expect(split()).toBe(48);
+
+      // The editor is on the right: the divider going right makes it smaller.
+      await choose("left");
+      await fireEvent.keyDown(divider(), { key: "ArrowRight" });
+      expect(split()).toBe(46);
+
+      // The editor is above: the divider going down makes it bigger.
+      await choose("bottom");
+      await fireEvent.keyDown(divider(), { key: "ArrowDown" });
+      expect(split()).toBe(48);
+      await fireEvent.keyDown(divider(), { key: "ArrowRight" });
+      expect(split()).toBe(48);
+
+      // The editor is below: the divider going down makes it smaller.
+      await choose("top");
+      await fireEvent.keyDown(divider(), { key: "ArrowDown" });
+      expect(split()).toBe(46);
+    });
+
+    it("keeps the share of the editor between 20 and 80", async () => {
+      await renderWithTab();
+      await choose("right");
+
+      for (let i = 0; i < 20; i++) await fireEvent.keyDown(divider(), { key: "ArrowRight" });
+      expect(split()).toBe(80);
+      expect(work().style.getPropertyValue("--editor-share")).toBe("80fr");
+      expect(work().style.getPropertyValue("--response-share")).toBe("20fr");
+
+      for (let i = 0; i < 40; i++) await fireEvent.keyDown(divider(), { key: "ArrowLeft" });
+      expect(split()).toBe(20);
+    });
+
+    it("brings the shares back to equal on a double click", async () => {
+      await renderWithTab();
+      for (let i = 0; i < 5; i++) await fireEvent.keyDown(divider(), { key: "ArrowDown" });
+      expect(split()).toBe(60);
+
+      await fireEvent.dblClick(divider());
+      expect(split()).toBe(50);
+      expect(layout.split).toBe(50);
+    });
+
+    it("has no divider while no tab is open", () => {
+      renderApp();
+
+      expect(screen.queryByRole("separator", { name: strings.layout.resize })).toBeNull();
+      expect(screen.getAllByRole("separator")).toHaveLength(1);
+      expect(work().hasAttribute("data-side")).toBe(false);
+    });
+  });
+
   it("renders the sidebar and the main area", () => {
     renderApp();
     expect(screen.getByRole("navigation")).toBeTruthy();

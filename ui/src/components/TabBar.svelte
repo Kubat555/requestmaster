@@ -71,7 +71,7 @@
         {/if}
       </button>
       <!-- For the pointer; the keyboard closes the shown tab with Ctrl+W. -->
-      <IconButton icon="close" size="sm" tabindex={-1} label="{strings.tabs.close}: {tab.name}" title={strings.tabs.close} onclick={() => onclose(tab)} />
+      <IconButton icon="close" size="sm" tabindex={-1} label="{strings.tabs.close}: {tab.name}" onclick={() => onclose(tab)} />
     </div>
   {/each}
 </div>

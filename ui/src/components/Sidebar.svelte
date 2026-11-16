@@ -177,7 +177,7 @@
   <input bind:this={fileInput} type="file" multiple accept=".json" hidden onchange={onFilesChosen} />
   {#if section === "collections"}
     <div class="toolbar">
-      <Button icon="import" onclick={() => fileInput.click()}>{strings.import.button}</Button>
+      <IconButton icon="import" label={strings.import.button} onclick={() => fileInput.click()} />
       <span bind:this={addAnchor} class="add">
         <IconButton icon="plus" label={strings.tree.add} aria-haspopup="menu" aria-expanded={adding} onclick={() => (adding = !adding)} />
       </span>

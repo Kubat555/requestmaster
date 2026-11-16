@@ -111,3 +111,26 @@ textarea {
 .method-other {
   color: var(--method-other);
 }
+
+/* Scrollbars: one thin look for every scrolling area (tree, tabs, editors, tables, dialogs) instead of the
+   wide system bar. The thumb is 4 px wide inside an 8 px track, so it stays easy to grab. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scroll-thumb-hover);
+}

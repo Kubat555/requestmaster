@@ -1,6 +1,5 @@
 <script lang="ts" generics="Row extends { key: string; value: string; enabled: boolean }">
   import { tick } from "svelte";
-  import Button from "./ui/Button.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import { strings } from "../lib/strings";
 
@@ -77,9 +76,13 @@
         </td>
         <td class="actions">
           {#if masked}
-            <Button variant="ghost" size="sm" aria-pressed={shown} onclick={() => toggleRevealed(row)}>
-              {shown ? strings.table.hide : strings.table.show}
-            </Button>
+            <IconButton
+              icon={shown ? "eye-off" : "eye"}
+              size="sm"
+              label={shown ? strings.table.hide : strings.table.show}
+              aria-pressed={shown}
+              onclick={() => toggleRevealed(row)}
+            />
           {/if}
           <IconButton class="remove" icon="close" size="sm" label={strings.table.remove} onclick={() => remove(index)} />
         </td>
@@ -132,8 +135,9 @@
     text-align: center;
   }
 
+  /* Room for the two icon buttons of a row: show or hide, and remove. */
   .actions {
-    width: 120px;
+    width: 72px;
     padding: 0 var(--space);
     text-align: right;
     white-space: nowrap;

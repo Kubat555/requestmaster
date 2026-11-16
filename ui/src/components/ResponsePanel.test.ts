@@ -530,6 +530,15 @@ describe("ResponsePanel", () => {
       Reflect.deleteProperty(navigator, "clipboard");
     });
 
+    it("has an icon button with a name and the same tooltip", async () => {
+      await openRequest({ onSend: async () => answered() });
+      await sendAndShow('{"a":1}');
+
+      expect(copyButton().title).toBe(strings.response.copy);
+      expect(copyButton().textContent!.trim()).toBe("");
+      expect(copyButton().querySelector("svg")).not.toBeNull();
+    });
+
     it("copies the body in the shown view and says so", async () => {
       const api = await openRequest({ onSend: async () => answered() });
       const copyResponseBody = vi

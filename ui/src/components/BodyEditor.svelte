@@ -93,7 +93,7 @@
         {/each}
       </select>
       {#if body.data.language === "json"}
-        <Button onclick={beautify}>{strings.body.beautify}</Button>
+        <Button icon="format" onclick={beautify}>{strings.body.beautify}</Button>
       {/if}
     {/if}
     {#if readOnly}

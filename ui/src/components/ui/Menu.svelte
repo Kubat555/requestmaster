@@ -10,6 +10,11 @@
     danger?: boolean;
     /** The action is not available now: the item stays in its place and can be walked to, but does nothing. */
     disabled?: boolean;
+    /**
+     * The item is one of a set of choices and this says whether it is the current one: it is announced as a
+     * radio item and the current one carries a check mark. Not set — a plain action.
+     */
+    checked?: boolean;
     /** Tooltip, e.g. why the item is disabled. */
     title?: string;
     onselect: () => void;
@@ -39,7 +44,7 @@
   let position = $state({ left: 0, top: 0 });
 
   function buttons(): HTMLElement[] {
-    return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    return [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
   }
 
   /** Under the anchor, or at the point; moved back inside the window when it would stick out. */
@@ -128,7 +133,8 @@
     <!-- The arrows walk the items; the handler of the menu answers Enter, so a click is the pointer alone. -->
     <button
       type="button"
-      role="menuitem"
+      role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+      aria-checked={item.checked}
       tabindex="-1"
       class:danger={item.danger}
       aria-disabled={item.disabled ? "true" : undefined}
@@ -139,6 +145,9 @@
         <Icon name={item.icon} />
       {/if}
       <span class="label">{item.label}</span>
+      {#if item.checked}
+        <span class="check"><Icon name="check" /></span>
+      {/if}
     </button>
   {/each}
 </div>
@@ -202,6 +211,13 @@
     color: var(--text-muted);
     cursor: default;
     opacity: 0.6;
+  }
+
+  /* The mark of the current choice, at the right edge of its item. */
+  .check {
+    flex: none;
+    margin-left: auto;
+    color: var(--accent);
   }
 
   .label {
