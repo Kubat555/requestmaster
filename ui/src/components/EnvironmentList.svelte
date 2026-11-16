@@ -7,6 +7,7 @@
   import IconButton from "./ui/IconButton.svelte";
   import Menu, { type MenuItem } from "./ui/Menu.svelte";
   import type { Api } from "../lib/api";
+  import { exportToFile } from "../lib/exporting";
   import { strings } from "../lib/strings";
   import { environmentTabId, tabs } from "../lib/tabs.svelte";
   import { toasts } from "../lib/toasts.svelte";
@@ -186,27 +187,14 @@
       return;
     }
     if (secrets) exporting = environment;
-    else await exportEnvironment(environment.id);
+    else await exportToFile(() => api.exportEnvironment(environment.id));
   }
 
   /** The user agreed to have the secret values in the file. */
   function confirmExport() {
     const environment = exporting;
     exporting = null;
-    if (environment) void exportEnvironment(environment.id);
-  }
-
-  /**
-   * Writes the environment to a file the user chooses and tells where it is. Closing the window that asks
-   * where to save is not an error and is not told about; a failure is shown as a notification.
-   */
-  async function exportEnvironment(id: string) {
-    try {
-      const path = await api.exportEnvironment(id);
-      if (path !== null) toasts.info(strings.export.saved(path));
-    } catch (error) {
-      toasts.error(String(error));
-    }
+    if (environment) void exportToFile(() => api.exportEnvironment(environment.id));
   }
 </script>
 

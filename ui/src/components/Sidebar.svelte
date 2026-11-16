@@ -241,10 +241,13 @@
     display: flex;
   }
 
+  /* Does not scroll: the tree scrolls inside itself and draws only the rows that are seen. */
   .content {
     flex: 1;
     min-height: 0;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .conflicts-text {

@@ -223,9 +223,23 @@ export class Workspace {
   subtree(id: string): TreeRow[] {
     const root = this.#row(id);
     if (!root) return [];
-    const under = (parentId: string): TreeRow[] =>
-      this.rows.filter((row) => row.parent_id === parentId).flatMap((child) => [child, ...under(child.id)]);
-    return [root, ...under(id)];
+    // The children of every node, found in one pass over the rows instead of one pass per node of the subtree.
+    const children = new Map<string, TreeRow[]>();
+    for (const row of this.rows) {
+      if (row.parent_id === null) continue;
+      const siblings = children.get(row.parent_id);
+      if (siblings) siblings.push(row);
+      else children.set(row.parent_id, [row]);
+    }
+    const found = [root];
+    const collect = (parentId: string) => {
+      for (const child of children.get(parentId) ?? []) {
+        found.push(child);
+        collect(child.id);
+      }
+    };
+    collect(id);
+    return found;
   }
 
   #row(id: string | null): TreeRow | undefined {

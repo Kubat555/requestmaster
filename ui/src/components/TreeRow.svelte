@@ -8,6 +8,11 @@
     node: TreeNode;
     /** Nesting of the node; a root has depth 0. */
     depth: number;
+    /** Place of the node among the shown siblings, from 1, and how many they are: not all of them are in the DOM. */
+    posInSet: number;
+    setSize: number;
+    /** Distance from the top of the tree to the row, px: the rows are placed, not stacked. */
+    top: number;
     /** Whether the children of a collection or a folder are shown; ignored for a request. */
     expanded: boolean;
     /** Whether the node is highlighted. */
@@ -30,8 +35,24 @@
     onrenamed: (name: string | null, byKey: boolean) => void;
   }
 
-  let { node, depth, expanded, selected, tabbable, dirty, renaming, onactivate, ontoggle, onkeydown, onfocus, onmenu, onrenamed }: Props =
-    $props();
+  let {
+    node,
+    depth,
+    posInSet,
+    setSize,
+    top,
+    expanded,
+    selected,
+    tabbable,
+    dirty,
+    renaming,
+    onactivate,
+    ontoggle,
+    onkeydown,
+    onfocus,
+    onmenu,
+    onrenamed,
+  }: Props = $props();
 
   const isRequest = $derived(node.kind === "request");
   const method = $derived(node.method ?? "");
@@ -77,9 +98,13 @@
   class:selected
   role="treeitem"
   tabindex={tabbable ? 0 : -1}
+  data-id={node.id}
   aria-level={depth + 1}
+  aria-posinset={posInSet}
+  aria-setsize={setSize}
   aria-expanded={isRequest ? undefined : expanded}
   aria-selected={selected}
+  style:top="{top}px"
   style:padding-left="calc(var(--space) + {depth * 16}px)"
   onclick={onRowClick}
   onkeydown={onRowKeydown}
@@ -121,7 +146,11 @@
 </div>
 
 <style>
+  /* Placed by `top` inside the tree, which is as high as all its rows together. */
   .row {
+    position: absolute;
+    left: 0;
+    right: 0;
     display: flex;
     align-items: center;
     gap: calc(var(--space) * 1.5);
