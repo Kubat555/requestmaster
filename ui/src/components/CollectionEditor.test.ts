@@ -133,4 +133,47 @@ describe("CollectionEditor", () => {
     await waitFor(() => expect(saveNodeContent).toHaveBeenCalledTimes(1));
     expect(saveNodeContent.mock.calls[0][1]).toMatchObject({ auth: { type: "no_auth" } });
   });
+
+  it("has the sections Variables, Auth and Scripts", async () => {
+    await openCollection();
+
+    const sections = within(screen.getByRole("tablist", { name: strings.collection.sections })).getAllByRole("tab");
+
+    expect(sections.map((section) => section.textContent!.trim().replace(/\s*\d+$/, ""))).toEqual(["Variables", "Auth", "Scripts"]);
+    expect(strings.collection.scripts).toBe("Scripts");
+  });
+
+  it("counts the scripts that are not empty next to Scripts", async () => {
+    await openCollection({ scripts: { pre_request: "before();", test: " \n" } });
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent).toMatch(/Scripts\s*1$/);
+  });
+
+  it("shows no number next to Scripts while there are no scripts", async () => {
+    await openCollection();
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent!.trim()).toBe("Scripts");
+  });
+
+  it("marks the tab when a script is edited and saves it with Ctrl+S", async () => {
+    const { saveNodeContent, draft } = await openCollection({ scripts: { test: "after();" } });
+    // The editor of the scripts is created when the section is first shown.
+    expect(screen.queryByRole("textbox", { name: strings.scripts.text })).toBeNull();
+    await fireEvent.click(screen.getByRole("tab", { name: /^Scripts/ }));
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+
+    await fireEvent.input(screen.getByRole("textbox", { name: strings.scripts.text }), { target: { value: "before();" } });
+
+    expect(draft().scripts).toEqual({ pre_request: "before();", test: "after();" });
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent).toMatch(/Scripts\s*2$/);
+
+    await pressCtrlS();
+    await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
+
+    expect(saveNodeContent).toHaveBeenCalledTimes(1);
+    expect(saveNodeContent).toHaveBeenCalledWith("col", {
+      auth: null,
+      variables: [],
+      scripts: { pre_request: "before();", test: "after();" },
+    });
+  });
 });

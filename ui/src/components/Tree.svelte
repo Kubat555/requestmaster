@@ -62,12 +62,17 @@
     return filtering ? (rows[index + 1]?.depth ?? 0) > depth : workspace.expanded.has(node.id);
   }
 
-  /** A request and a collection are opened; a folder has nothing to open, so it expands or collapses. */
+  /** A request and a collection are opened; a folder expands or collapses: it is opened from its menu. */
   function activate(node: TreeNode) {
     if (node.kind === "folder") {
       toggle(node);
       return;
     }
+    open(node);
+  }
+
+  /** Selects the row and opens its node in a tab. */
+  function open(node: TreeNode) {
     workspace.select(node.id);
     workspace.onOpen(node.id);
   }
@@ -115,6 +120,9 @@
 
   async function run(node: TreeNode, action: TreeAction) {
     switch (action) {
+      case "open":
+        open(node);
+        break;
       case "new_request":
         await workspace.createNode(api, node.id, "request");
         break;

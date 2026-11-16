@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Tabs, type Tab } from "./tabs.svelte";
 import { createFakeApi } from "./testing/fakeApi";
-import { normalizeContent, type CollectionDraft, type NodeDto, type RequestDraft } from "./types";
+import { normalizeContent, type CollectionDraft, type FolderDraft, type NodeDto, type RequestDraft } from "./types";
 
 /** A collection with a folder and two requests; the first request has a parameter without `enabled`. */
 function nodes(): NodeDto[] {
@@ -76,6 +76,13 @@ describe("normalizeContent", () => {
     expect(normalized.scripts).toEqual({ pre_request: "", test: "x" });
   });
 
+  it("writes out the defaults of a folder and keeps what is set", () => {
+    expect(normalizeContent("folder", {})).toEqual({ auth: null, scripts: { pre_request: "", test: "" } });
+    const folder = normalizeContent("folder", { auth: { type: "no_auth" }, scripts: { test: "t();" } });
+    expect(folder).toEqual({ auth: { type: "no_auth" }, scripts: { pre_request: "", test: "t();" } });
+    expect(normalizeContent("folder", folder)).toEqual(folder);
+  });
+
   it("writes out the defaults of a collection", () => {
     expect(normalizeContent("collection", { variables: [{ key: "host", value: "h" }] })).toEqual({
       auth: null,
@@ -126,12 +133,19 @@ describe("Tabs", () => {
     expect(tabs.list).toHaveLength(1);
   });
 
-  it("does not open a folder", async () => {
+  it("opens a folder in a tab of its own with normalized content", async () => {
     const api = createFakeApi({ nodes: nodes() });
     const tabs = new Tabs();
     await tabs.open(api, "fold");
-    expect(tabs.list).toHaveLength(0);
-    expect(tabs.active).toBeNull();
+
+    expect(tabs.list).toHaveLength(1);
+    const folder = tabs.active as Tab<FolderDraft>;
+    expect(folder.kind).toBe("folder");
+    expect(folder.nodeId).toBe("fold");
+    expect(folder.name).toBe("Folder");
+    expect(folder.draft).toEqual({ auth: null, scripts: { pre_request: "", test: "" } });
+    expect(folder.draft).toEqual(folder.saved);
+    expect(folder.dirty).toBe(false);
   });
 
   it("becomes dirty when the draft is edited and clean when the value is put back", async () => {

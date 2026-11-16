@@ -1,6 +1,7 @@
 <script lang="ts">
   import AuthEditor from "./AuthEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
+  import ScriptsEditor from "./ScriptsEditor.svelte";
   import { strings } from "../lib/strings";
   import type { Tab } from "../lib/tabs.svelte";
   import type { CollectionDraft, VariableRow } from "../lib/types";
@@ -12,14 +13,28 @@
 
   let { tab }: Props = $props();
 
-  type Section = "variables" | "auth";
-  const SECTIONS: Section[] = ["variables", "auth"];
+  type Section = "variables" | "auth" | "scripts";
+  const SECTIONS: Section[] = ["variables", "auth", "scripts"];
 
   const id = $props.id();
   let section = $state<Section>("variables");
+  /**
+   * The scripts have been shown. Their editor is created when the section is first shown and then only hidden,
+   * so that the code editor is not loaded before it is needed and keeps its state afterwards.
+   */
+  let scriptsShown = $state(false);
 
-  /** Number of enabled variables next to the name of the section; 0 — no number. */
-  const enabledVariables = $derived(tab.draft.variables.filter((variable) => variable.enabled).length);
+  /** Number next to the name of a section: enabled variables, scripts that are not empty; 0 — no number. */
+  const counts = $derived<Record<Section, number>>({
+    variables: tab.draft.variables.filter((variable) => variable.enabled).length,
+    auth: 0,
+    scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+  });
+
+  function show(next: Section) {
+    section = next;
+    if (next === "scripts") scriptsShown = true;
+  }
 
   function newVariable(): VariableRow {
     return { key: "", value: "", secret: false, enabled: true, postman_extra: {} };
@@ -35,17 +50,17 @@
         id="{id}-tab-{name}"
         aria-selected={section === name}
         aria-controls="{id}-panel-{name}"
-        onclick={() => (section = name)}
+        onclick={() => show(name)}
       >
         {strings.collection[name]}
-        {#if name === "variables" && enabledVariables > 0}
-          <span class="count">{enabledVariables}</span>
+        {#if counts[name] > 0}
+          <span class="count">{counts[name]}</span>
         {/if}
       </button>
     {/each}
   </div>
 
-  <div class="panel" role="tabpanel" id="{id}-panel-variables" aria-labelledby="{id}-tab-variables" hidden={section !== "variables"}>
+  <div class="panel scroll" role="tabpanel" id="{id}-panel-variables" aria-labelledby="{id}-tab-variables" hidden={section !== "variables"}>
     <KeyValueTable
       bind:rows={tab.draft.variables}
       label={strings.collection.variables}
@@ -54,10 +69,15 @@
       secret={(variable) => variable.secret}
     />
   </div>
-  <div class="panel" role="tabpanel" id="{id}-panel-auth" aria-labelledby="{id}-tab-auth" hidden={section !== "auth"}>
+  <div class="panel scroll" role="tabpanel" id="{id}-panel-auth" aria-labelledby="{id}-tab-auth" hidden={section !== "auth"}>
     <!-- A collection has no parent to inherit from. -->
     <AuthEditor bind:auth={tab.draft.auth} inherit={false} />
   </div>
+  {#if scriptsShown}
+    <div class="panel" role="tabpanel" id="{id}-panel-scripts" aria-labelledby="{id}-tab-scripts" hidden={section !== "scripts"}>
+      <ScriptsEditor bind:scripts={tab.draft.scripts} />
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -71,6 +91,9 @@
   .panel {
     flex: 1;
     min-height: 0;
+  }
+
+  .scroll {
     padding: calc(var(--space) * 2);
     overflow: auto;
   }

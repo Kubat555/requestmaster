@@ -175,6 +175,13 @@ export interface CollectionDraft extends CollectionContent {
   scripts: ScriptsDraft;
 }
 
+/** Content of a folder after {@link normalizeContent}. */
+export interface FolderDraft extends FolderContent {
+  /** `null` = inherit from the parent. */
+  auth: Auth | null;
+  scripts: ScriptsDraft;
+}
+
 function paramRow(param: Param): ParamRow {
   return { ...param, enabled: param.enabled ?? true, postman_extra: param.postman_extra ?? {} };
 }
@@ -217,10 +224,8 @@ function draftBody(body: Body | undefined): DraftBody {
  */
 export function normalizeContent(kind: "request", content: RequestContent): RequestDraft;
 export function normalizeContent(kind: "collection", content: CollectionContent): CollectionDraft;
-export function normalizeContent(
-  kind: "request" | "collection",
-  content: RequestContent | CollectionContent,
-): RequestDraft | CollectionDraft {
+export function normalizeContent(kind: "folder", content: FolderContent): FolderDraft;
+export function normalizeContent(kind: NodeKind, content: NodeContent): RequestDraft | CollectionDraft | FolderDraft {
   switch (kind) {
     case "request": {
       const request = content as RequestContent;
@@ -249,6 +254,10 @@ export function normalizeContent(
         })),
         scripts: scriptsDraft(collection.scripts),
       };
+    }
+    case "folder": {
+      const folder = content as FolderContent;
+      return { ...folder, auth: folder.auth ?? null, scripts: scriptsDraft(folder.scripts) };
     }
   }
 }

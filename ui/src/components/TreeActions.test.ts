@@ -7,7 +7,7 @@ import { tabs, type Tab } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeSeed } from "../lib/testing/fakeApi";
 import { pressEnter } from "../lib/testing/keys";
 import { toasts } from "../lib/toasts.svelte";
-import type { RequestDraft } from "../lib/types";
+import type { FolderDraft, RequestDraft } from "../lib/types";
 import { Workspace } from "../lib/workspace.svelte";
 
 const NAMES = strings.tree.newNode;
@@ -381,6 +381,31 @@ describe("renaming in the tree", () => {
     expect(within(screen.getByRole("tab", { name: /All people/ })).getByRole("img", { name: strings.tabs.unsaved })).toBeTruthy();
   });
 
+  it("renames the open tab of a folder", async () => {
+    const { api } = await renderSidebar({}, ["col-1"]);
+    render(TabBar, { props: { tabs, onclose: () => {} } });
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+    await tabs.open(api, "fold-users");
+    const tab = tabs.list[0] as Tab<FolderDraft>;
+    expect(await screen.findByRole("tab", { name: /Users/ })).toBeTruthy();
+    tab.draft.scripts.test = "after();";
+    await waitFor(() => expect(row.querySelector(".dirty")).not.toBeNull());
+
+    await fireEvent.keyDown(row, { key: "F2" });
+    const input = await renameInput();
+    await type(input, "People");
+    await fireEvent.keyDown(input, { key: "Enter" });
+
+    const renamed = await screen.findByRole("treeitem", { name: "People" });
+    await waitFor(() => expect(tab.name).toBe("People"));
+    expect(await screen.findByRole("tab", { name: /People/ })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /Users/ })).toBeNull();
+    // The same tab with the same unsaved draft.
+    expect(tabs.list).toEqual([tab]);
+    expect(tab.dirty).toBe(true);
+    expect(renamed.querySelector(".dirty")).not.toBeNull();
+  });
+
   it("shows a notification and keeps the name when the renaming fails", async () => {
     const { api } = await renderSidebar({}, ["col-1"]);
     vi.spyOn(api, "renameNode").mockRejectedValue("the storage is locked");
@@ -492,6 +517,26 @@ describe("deleting in the tree", () => {
     expect(tabs.list).toHaveLength(0);
   });
 
+  it("closes the tab of a deleted folder, its unsaved edits included", async () => {
+    const { api } = await renderSidebar({}, ["col-1"]);
+    const deleteNode = vi.spyOn(api, "deleteNode");
+    await tabs.open(api, "fold-users");
+    await tabs.open(api, "fold-orders");
+    (tabs.list[0] as Tab<FolderDraft>).draft.auth = { type: "no_auth" };
+    expect(tabs.list.map((tab) => tab.kind)).toEqual(["folder", "folder"]);
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+
+    await choose(row, strings.tree.delete);
+    const dialog = await screen.findByRole("dialog", { name: strings.tree.deleteTitle("Users") });
+    await fireEvent.click(within(dialog).getByRole("button", { name: strings.tree.delete }));
+
+    await waitFor(() => expect(screen.queryByRole("treeitem", { name: "Users" })).toBeNull());
+    expect(deleteNode).toHaveBeenCalledWith("fold-users");
+    // No question about the unsaved edits; the tab of the other folder stays.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(tabs.list.map((tab) => tab.nodeId)).toEqual(["fold-orders"]);
+  });
+
   it("shows a notification and keeps the tree and the tabs when the deletion fails", async () => {
     const { api } = await renderSidebar({}, ["col-1", "fold-users"]);
     vi.spyOn(api, "deleteNode").mockRejectedValue("the storage is locked");
@@ -533,9 +578,10 @@ describe("the menu of a row", () => {
   it("opens with the right mouse button instead of the menu of the webview", async () => {
     const { onOpen } = await renderSidebar({}, ["col-1", "fold-users"]);
     const labels = () => within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent!.trim());
-    const folderItems = [NAMES.request, NAMES.folder, strings.tree.rename, strings.tree.duplicate, strings.tree.delete];
+    // Only a folder has "open": a click on its row expands it instead.
+    const folderItems = [strings.tree.open, NAMES.request, NAMES.folder, strings.tree.rename, strings.tree.duplicate, strings.tree.delete];
     // Only a collection is exported.
-    const collectionItems = [...folderItems.slice(0, -1), strings.export.item, strings.tree.delete];
+    const collectionItems = [NAMES.request, NAMES.folder, strings.tree.rename, strings.tree.duplicate, strings.export.item, strings.tree.delete];
 
     const collection = screen.getByRole("treeitem", { name: "Demo API" });
     const event = createEvent.contextMenu(collection);
@@ -552,12 +598,50 @@ describe("the menu of a row", () => {
 
     await openRowMenu(screen.getByRole("treeitem", { name: "Users" }));
     expect(labels()).toEqual(folderItems);
+    expect(labels()[0]).toBe("Открыть");
     await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     await openRowMenu(screen.getByRole("treeitem", { name: "GET List users" }));
     expect(labels()).toEqual([strings.tree.rename, strings.tree.duplicate, strings.tree.delete]);
     // Opening a menu opens nothing else.
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("opens a folder in a tab with the first item of its menu and selects its row", async () => {
+    const { workspace, onOpen } = await renderSidebar({}, ["col-1"]);
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+
+    const menu = await openRowMenu(row);
+    const first = within(menu).getAllByRole("menuitem")[0];
+    expect(first.textContent!.trim()).toBe(strings.tree.open);
+    await fireEvent.click(first);
+
+    await waitFor(() => expect(tabs.list.map((tab) => tab.nodeId)).toEqual(["fold-users"]));
+    expect(tabs.active?.kind).toBe("folder");
+    expect(tabs.active?.name).toBe("Users");
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("fold-users");
+    expect(workspace.selectedId).toBe("fold-users");
+    expect(row.getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("menu")).toBeNull();
+    // Opening the folder does not expand it.
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("only expands and collapses a folder on a click and on Enter, without opening a tab", async () => {
+    const { workspace, onOpen } = await renderSidebar({}, ["col-1"]);
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    await fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    await fireEvent.keyDown(row, { key: "Enter" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.dblClick(row);
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(tabs.list).toHaveLength(0);
+    expect(workspace.selectedId).toBeNull();
   });
 
   it("opens with Shift+F10 and with the context menu key", async () => {

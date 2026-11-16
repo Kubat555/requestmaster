@@ -4,6 +4,7 @@
   import Dialog from "./components/Dialog.svelte";
   import EnvironmentEditor from "./components/EnvironmentEditor.svelte";
   import EnvironmentSwitcher from "./components/EnvironmentSwitcher.svelte";
+  import FolderEditor from "./components/FolderEditor.svelte";
   import HistoryEntryView from "./components/HistoryEntryView.svelte";
   import LayoutSwitcher from "./components/LayoutSwitcher.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
@@ -21,7 +22,7 @@
   import { strings } from "./lib/strings";
   import { tabs, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
   import { toasts } from "./lib/toasts.svelte";
-  import type { CollectionDraft, RequestDraft } from "./lib/types";
+  import type { CollectionDraft, FolderDraft, RequestDraft } from "./lib/types";
   import { workspace } from "./lib/workspace.svelte";
 
   const api = getContext<Api>("api");
@@ -203,12 +204,14 @@
           <div class="tab-panel" data-tab-panel hidden={tabs.active !== tab}>
             {#if tab.kind === "request"}
               <RequestEditor tab={tab as Tab<RequestDraft>} />
+            {:else if tab.kind === "collection"}
+              <CollectionEditor tab={tab as Tab<CollectionDraft>} />
+            {:else if tab.kind === "folder"}
+              <FolderEditor tab={tab as Tab<FolderDraft>} />
             {:else if tab.kind === "environment"}
               <EnvironmentEditor {tab} />
             {:else if tab.kind === "history"}
               <HistoryEntryView {tab} />
-            {:else}
-              <CollectionEditor tab={tab as Tab<CollectionDraft>} />
             {/if}
           </div>
         {/each}

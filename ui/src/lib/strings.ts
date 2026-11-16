@@ -39,6 +39,8 @@ export const strings = {
     },
     needCollection: "Сначала создайте коллекцию",
     menu: "Действия",
+    /** Opens a folder in a tab: a click on its row only expands it. */
+    open: "Открыть",
     rename: "Переименовать",
     duplicate: "Дублировать",
     delete: "Удалить",
@@ -251,7 +253,13 @@ export const strings = {
     sections: "Разделы коллекции",
     variables: "Variables",
     auth: "Auth",
+    scripts: "Scripts",
     name: "Имя",
+  },
+  folder: {
+    sections: "Разделы папки",
+    auth: "Auth",
+    scripts: "Scripts",
   },
   response: {
     label: "Ответ",

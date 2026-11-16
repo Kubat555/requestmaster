@@ -1,5 +1,5 @@
-// The open tabs of the window. The tab of a request or of a collection holds the stored content of its node and
-// the copy the user edits; the tab of an environment holds its variables and saves every edit by itself; the tab
+// The open tabs of the window. The tab of a request, a collection or a folder holds the stored content of its node
+// and the copy the user edits; the tab of an environment holds its variables and saves every edit by itself; the tab
 // of a history entry only shows it.
 
 import type { Api } from "./api";
@@ -11,6 +11,7 @@ import {
   normalizeContent,
   type CollectionDraft,
   type EnvironmentDto,
+  type FolderDraft,
   type HistoryEntry,
   type NodeDto,
   type RequestDraft,
@@ -19,7 +20,7 @@ import {
 import { workspace } from "./workspace.svelte";
 
 /** What a tab shows. */
-export type TabKind = "request" | "collection" | "environment" | "history";
+export type TabKind = "request" | "collection" | "folder" | "environment" | "history";
 
 /** What every tab has, whatever it shows. */
 export interface TabLike {
@@ -29,7 +30,7 @@ export interface TabLike {
    */
   readonly id: string;
   readonly kind: TabKind;
-  /** Id of the node of a request or a collection; `null` — the tab is not of a node. */
+  /** Id of the node of a request, a collection or a folder; `null` — the tab is not of a node. */
   readonly nodeId: string | null;
   name: string;
   /** Whether the tab has edits that only Ctrl+S saves. */
@@ -41,7 +42,7 @@ export interface TabLike {
 }
 
 /** Content the tab of a node can hold. */
-export type TabContent = RequestDraft | CollectionDraft;
+export type TabContent = RequestDraft | CollectionDraft | FolderDraft;
 
 /** Whether two JSON-like values are the same; the order of object keys does not matter. */
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -57,12 +58,12 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every((key) => key in right && deepEqual(left[key], right[key]));
 }
 
-/** The tab of a node: a request or a collection. */
+/** The tab of a node: a request, a collection or a folder. */
 export class Tab<C extends TabContent = TabContent> implements TabLike {
   /** Id of the tab; the same as the id of its node, because a node has at most one tab. */
   readonly id: string;
   readonly nodeId: string;
-  readonly kind: "request" | "collection";
+  readonly kind: "request" | "collection" | "folder";
   /** Name of the node; follows a renaming in the tree. */
   name: string;
   /** Content as it is in the storage, normalized. Replaced as a whole, never edited. */
@@ -71,11 +72,11 @@ export class Tab<C extends TabContent = TabContent> implements TabLike {
   draft: C;
   /** Whether `draft` differs from `saved`. */
   readonly dirty: boolean;
-  /** The send of the request and its result; a collection tab never sends. */
+  /** The send of the request and its result; the tab of a collection or of a folder never sends. */
   readonly sending = new Sending();
 
   /** `content` is the normalized content of the node; the tab keeps copies of it. */
-  constructor(node: { id: string; kind: "request" | "collection"; name: string }, content: C) {
+  constructor(node: { id: string; kind: "request" | "collection" | "folder"; name: string }, content: C) {
     this.id = node.id;
     this.nodeId = node.id;
     this.kind = node.kind;
@@ -271,15 +272,15 @@ export class HistoryTab implements TabLike {
 /** Any tab of the window. */
 export type AnyTab = Tab | EnvironmentTab | HistoryTab;
 
-/** Makes the tab of a node; a folder has no tab. */
-function createTab(node: NodeDto): Tab | null {
+/** Makes the tab of a node. */
+function createTab(node: NodeDto): Tab {
   switch (node.kind) {
     case "request":
       return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("request", node.content));
     case "collection":
       return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("collection", node.content));
     case "folder":
-      return null;
+      return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("folder", node.content));
   }
 }
 
@@ -295,8 +296,8 @@ export class Tabs {
   }
 
   /**
-   * Opens the node in a tab and shows it. A node that is already open is only shown; a folder is not opened.
-   * A failure to read the node is shown as a notification.
+   * Opens the node in a tab and shows it. A node that is already open is only shown. A failure to read the node
+   * is shown as a notification.
    */
   async open(api: Api, nodeId: string): Promise<void> {
     if (this.#show(nodeId)) return;
@@ -310,7 +311,6 @@ export class Tabs {
     // The same node may have been opened while this one was being read.
     if (this.#show(nodeId)) return;
     const tab = createTab(node);
-    if (!tab) return;
     this.list.push(tab);
     this.#activeId = tab.id;
   }
