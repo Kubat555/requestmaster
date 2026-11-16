@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Button from "./Button.svelte";
   import Icon from "./Icon.svelte";
   import type { IconName } from "../../lib/icons";
 
@@ -9,12 +8,9 @@
     title: string;
     /** What to do about it. */
     text?: string;
-    /** Text of the button; without it, or without `onaction`, there is no button. */
-    actionLabel?: string;
-    onaction?: () => void;
   }
 
-  let { icon, title, text, actionLabel, onaction }: Props = $props();
+  let { icon, title, text }: Props = $props();
 </script>
 
 <!-- What a part of the window shows while it has nothing of its own to show. -->
@@ -23,11 +19,6 @@
   <p class="title">{title}</p>
   {#if text}
     <p class="text">{text}</p>
-  {/if}
-  {#if actionLabel && onaction}
-    <div class="action">
-      <Button onclick={onaction}>{actionLabel}</Button>
-    </div>
   {/if}
 </div>
 
@@ -63,9 +54,5 @@
 
   .text {
     color: var(--text-muted);
-  }
-
-  .action {
-    margin-top: calc(var(--space) * 2);
   }
 </style>

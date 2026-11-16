@@ -3,14 +3,13 @@
 
   interface Props {
     name: IconName;
-    /** What the icon says when it stands alone; without it the icon is decoration and is hidden from readers. */
-    label?: string;
   }
 
-  let { name, label }: Props = $props();
+  let { name }: Props = $props();
 </script>
 
-<!-- An outline icon of 16 px in the colour of the text around it. -->
+<!-- An outline icon of 16 px in the colour of the text around it. It is decoration, hidden from readers: the
+     name comes from the control it stands in. -->
 <svg
   class="icon"
   width="16"
@@ -21,9 +20,7 @@
   stroke-width="1.6"
   stroke-linecap="round"
   stroke-linejoin="round"
-  role={label ? "img" : undefined}
-  aria-label={label}
-  aria-hidden={label ? undefined : "true"}
+  aria-hidden="true"
 >
   {#each icons[name] as d, index (index)}
     <path {d} />

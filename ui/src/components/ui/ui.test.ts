@@ -82,15 +82,12 @@ describe("IconButton", () => {
 });
 
 describe("Icon", () => {
-  it("is hidden from assistive technology unless it has a label", () => {
+  it("is hidden from assistive technology", () => {
     const decorative = render(Icon, { props: { name: "search" } });
     const svg = decorative.container.querySelector("svg")!;
     expect(svg.getAttribute("aria-hidden")).toBe("true");
     expect(svg.getAttribute("width")).toBe("16");
     expect(svg.querySelectorAll("path").length).toBeGreaterThan(0);
-
-    render(Icon, { props: { name: "check", label: "Done" } });
-    expect(screen.getByRole("img", { name: "Done" }).hasAttribute("aria-hidden")).toBe(false);
   });
 
   it("knows only the names of the set", () => {
@@ -271,21 +268,11 @@ describe("Menu", () => {
 });
 
 describe("EmptyState", () => {
-  it("shows the title and the explanation without a button", () => {
+  it("shows the title and the explanation", () => {
     render(EmptyState, { props: { icon: "collection", title: "Nothing here", text: "Import a collection" } });
 
     expect(screen.getByText("Nothing here")).toBeTruthy();
     expect(screen.getByText("Import a collection")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("shows the title and a button that calls its action", async () => {
-    const onaction = vi.fn();
-    render(EmptyState, { props: { icon: "plus", title: "No requests", actionLabel: "Create", onaction } });
-
-    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    expect(screen.getByText("No requests")).toBeTruthy();
-    expect(onaction).toHaveBeenCalledTimes(1);
   });
 });

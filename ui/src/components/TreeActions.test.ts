@@ -5,6 +5,7 @@ import TabBar from "./TabBar.svelte";
 import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeSeed } from "../lib/testing/fakeApi";
+import { pressEnter } from "../lib/testing/keys";
 import { toasts } from "../lib/toasts.svelte";
 import type { RequestDraft } from "../lib/types";
 import { Workspace } from "../lib/workspace.svelte";
@@ -440,6 +441,24 @@ describe("deleting in the tree", () => {
     expect(sendingTab.sending.state).toBe("idle");
     // The selected node was deleted with the folder.
     expect(workspace.selectedId).toBeNull();
+  });
+
+  it("opens the question with the focus on Cancel, so Enter right after Delete deletes nothing", async () => {
+    const { api } = await renderSidebar({}, ["col-1", "fold-users"]);
+    const deleteNode = vi.spyOn(api, "deleteNode");
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+    const before = treeItemNames();
+    row.focus();
+
+    await fireEvent.keyDown(row, { key: "Delete" });
+    const dialog = await screen.findByRole("dialog", { name: strings.tree.deleteTitle("Users") });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: strings.tree.cancel }));
+
+    await pressEnter();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleteNode).not.toHaveBeenCalled();
+    expect(treeItemNames()).toEqual(before);
   });
 
   it("deletes a request from the menu without mentioning any content", async () => {

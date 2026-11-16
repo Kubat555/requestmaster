@@ -294,7 +294,7 @@
     {/if}
     <div class="dialog-actions">
       <Button class="danger" onclick={confirmDelete}>{strings.tree.delete}</Button>
-      <Button onclick={() => (deleting = null)}>{strings.tree.cancel}</Button>
+      <Button data-initial-focus onclick={() => (deleting = null)}>{strings.tree.cancel}</Button>
     </div>
   </Dialog>
 {/if}

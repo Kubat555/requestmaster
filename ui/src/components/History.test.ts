@@ -6,6 +6,7 @@ import { history } from "../lib/history.svelte";
 import { strings } from "../lib/strings";
 import { historyTabId, Tab, tabs } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type StoredHistoryEntry } from "../lib/testing/fakeApi";
+import { pressEnter } from "../lib/testing/keys";
 import { toasts } from "../lib/toasts.svelte";
 import { normalizeContent, type RequestDraft, type SendResult } from "../lib/types";
 import { workspace } from "../lib/workspace.svelte";
@@ -667,6 +668,21 @@ describe("clearing the history", () => {
     expect(clear).not.toHaveBeenCalled();
     expect(rows()).toHaveLength(1);
     expect(tabNames()).toEqual(["История · List users"]);
+  });
+
+  it("opens the question with the focus on Cancel, so Enter right away deletes nothing", async () => {
+    const { api } = await openHistory([entry(1)]);
+    const clear = vi.spyOn(api, "historyClear");
+
+    await fireEvent.click(screen.getByRole("button", { name: TEXT.clear }));
+    const dialog = await screen.findByRole("dialog", { name: TEXT.clearTitle });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: TEXT.cancel }));
+
+    await pressEnter();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(clear).not.toHaveBeenCalled();
+    expect(rows()).toHaveLength(1);
   });
 
   it("keeps the history and its tabs when the deletion fails", async () => {

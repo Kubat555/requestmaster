@@ -268,7 +268,7 @@
   <Dialog title={strings.environment.deleteTitle(deleting.name)} onclose={() => (deleting = null)}>
     <div class="dialog-actions">
       <Button class="danger" onclick={confirmDelete}>{strings.environment.delete}</Button>
-      <Button onclick={() => (deleting = null)}>{strings.environment.cancel}</Button>
+      <Button data-initial-focus onclick={() => (deleting = null)}>{strings.environment.cancel}</Button>
     </div>
   </Dialog>
 {/if}

@@ -94,7 +94,7 @@
     <p class="question">{strings.history.clearText}</p>
     <div class="dialog-actions">
       <Button class="danger" onclick={confirmClear}>{strings.history.clearConfirm}</Button>
-      <Button onclick={() => (clearing = false)}>{strings.history.cancel}</Button>
+      <Button data-initial-focus onclick={() => (clearing = false)}>{strings.history.cancel}</Button>
     </div>
   </Dialog>
 {/if}

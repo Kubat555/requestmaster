@@ -4,6 +4,7 @@ import App from "../App.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
+import { pressEnter } from "../lib/testing/keys";
 import { toasts } from "../lib/toasts.svelte";
 import { GLOBALS_ID, type ImportResult, type VariableRow } from "../lib/types";
 import { workspace } from "../lib/workspace.svelte";
@@ -304,6 +305,21 @@ describe("list of environments", () => {
     await fireEvent.keyDown(row("Production"), { key: "Delete" });
     const dialog = await screen.findByRole("dialog", { name: TEXT.deleteTitle("Production") });
     await fireEvent.click(within(dialog).getByRole("button", { name: TEXT.cancel }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(remove).not.toHaveBeenCalled();
+    expect(rowNames()).toEqual([TEXT.globals, "Dev", "Production"]);
+  });
+
+  it("opens the question with the focus on Cancel, so Enter right after Delete deletes nothing", async () => {
+    const api = await openEnvironments();
+    const remove = vi.spyOn(api, "deleteEnvironment");
+
+    await fireEvent.keyDown(row("Production"), { key: "Delete" });
+    const dialog = await screen.findByRole("dialog", { name: TEXT.deleteTitle("Production") });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: TEXT.cancel }));
+
+    await pressEnter();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(remove).not.toHaveBeenCalled();

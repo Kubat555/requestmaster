@@ -24,13 +24,16 @@
     );
   }
 
-  // Focus goes into the dialog when it appears and back to where it was when the dialog goes away.
+  // Focus goes into the dialog when it appears and back to where it was when the dialog goes away. It goes to
+  // the first control, or to the one marked `data-initial-focus`: a question whose first button destroys
+  // something marks its Cancel, so that Enter right after the dialog opens destroys nothing.
   // The keys are heard on the window, not on the dialog: Escape and the focus trap must work even when the
   // focus has left the dialog (it falls to `body` when the focused control disappears, for one). The capture
   // phase lets the dialog answer before anything in the window behind it.
   onMount(() => {
     const previous = document.activeElement;
-    (focusable()[0] ?? dialog).focus();
+    const controls = focusable();
+    (controls.find((control) => control.hasAttribute("data-initial-focus")) ?? controls[0] ?? dialog).focus();
     window.addEventListener("keydown", onKeydown, true);
     return () => {
       window.removeEventListener("keydown", onKeydown, true);

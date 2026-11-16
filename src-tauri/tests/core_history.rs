@@ -159,6 +159,48 @@ async fn successful_send_is_recorded() {
 }
 
 #[tokio::test]
+async fn redirected_send_is_recorded_as_it_was_sent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(ResponseTemplate::new(302).insert_header("location", "/home"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/home"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("welcome"))
+        .mount(&server)
+        .await;
+    let (core, _dir) = core();
+    let url = format!("{}/login", server.uri());
+    import_items(
+        &core,
+        json!([{
+            "name": "Login",
+            "request": {
+                "method": "POST",
+                "header": [{ "key": "X-Mine", "value": "1" }],
+                "body": { "mode": "raw", "raw": "{\"user\":\"synthetic\"}", "options": { "raw": { "language": "json" } } },
+                "url": { "raw": url }
+            }
+        }]),
+    );
+
+    let result = core.send_request("send-1", &id_by_name(&core, "Login"), None).await.unwrap();
+    assert!(result.response.is_some(), "{:?}", result.error);
+
+    // The entry is the request the user sent, not the last request of the chain (`GET /home`).
+    let entry = newest_entry(&core);
+    assert_eq!(entry["method"], "POST");
+    assert_eq!(entry["url"], url.as_str());
+    assert_eq!(entry["status"], 200);
+    let request_headers = entry["request_headers"].as_array().unwrap();
+    assert!(request_headers.contains(&json!(["X-Mine", "1"])), "{request_headers:?}");
+    assert_eq!(entry["request_body"], "{\"user\":\"synthetic\"}");
+    assert_eq!(entry["response_body"], "welcome");
+}
+
+#[tokio::test]
 async fn connection_error_is_recorded_with_the_substituted_address() {
     let (core, _dir) = core();
     let mut item = get_item("Scripted", "{{base}}/x");

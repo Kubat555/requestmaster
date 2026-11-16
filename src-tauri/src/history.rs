@@ -61,15 +61,22 @@ impl AppCore {
 
 /// What the history keeps of one send.
 ///
-/// With a response, the method, the address and the headers are the ones that went to the network, automatic
-/// headers included. Without a response but with a prepared request (network error, timeout, cancellation)
-/// they are the prepared ones: variables substituted. When the request could not be prepared, the method and
-/// the address are the ones typed and there are no headers and no body.
+/// The entry shows the request the user sent. With a response that came without redirects, the method, the
+/// address and the headers are the ones that went to the network, automatic headers included. After redirects
+/// `response.sent` is the last request of the chain — another method and address, and not the body that was
+/// sent — so the method, the address and the headers are the prepared ones, like the body. Without a response
+/// but with a prepared request (network error, timeout, cancellation) they are the prepared ones as well:
+/// variables substituted. When the request could not be prepared, the method and the address are the ones
+/// typed and there are no headers and no body.
 fn history_record(request_id: &str, input: &SendInput, outcome: &SendOutcome) -> (HistorySummary, HistoryDetail) {
     let prepared = outcome.request.as_ref();
     let (method, url, request_headers) = match (&outcome.result, prepared) {
-        (Ok(response), _) => (&response.sent.method, &response.sent.url, response.sent.headers.clone()),
-        (Err(_), Some(request)) => (&request.method, &request.url, request.headers.clone()),
+        (Ok(response), request) if response.redirects.is_empty() || request.is_none() => {
+            (&response.sent.method, &response.sent.url, response.sent.headers.clone())
+        }
+        (_, Some(request)) => (&request.method, &request.url, request.headers.clone()),
+        // Not reachable: a response without a prepared request is taken by the first arm.
+        (Ok(response), None) => (&response.sent.method, &response.sent.url, response.sent.headers.clone()),
         (Err(_), None) => (&input.request.method, &input.request.url, Vec::new()),
     };
     let (request_body, request_body_truncated) = match prepared.and_then(|request| request.body.as_deref()) {
