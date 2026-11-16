@@ -71,12 +71,11 @@ impl AppCore {
 fn history_record(request_id: &str, input: &SendInput, outcome: &SendOutcome) -> (HistorySummary, HistoryDetail) {
     let prepared = outcome.request.as_ref();
     let (method, url, request_headers) = match (&outcome.result, prepared) {
-        (Ok(response), request) if response.redirects.is_empty() || request.is_none() => {
-            (&response.sent.method, &response.sent.url, response.sent.headers.clone())
+        (Ok(response), Some(request)) if !response.redirects.is_empty() => {
+            (&request.method, &request.url, request.headers.clone())
         }
-        (_, Some(request)) => (&request.method, &request.url, request.headers.clone()),
-        // Not reachable: a response without a prepared request is taken by the first arm.
-        (Ok(response), None) => (&response.sent.method, &response.sent.url, response.sent.headers.clone()),
+        (Ok(response), _) => (&response.sent.method, &response.sent.url, response.sent.headers.clone()),
+        (Err(_), Some(request)) => (&request.method, &request.url, request.headers.clone()),
         (Err(_), None) => (&input.request.method, &input.request.url, Vec::new()),
     };
     let (request_body, request_body_truncated) = match prepared.and_then(|request| request.body.as_deref()) {

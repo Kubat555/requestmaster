@@ -154,7 +154,7 @@
     <p class="question">{strings.body.replaceText}</p>
     <div class="dialog-actions">
       <Button variant="primary" onclick={confirmReplace}>{strings.body.replace}</Button>
-      <Button onclick={() => (pending = null)}>{strings.body.cancel}</Button>
+      <Button data-initial-focus onclick={() => (pending = null)}>{strings.body.cancel}</Button>
     </div>
   </Dialog>
 {/if}
