@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use requestmaster_lib::dto::ImportFile;
-use requestmaster_lib::{AppCore, CoreConfig};
+use requestmaster_lib::dto::{ImportFile, ProxyDto, SettingsDto};
+use requestmaster_lib::{AppCore, CoreConfig, ACTIVE_ENVIRONMENT_KEY, SETTINGS_KEY};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
@@ -248,4 +248,98 @@ async fn bad_draft_and_unknown_request_are_errors() {
     // a node that is not a request cannot be sent either
     assert!(core.send_request("send-3", &id_by_name(&core, "Synthetic"), None).await.is_err());
     assert_eq!(files_in(&bodies_dir(&dir)), 0);
+}
+
+/// Writes a value of `app_state` behind the back of the core.
+fn raw_state_set(db_path: &Path, key: &str, value: &str) {
+    rusqlite::Connection::open(db_path)
+        .unwrap()
+        .execute(
+            "INSERT INTO app_state (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [key, value],
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn saved_timeout_stops_a_slow_server() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
+        .mount(&server)
+        .await;
+    let (core, dir) = core();
+    import_items(&core, json!([get_item("Slow", &format!("{}/slow", server.uri()))]));
+    let id = id_by_name(&core, "Slow");
+    core.save_settings(SettingsDto { timeout_ms: 200, verify_tls: true, proxy: ProxyDto::System }).unwrap();
+
+    let started = Instant::now();
+    let result = as_json(&core.send_request("send-1", &id, None).await.unwrap());
+    assert!(started.elapsed() < Duration::from_millis(1500), "took {:?}", started.elapsed());
+    assert_eq!(result["error"]["kind"], "timeout");
+    assert!(result["response"].is_null());
+    assert_eq!(files_in(&bodies_dir(&dir)), 0);
+
+    // the setting works from the next send on, without a restart: no limit again — the response arrives
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System }).unwrap();
+    let result = core.send_request("send-2", &id, None).await.unwrap();
+    assert_eq!(result.response.unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn saved_manual_proxy_is_used() {
+    // the "proxy" is the test server itself: it answers whatever address the request names
+    let proxy = MockServer::start().await;
+    Mock::given(method("GET")).respond_with(ResponseTemplate::new(200).set_body_string("via proxy")).mount(&proxy).await;
+    let (core, _dir) = core();
+    import_items(&core, json!([get_item("Far", "http://example.invalid/x")]));
+    let id = id_by_name(&core, "Far");
+
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Manual { url: proxy.uri() } }).unwrap();
+    let result = core.send_request("send-1", &id, None).await.unwrap();
+    assert!(result.error.is_none(), "{:?}", result.error);
+    let response = result.response.unwrap();
+    assert_eq!(response.status, 200);
+    assert_eq!(core.response_body(&response.body.id, false).unwrap(), b"via proxy");
+    assert_eq!(proxy.received_requests().await.unwrap().len(), 1, "the request went to the proxy");
+
+    // without the proxy the same request has nowhere to go
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Off }).unwrap();
+    let result = core.send_request("send-2", &id, None).await.unwrap();
+    assert!(result.response.is_none());
+    assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn broken_settings_do_not_stop_a_send() {
+    let server = json_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("requestmaster.db");
+    let core = core_at(&dir, Some(db_path.clone()));
+    import_items(&core, json!([get_item("Get", &format!("{}/x", server.uri()))]));
+    let id = id_by_name(&core, "Get");
+
+    for (number, broken) in ["{broken", "[]", r#"{ "timeout_ms": "soon" }"#].into_iter().enumerate() {
+        raw_state_set(&db_path, SETTINGS_KEY, broken);
+        let result = core.send_request(&format!("send-{number}"), &id, None).await.unwrap();
+        assert!(result.error.is_none(), "{broken}: {:?}", result.error);
+        assert_eq!(result.response.unwrap().status, 200, "{broken}");
+    }
+}
+
+#[tokio::test]
+async fn unreadable_active_environment_counts_as_none() {
+    let server = json_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("requestmaster.db");
+    let core = core_at(&dir, Some(db_path.clone()));
+    import_items(&core, json!([get_item("Get", &format!("{}/x", server.uri()))]));
+    let id = id_by_name(&core, "Get");
+
+    for (number, broken) in ["{broken", "", "5", "[]"].into_iter().enumerate() {
+        raw_state_set(&db_path, ACTIVE_ENVIRONMENT_KEY, broken);
+        assert_eq!(core.active_environment(), Ok(None), "{broken}");
+        let result = core.send_request(&format!("send-{number}"), &id, None).await.unwrap();
+        assert_eq!(result.response.unwrap().status, 200, "{broken}");
+    }
 }

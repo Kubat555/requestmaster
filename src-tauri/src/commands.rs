@@ -10,7 +10,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::dto::{
     EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, ScopeVariable,
-    SendResult, TreeRow, VariableDto,
+    SendResult, SessionDto, SettingsDto, TreeRow, VariableDto, WindowState,
 };
 use crate::AppCore;
 
@@ -228,6 +228,40 @@ pub async fn history_clear(core: State<'_, AppCore>) -> Result<(), String> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn copy_response_body(core: State<'_, AppCore>, body_id: String, pretty: bool) -> Result<String, String> {
     core.copy_response_body(&body_id, pretty)
+}
+
+/// What the window restores at start: its layout with the open tabs, and the unsaved drafts.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn load_session(core: State<'_, AppCore>) -> Result<SessionDto, String> {
+    core.load_session()
+}
+
+/// Remembers the layout of the window and its open tabs.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_window_state(core: State<'_, AppCore>, state: WindowState) -> Result<(), String> {
+    core.save_window_state(state)
+}
+
+/// Remembers the unsaved draft of the node; `null` forgets it.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_draft(
+    core: State<'_, AppCore>,
+    node_id: String,
+    content: Option<serde_json::Value>,
+) -> Result<(), String> {
+    core.save_draft(&node_id, content)
+}
+
+/// The application settings.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_settings(core: State<'_, AppCore>) -> Result<SettingsDto, String> {
+    core.get_settings()
+}
+
+/// Saves the application settings; they are used from the next send on.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_settings(core: State<'_, AppCore>, settings: SettingsDto) -> Result<(), String> {
+    core.save_settings(settings)
 }
 
 /// Asks the user where to save a file named `file_name` and writes `text` there. `None` when the user

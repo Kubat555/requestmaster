@@ -285,14 +285,13 @@ impl AppCore {
     }
 }
 
-/// Id of the active environment of `store`; `None` when none is chosen or the chosen one no longer exists.
+/// Id of the active environment of `store`; `None` when none is chosen, the chosen one no longer exists or
+/// the stored value cannot be read (a broken value must not stop every send).
 pub(crate) fn active_environment_in(store: &Store) -> Result<Option<String>, String> {
     let Some(value) = store.state_get(ACTIVE_ENVIRONMENT_KEY).map_err(message)? else {
         return Ok(None);
     };
-    let Some(id) = serde_json::from_str::<Option<String>>(&value)
-        .map_err(|error| format!("stored active environment cannot be read: {error}"))?
-    else {
+    let Ok(Some(id)) = serde_json::from_str::<Option<String>>(&value) else {
         return Ok(None);
     };
     Ok(environment_exists(store, &id)?.then_some(id))

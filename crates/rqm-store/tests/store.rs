@@ -249,3 +249,22 @@ fn table_names(conn: &rusqlite::Connection) -> Vec<String> {
     assert!(matches!(s.history_detail(ids[1]), Err(StoreError::NotFound(_))));
     s.history_clear().unwrap();
 }
+#[test] fn state_delete_and_entries() {
+    let mut s = Store::open_in_memory().unwrap();
+    s.state_delete("never-written").unwrap();
+    assert!(s.state_entries("draft:").unwrap().is_empty());
+    for (key, value) in [("draft:b", "2"), ("drafts", "x"), ("draft:a", "1"), ("window_state", "{}"), ("abc", "p"), ("a%x", "q"), ("a_c", "r")] {
+        s.state_set(key, value).unwrap();
+    }
+    let pairs = |list: &[(&str, &str)]| list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+    assert_eq!(s.state_entries("draft:").unwrap(), pairs(&[("draft:a", "1"), ("draft:b", "2")]), "ordered by key, without `drafts`");
+    // the prefix is compared literally: `%` and `_` are not wildcards
+    assert_eq!(s.state_entries("a%").unwrap(), pairs(&[("a%x", "q")]));
+    assert_eq!(s.state_entries("a_").unwrap(), pairs(&[("a_c", "r")]));
+    assert_eq!(s.state_entries("").unwrap().len(), 7, "an empty prefix gives every key");
+    s.state_delete("draft:a").unwrap();
+    assert_eq!(s.state_get("draft:a").unwrap(), None);
+    assert_eq!(s.state_entries("draft:").unwrap(), pairs(&[("draft:b", "2")]));
+    s.state_delete("draft:a").unwrap();
+    assert_eq!(s.state_get("drafts").unwrap().as_deref(), Some("x"), "the other keys stay");
+}

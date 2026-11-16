@@ -33,6 +33,11 @@
     "allow-copy-response-body",
     "allow-move-node",
     "allow-variables-in-scope",
+    "allow-load-session",
+    "allow-save-window-state",
+    "allow-save-draft",
+    "allow-get-settings",
+    "allow-save-settings",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-destroy"

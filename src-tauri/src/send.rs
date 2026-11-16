@@ -7,12 +7,13 @@ use std::time::Duration;
 
 use rqm_http::{response_cookies, CookieJar, EngineConfig, HttpError, HttpResponse, ReqwestEngine};
 use rqm_model::{NodeContent, NodeKind, RequestContent};
-use rqm_runner::{body_view, load_cookies, load_send_input, save_cookies, AppSettings, PrepareError, SendError, SendWarning};
+use rqm_runner::{body_view, load_cookies, load_send_input, save_cookies, PrepareError, SendError, SendWarning};
 use rqm_store::Store;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::{active_environment_in, message, AppCore};
 use crate::dto::{BodyInfo, ResponseDto, SendErrorDto, SendErrorKind, SendResult, SentDto, Warning, WarningKind};
+use crate::settings::app_settings_in;
 
 /// What [`AppCore`] keeps for sending: the engine with its cookies, the sends in flight and the bodies
 /// of the responses the window still shows.
@@ -80,7 +81,7 @@ impl AppCore {
         let input = {
             let store = self.store()?;
             let environment_id = active_environment_in(&store)?;
-            load_send_input(&store, request_id, draft, environment_id.as_deref(), AppSettings::default())
+            load_send_input(&store, request_id, draft, environment_id.as_deref(), app_settings_in(&store))
                 .map_err(message)?
         };
 

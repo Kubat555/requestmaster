@@ -493,3 +493,83 @@ pub struct HistoryEntry {
     /// Whether the node `node_id` is in the tree now.
     pub node_exists: bool,
 }
+
+/// What the window restores at start: its layout with the open tabs, and the unsaved drafts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionDto {
+    /// The layout and the tabs; the defaults while nothing was saved.
+    pub window: WindowState,
+    /// The unsaved drafts of the nodes that still exist, ordered by the id of the node.
+    pub drafts: Vec<DraftDto>,
+}
+
+/// The layout of the window and its open tabs. Stored as JSON under the `window_state` key of `app_state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowState {
+    /// Width of the side panel in pixels.
+    pub sidebar_width: f64,
+    /// Where the response is placed relative to the request; the window chooses the word and reads it back.
+    pub placement: String,
+    /// Share of the request part in the request/response split, in percent.
+    pub split: f64,
+    /// The open tabs, left to right.
+    pub tabs: Vec<SavedTab>,
+    /// Key of the active tab: the id of the node, or `env:<id>` for an environment; `None` — no tab is active.
+    pub active: Option<String>,
+}
+
+/// What an open tab shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SavedTabKind {
+    /// A node of the tree: a request, a collection or a folder.
+    Node,
+    /// An environment, or the globals set under the id `globals`.
+    Environment,
+}
+
+/// An open tab as it is remembered between two runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedTab {
+    /// Whether `id` names a node or an environment.
+    pub kind: SavedTabKind,
+    /// Id of the node or of the environment.
+    pub id: String,
+}
+
+/// The unsaved draft of an open tab of a node. Its content is stored as JSON under the `draft:<node_id>` key
+/// of `app_state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DraftDto {
+    /// Id of the node the draft belongs to.
+    pub node_id: String,
+    /// The content of the node as the editor of the window holds it (the shape of [`NodeDto::content`]);
+    /// always a JSON object, its fields are not checked.
+    pub content: serde_json::Value,
+}
+
+/// The application settings of a send. Stored as JSON under the `settings` key of `app_state`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsDto {
+    /// Limit for the whole exchange in milliseconds; `0` — no limit.
+    pub timeout_ms: u64,
+    /// Whether the server's TLS certificate is verified.
+    pub verify_tls: bool,
+    /// Which proxy to use.
+    pub proxy: ProxyDto,
+}
+
+/// The proxy choice of the application settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ProxyDto {
+    /// The proxy of the operating system.
+    System,
+    /// Direct connection.
+    Off,
+    /// The proxy at this address, for every request.
+    Manual {
+        /// Address of the proxy: an `http://` or `https://` URL.
+        url: String,
+    },
+}

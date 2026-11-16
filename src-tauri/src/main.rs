@@ -46,6 +46,11 @@ fn main() {
                 commands::copy_response_body,
                 commands::move_node,
                 commands::variables_in_scope,
+                commands::load_session,
+                commands::save_window_state,
+                commands::save_draft,
+                commands::get_settings,
+                commands::save_settings,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

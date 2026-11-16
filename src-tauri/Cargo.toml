@@ -36,7 +36,7 @@ tokio-util = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 wiremock = { workspace = true }
-# Only for tests/core_history.rs: breaks the history table behind the back of the core.
+# Only for the tests: changes the database behind the back of the core (a broken table, a broken stored value).
 rusqlite = { workspace = true }
 # Runtime of the send tests; the application itself runs on the runtime Tauri starts.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

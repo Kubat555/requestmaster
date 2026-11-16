@@ -21,4 +21,20 @@ impl Store {
         )?;
         Ok(())
     }
+
+    /// Removes the key; a key that was never written is not an error.
+    pub fn state_delete(&mut self, key: &str) -> Result<(), StoreError> {
+        self.conn.execute("DELETE FROM app_state WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
+    /// `(key, value)` of every key that starts with `prefix` (compared literally), ordered by key.
+    pub fn state_entries(&self, prefix: &str) -> Result<Vec<(String, String)>, StoreError> {
+        // `substr` instead of `LIKE`: `%` and `_` in the prefix stay ordinary characters.
+        let mut statement = self
+            .conn
+            .prepare("SELECT key, value FROM app_state WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key")?;
+        let entries = statement.query_map([prefix], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(entries)
+    }
 }
