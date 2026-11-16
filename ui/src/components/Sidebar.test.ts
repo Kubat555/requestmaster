@@ -287,7 +287,7 @@ describe("Sidebar", () => {
   it("cancels a drop and a dragover outside the sidebar without importing", async () => {
     const { api } = await renderSidebar();
     const importFiles = vi.spyOn(api, "importFiles");
-    const dataTransfer = { files: [jsonFile("stray.json", "{}")] };
+    const dataTransfer = { types: ["Files"], files: [jsonFile("stray.json", "{}")] };
 
     const dragover = createEvent.dragOver(document.body, { dataTransfer });
     await fireEvent(document.body, dragover);
@@ -306,7 +306,9 @@ describe("Sidebar", () => {
     const { importFiles } = answerImport(api, [IMPORTED]);
     const target = screen.getByText(strings.sidebar.empty);
 
-    const drop = createEvent.drop(target, { dataTransfer: { files: [jsonFile(IMPORTED.file_name, "{}")] } });
+    const drop = createEvent.drop(target, {
+      dataTransfer: { types: ["Files"], files: [jsonFile(IMPORTED.file_name, "{}")] },
+    });
     await fireEvent(target, drop);
     await screen.findByRole("dialog");
 

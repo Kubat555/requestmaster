@@ -748,7 +748,9 @@ describe("import of global variables with their tab open", () => {
 
   /** Drops a file on the sidebar and waits for the dialog the import ends with. */
   async function dropFile() {
-    const drop = createEvent.drop(list(), { dataTransfer: { files: [new File(["{}"], FILE_NAME, { type: "application/json" })] } });
+    const drop = createEvent.drop(list(), {
+      dataTransfer: { types: ["Files"], files: [new File(["{}"], FILE_NAME, { type: "application/json" })] },
+    });
     await fireEvent(list(), drop);
     return screen.findByRole("dialog");
   }
@@ -834,7 +836,7 @@ describe("import of global variables with their tab open", () => {
     vi.spyOn(api, "saveEnvironment").mockRejectedValue("disk is full");
 
     await type(values()[0], "globex");
-    const drop = createEvent.drop(list(), { dataTransfer: { files: [new File(["{}"], FILE_NAME)] } });
+    const drop = createEvent.drop(list(), { dataTransfer: { types: ["Files"], files: [new File(["{}"], FILE_NAME)] } });
     await fireEvent(list(), drop);
 
     await waitFor(() => expect(toasts.items).toHaveLength(1));

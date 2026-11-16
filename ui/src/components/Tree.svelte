@@ -18,6 +18,8 @@
     type VisibleRow,
   } from "../lib/tree";
   import { TreeActions } from "../lib/treeActions.svelte";
+  import { descendantIds, dropPlace, dropZone, keyboardPlace, NODE_DRAG_TYPE, type DropZone, type Place } from "../lib/treeDrop";
+  import type { NodeKind } from "../lib/types";
   import type { Workspace } from "../lib/workspace.svelte";
 
   interface Props {
@@ -51,6 +53,13 @@
   let menu = $state.raw<{ node: TreeNode; anchor: Anchor } | null>(null);
   /** The node of the menu shown last; stays after the menu is closed. */
   let menuNode: TreeNode | null = null;
+  /**
+   * The node being dragged with the mouse; `null` — none. What lies under it is found once, when the drag
+   * starts: the question "is this row inside the dragged node" is asked on every move of the pointer.
+   */
+  let dragging = $state.raw<{ id: string; kind: NodeKind; descendants: Set<string> } | null>(null);
+  /** The row a drop would go to and where relative to it; `null` — the pointer is over no place for the node. */
+  let dropTarget = $state.raw<{ id: string; zone: DropZone } | null>(null);
 
   const tree = $derived(buildTree(workspace.rows));
   const rows = $derived(visibleRows(tree, workspace.expanded, workspace.filter));
@@ -64,15 +73,16 @@
   const offset = $derived(Math.min(scrollTop, Math.max(0, rows.length * ROW_HEIGHT - viewportHeight)));
 
   /**
-   * The rows in the DOM, top to bottom: the ones in and near the viewport, and always the row with the focus
-   * and the row being renamed — taking either out would lose the focus or the typed name.
+   * The rows in the DOM, top to bottom: the ones in and near the viewport, and always the row with the focus,
+   * the row being renamed and the row being dragged — taking one out would lose the focus or the typed name,
+   * or break the drag off.
    */
   const drawn = $derived.by<(VisibleRow & { index: number })[]>(() => {
     if (!measured) return [];
     const { first, last } = windowRange(offset, viewportHeight, rows.length);
     const kept = new Set<number>();
-    for (const id of [workspace.focusedId, workspace.renamingId]) {
-      const index = id === null ? undefined : indexById.get(id);
+    for (const id of [workspace.focusedId, workspace.renamingId, dragging?.id]) {
+      const index = id == null ? undefined : indexById.get(id);
       if (index !== undefined && (index < first || index >= last)) kept.add(index);
     }
     const outside = [...kept].sort((a, b) => a - b);
@@ -218,9 +228,110 @@
     await focusRow(Math.min(index, rows.length - 1));
   }
 
+  /** The row of the tree the event happened in. */
+  function rowOf(event: Event): HTMLElement | null {
+    return event.target instanceof Element ? event.target.closest<HTMLElement>("[data-id]") : null;
+  }
+
+  /**
+   * A row starts to be dragged. Not under a filter, which shows a part of the children, so a place among them
+   * would be a guess; and not the row being renamed, where the mouse selects the text of the name.
+   */
+  function onDragStart(event: DragEvent) {
+    const id = rowOf(event)?.dataset.id;
+    const index = id === undefined ? undefined : indexById.get(id);
+    if (id === undefined || index === undefined || !event.dataTransfer || filtering || workspace.renamingId === id) return;
+    event.dataTransfer.setData(NODE_DRAG_TYPE, id);
+    event.dataTransfer.effectAllowed = "move";
+    menu = null;
+    dragging = { id, kind: rows[index].node.kind, descendants: descendantIds(workspace.rows, id) };
+  }
+
+  /**
+   * Where a drop at the pointer would put the dragged node; `null` — nowhere: the pointer is not over a row,
+   * the row is the node itself or lies inside it, takes no node of this kind, or the place is the one the node
+   * has. A file or a text dragged over the tree is not a node, even if a drag of a node was never finished.
+   */
+  function dropAt(event: DragEvent): { id: string; zone: DropZone; place: Place } | null {
+    if (!dragging || filtering || !event.dataTransfer?.types.includes(NODE_DRAG_TYPE)) return null;
+    const row = rowOf(event);
+    const id = row?.dataset.id;
+    const index = id === undefined ? undefined : indexById.get(id);
+    if (!row || id === undefined || index === undefined) return null;
+    if (id === dragging.id || dragging.descendants.has(id)) return null;
+    // The zone is counted from the top of the row, wherever inside the row the pointer is.
+    const zone = dropZone(event.clientY - row.getBoundingClientRect().top, rows[index].node.kind, dragging.kind);
+    if (zone === null) return null;
+    const place = dropPlace(workspace.rows, dragging.id, id, zone, isExpanded(index));
+    return place === null ? null : { id, zone, place };
+  }
+
+  /**
+   * The pointer moves over the rows with something dragged. Over a place for the node the drop is allowed and
+   * the row is marked; over anything else the event is left alone, and the browser itself forbids the drop.
+   */
+  function onDragOver(event: DragEvent) {
+    const found = dropAt(event);
+    if (found?.id !== dropTarget?.id || found?.zone !== dropTarget?.zone) {
+      dropTarget = found && { id: found.id, zone: found.zone };
+    }
+    if (!found || !event.dataTransfer) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  /** The pointer left a row. Going from one part of the row to another is not leaving it. */
+  function onDragLeave(event: DragEvent) {
+    const row = rowOf(event);
+    if (row && event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return;
+    if (row?.dataset.id === dropTarget?.id) dropTarget = null;
+  }
+
+  /**
+   * The node is dropped: it moves, and the keyboard goes to its row. What is selected and the open tabs stay
+   * as they are.
+   */
+  function onDrop(event: DragEvent) {
+    const found = dropAt(event);
+    const id = dragging?.id;
+    dragging = null;
+    dropTarget = null;
+    if (!found || id === undefined) return;
+    event.preventDefault();
+    void workspace.moveNode(api, id, found.place);
+    void focusNode(id);
+  }
+
+  /** The drag is over, with a drop or without one. */
+  function onDragEnd() {
+    dragging = null;
+    dropTarget = null;
+  }
+
+  const MOVE_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] as const;
+
+  /**
+   * Alt with an arrow moves the node instead of the focus, which stays on its row. Under a filter the keys do
+   * nothing, as the mouse does.
+   */
+  function moveByKey(node: TreeNode, key: (typeof MOVE_KEYS)[number]) {
+    if (filtering) return;
+    const place = keyboardPlace(workspace.rows, node.id, key);
+    if (place === null) return;
+    void workspace.moveNode(api, node.id, place);
+    // The row keeps the focus; this scrolls the tree after it when the new place is out of sight.
+    void focusNode(node.id);
+  }
+
   function onKeydown(event: KeyboardEvent, index: number) {
     const { node, depth } = rows[index];
     const isContainer = node.kind !== "request";
+    const moveKey = event.altKey ? MOVE_KEYS.find((key) => key === event.key) : undefined;
+    if (moveKey !== undefined) {
+      moveByKey(node, moveKey);
+      event.preventDefault();
+      return;
+    }
     switch (event.key) {
       case "F2":
         workspace.renamingId = node.id;
@@ -274,12 +385,20 @@
     <EmptyState icon="search" title={strings.sidebar.nothingFound} />
   {/if}
   <!-- As high as all the rows together; the drawn ones stand inside at the places their indexes give. -->
+  <!-- The events of a drag come up from the rows and are for the pointer only: the keyboard moves a node with
+       Alt and an arrow on its row. The focus belongs to the rows, not to the tree around them. -->
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div
     bind:this={container}
     class="rows"
     role="tree"
     aria-label={strings.sidebar.label}
     style:height="{rows.length * ROW_HEIGHT}px"
+    ondragstart={onDragStart}
+    ondragover={onDragOver}
+    ondragleave={onDragLeave}
+    ondrop={onDrop}
+    ondragend={onDragEnd}
   >
     {#each drawn as { node, depth, posInSet, setSize, index } (node.id)}
       <TreeRow
@@ -293,6 +412,8 @@
         tabbable={tabbableId === node.id}
         dirty={dirtyIds.has(node.id)}
         renaming={workspace.renamingId === node.id}
+        draggable={!filtering && workspace.renamingId !== node.id}
+        drop={dropTarget?.id === node.id ? dropTarget.zone : null}
         onactivate={() => activate(node)}
         ontoggle={() => toggle(node)}
         onkeydown={(event) => onKeydown(event, index)}

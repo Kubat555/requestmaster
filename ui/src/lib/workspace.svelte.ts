@@ -4,6 +4,7 @@ import { SvelteSet } from "svelte/reactivity";
 import type { Api } from "./api";
 import { strings } from "./strings";
 import { toasts } from "./toasts.svelte";
+import { applyMove, type Place } from "./treeDrop";
 import type { EnvSummary, NodeKind, TreeRow } from "./types";
 
 /** The state of one window. The application uses {@link workspace}; a test creates its own. */
@@ -31,6 +32,8 @@ export class Workspace {
   renamingEnvironmentId = $state<string | null>(null);
   /** Called when the user opens a request or a collection in the tree. */
   onOpen: (id: string) => void = () => {};
+  /** The last move of a node sent to the storage: the next one is sent after it has ended. Never rejects. */
+  #moves: Promise<unknown> = Promise.resolve();
 
   /**
    * Reads the tree, the environments and the active environment; what is expanded and selected stays.
@@ -197,6 +200,29 @@ export class Workspace {
     await this.reloadTree(api);
     this.selectedId = copyId;
     return copyId;
+  }
+
+  /**
+   * Moves the node to the place and tells whether the storage took it. The tree shows the move at once and the
+   * new parent is expanded, so that the node is seen; the command follows, after the moves started before it.
+   * A refusal is shown as a notification, and the tree is read again: it shows what the storage has.
+   */
+  async moveNode(api: Api, id: string, place: Place): Promise<boolean> {
+    this.rows = applyMove(this.rows, id, place);
+    if (place.parentId !== null) this.expanded.add(place.parentId);
+    const moved = this.#moves.then(async () => {
+      try {
+        await api.moveNode(id, place.parentId, place.index);
+        return true;
+      } catch (error) {
+        toasts.error(String(error));
+        // Not the rows as they were before: something else may have re-read the tree meanwhile.
+        await this.reloadTree(api);
+        return false;
+      }
+    });
+    this.#moves = moved;
+    return moved;
   }
 
   /**

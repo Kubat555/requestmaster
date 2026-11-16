@@ -37,6 +37,12 @@ export interface Api {
   renameNode(id: string, name: string): Promise<void>;
   /** Copies the node with everything inside right after the original; resolves to the id of the copy. */
   duplicateNode(id: string): Promise<string>;
+  /**
+   * Moves the node under `parentId` (`null` — among the collections) to the place `index`, counted among the
+   * children of that parent without the moved node; an index past the end means the last place. A place the
+   * rules of the tree forbid is rejected, and nothing changes.
+   */
+  moveNode(id: string, parentId: string | null, index: number): Promise<void>;
   /** Deletes the node with everything inside. */
   deleteNode(id: string): Promise<void>;
   /** Imports Postman files; every file gets its own result. */
@@ -103,6 +109,7 @@ export const tauriApi: Api = {
   createNode: (parentId, kind, name) => invoke<string>("create_node", { parent_id: parentId, kind, name }),
   renameNode: (id, name) => invoke<void>("rename_node", { id, name }),
   duplicateNode: (id) => invoke<string>("duplicate_node", { id }),
+  moveNode: (id, parentId, index) => invoke<void>("move_node", { id, parent_id: parentId, index }),
   deleteNode: (id) => invoke<void>("delete_node", { id }),
   importFiles: (files) => invoke<ImportResult[]>("import_files", { files }),
   importGlobals: (text, policy) => invoke<void>("import_globals", { text, policy }),

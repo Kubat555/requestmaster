@@ -193,6 +193,26 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       nodes.splice(nodes.indexOf(original) + 1, 0, copy, ...copies);
       return copy.id;
     },
+    async moveNode(id, parentId, index) {
+      // The rules of the tree, in the order and in the words of the core.
+      const node = findNode(id);
+      const parent = parentId === null ? null : findNode(parentId);
+      if (node.kind === "collection" && parent !== null) throw "a collection can only be a root";
+      if (node.kind !== "collection" && parent === null) throw "only a collection can be a root";
+      if (parent?.kind === "request") throw "a request cannot have children";
+      let cursor: NodeDto | null = parent;
+      while (cursor !== null) {
+        if (cursor.id === id) throw "a node cannot be moved into itself or its descendant";
+        cursor = cursor.parent_id === null ? null : findNode(cursor.parent_id);
+      }
+      // The position among the siblings is the order of the list: the node is taken out and put back right
+      // before the sibling that stands at `index` now, or after the last one.
+      nodes.splice(nodes.indexOf(node), 1);
+      node.parent_id = parentId;
+      const siblings = nodes.filter((candidate) => candidate.parent_id === parentId);
+      const at = index < siblings.length ? nodes.indexOf(siblings[index]) : nodes.length;
+      nodes.splice(at, 0, node);
+    },
     async deleteNode(id) {
       const removed = new Set([findNode(id), ...descendants(id)]);
       for (let index = nodes.length - 1; index >= 0; index--) {

@@ -3,6 +3,7 @@
   import Icon from "./ui/Icon.svelte";
   import { methodClass, methodLabel } from "../lib/format";
   import type { TreeNode } from "../lib/tree";
+  import type { DropZone } from "../lib/treeDrop";
 
   interface Props {
     node: TreeNode;
@@ -23,6 +24,10 @@
     dirty: boolean;
     /** Whether the row shows a field instead of the name. */
     renaming: boolean;
+    /** Whether the row can be dragged to another place of the tree. */
+    draggable: boolean;
+    /** Where the node being dragged would go if dropped on this row; `null` — the row is not the target. */
+    drop: DropZone | null;
     /** The user activated the row: a click, or Enter. */
     onactivate: () => void;
     /** The user clicked the arrow of a collection or a folder. */
@@ -46,6 +51,8 @@
     tabbable,
     dirty,
     renaming,
+    draggable,
+    drop,
     onactivate,
     ontoggle,
     onkeydown,
@@ -96,9 +103,13 @@
 <div
   class="row"
   class:selected
+  class:drop-before={drop === "before"}
+  class:drop-inside={drop === "inside"}
+  class:drop-after={drop === "after"}
   role="treeitem"
   tabindex={tabbable ? 0 : -1}
   data-id={node.id}
+  {draggable}
   aria-level={depth + 1}
   aria-posinset={posInSet}
   aria-setsize={setSize}
@@ -168,6 +179,20 @@
 
   .row.selected {
     background: var(--surface-2);
+  }
+
+  /* Where the dragged node would go: a line above or below the row, or a frame around it. Drawn inside the
+     row, so that nothing moves, and at once, without a transition. */
+  .row.drop-before {
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  .row.drop-after {
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+
+  .row.drop-inside {
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 
   .arrow {

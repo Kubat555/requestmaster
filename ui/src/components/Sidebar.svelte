@@ -15,6 +15,7 @@
   import { strings } from "../lib/strings";
   import { tabs } from "../lib/tabs.svelte";
   import { toasts } from "../lib/toasts.svelte";
+  import { NODE_DRAG_TYPE } from "../lib/treeDrop";
   import { GLOBALS_ID, type GlobalsPolicy, type ImportResult } from "../lib/types";
   import type { Workspace } from "../lib/workspace.svelte";
 
@@ -143,18 +144,26 @@
     void importFiles(files);
   }
 
-  // A file dropped anywhere in the window must not be opened by the webview: the window would navigate to
-  // the file and the interface would be gone. So both events are always cancelled, and only a drop inside
-  // the sidebar imports.
+  // A file, a link or a text dropped anywhere in the window must not be opened by the webview: the window would
+  // navigate there and the interface would be gone. So a drop is always cancelled, and only files dropped
+  // inside the sidebar are imported.
   onMount(() => {
     const inside = (event: DragEvent) => event.target instanceof Node && root.contains(event.target);
     const onDragOver = (event: DragEvent) => {
+      const types = event.dataTransfer?.types ?? [];
+      // A node of the tree: its rows alone decide where it may be dropped. They allow it with the effect
+      // "move"; anything written here on the way up would overwrite that, and with any other effect the
+      // webview forbids the drop of a drag that allows only "move". Over any other place the event is left
+      // alone, and the webview forbids the drop itself.
+      if (!types.includes("Files") && types.includes(NODE_DRAG_TYPE)) return;
       event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = inside(event) ? "copy" : "none";
+      // Only files are taken, and only inside the sidebar; a link or a text is taken nowhere.
+      if (event.dataTransfer) event.dataTransfer.dropEffect = types.includes("Files") && inside(event) ? "copy" : "none";
     };
     const onDrop = (event: DragEvent) => {
       event.preventDefault();
-      if (inside(event)) void importFiles(Array.from(event.dataTransfer?.files ?? []));
+      if (!event.dataTransfer?.types.includes("Files") || !inside(event)) return;
+      void importFiles(Array.from(event.dataTransfer.files));
     };
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("drop", onDrop);
