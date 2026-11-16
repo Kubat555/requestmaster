@@ -78,6 +78,8 @@ describe("Sending", () => {
       headers: [],
       body: { mode: "none" },
       auth: null,
+      scripts: { pre_request: "", test: "" },
+      settings: { follow_redirects: null, max_redirects: null, strict_ssl: null, disable_body_pruning: null },
       disabled_auto_headers: [],
     });
     // The stored content is not touched and the tab stays changed.

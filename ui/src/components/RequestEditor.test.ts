@@ -555,3 +555,240 @@ describe("RequestEditor", () => {
     expect(await screen.findByRole("tab", { name: "API" })).toBeTruthy();
   });
 });
+
+/** A request with one script and two settings set. */
+const SCRIPTED: RequestContent = {
+  ...BASE,
+  scripts: { pre_request: "console.log(1);" },
+  settings: { follow_redirects: false, max_redirects: 5 },
+};
+
+function scriptEditor(): HTMLTextAreaElement {
+  return screen.getByRole("textbox", { name: strings.scripts.text });
+}
+
+function settingSelect(name: string): HTMLSelectElement {
+  return screen.getByRole("combobox", { name });
+}
+
+function maxRedirects(): HTMLInputElement {
+  return screen.getByRole("textbox", { name: strings.requestSettings.maxRedirects });
+}
+
+describe("RequestEditor: Scripts and Settings", () => {
+  it("has six sections in the order of the editor", async () => {
+    await openRequest();
+
+    const sections = within(screen.getByRole("tablist", { name: strings.editor.sections })).getAllByRole("tab");
+
+    expect(sections.map((section) => section.textContent!.trim().replace(/\s*\d+$/, ""))).toEqual([
+      "Params",
+      "Headers",
+      "Body",
+      "Auth",
+      "Scripts",
+      "Settings",
+    ]);
+    expect(strings.editor.scripts).toBe("Scripts");
+    expect(strings.editor.settings).toBe("Settings");
+  });
+
+  it("counts the scripts that are not empty and the settings that are set", async () => {
+    await openRequest(SCRIPTED);
+
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent).toMatch(/Scripts\s*1$/);
+    expect(screen.getByRole("tab", { name: /^Settings/ }).textContent).toMatch(/Settings\s*2$/);
+  });
+
+  it("shows no number for empty scripts, a script of spaces alone and settings left by default", async () => {
+    await openRequest({ ...BASE, scripts: { test: " \n\t" } });
+
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent!.trim()).toBe("Scripts");
+    expect(screen.getByRole("tab", { name: /^Settings/ }).textContent!.trim()).toBe("Settings");
+  });
+
+  it("creates the editors of Scripts and Settings when the section is first shown", async () => {
+    await openRequest(SCRIPTED);
+    expect(screen.queryByRole("textbox", { name: strings.scripts.text })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: strings.requestSettings.followRedirects })).toBeNull();
+
+    await showSection(/^Scripts/);
+    expect(scriptEditor().value).toBe("console.log(1);");
+    await showSection(/^Settings/);
+    expect(settingSelect(strings.requestSettings.followRedirects)).toBeTruthy();
+  });
+
+  it("marks the tab when the pre-request script is edited and saves it with Ctrl+S", async () => {
+    const { api, draft } = await openRequest();
+    const saveNodeContent = vi.spyOn(api, "saveNodeContent");
+    await showSection(/^Scripts/);
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+
+    await fireEvent.input(scriptEditor(), { target: { value: "pm.variables.set('a', 1);" } });
+
+    expect(draft().scripts).toEqual({ pre_request: "pm.variables.set('a', 1);", test: "" });
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Scripts/ }).textContent).toMatch(/Scripts\s*1$/);
+
+    await press(CTRL_S);
+    await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
+
+    expect(saveNodeContent).toHaveBeenCalledTimes(1);
+    expect(saveNodeContent).toHaveBeenCalledWith(
+      "req",
+      expect.objectContaining({ scripts: { pre_request: "pm.variables.set('a', 1);", test: "" } }),
+    );
+  });
+
+  it("shows the other script when Tests is chosen and edits only that one", async () => {
+    const { draft } = await openRequest({ ...BASE, scripts: { pre_request: "before();", test: "after();" } });
+    await showSection(/^Scripts/);
+    const kinds = screen.getByRole("tablist", { name: strings.scripts.kind });
+    expect(within(kinds).getAllByRole("tab").map((kind) => kind.textContent!.trim())).toEqual(["Pre-request", "Tests"]);
+    expect(within(kinds).getByRole("tab", { name: "Pre-request" }).getAttribute("aria-selected")).toBe("true");
+    expect(scriptEditor().value).toBe("before();");
+    // One editor shows the chosen script.
+    expect(screen.getAllByRole("textbox", { name: strings.scripts.text })).toHaveLength(1);
+
+    await fireEvent.click(within(kinds).getByRole("tab", { name: "Tests" }));
+
+    expect(scriptEditor().value).toBe("after();");
+    expect(screen.getAllByRole("textbox", { name: strings.scripts.text })).toHaveLength(1);
+    await fireEvent.input(scriptEditor(), { target: { value: "after(2);" } });
+    expect(draft().scripts).toEqual({ pre_request: "before();", test: "after(2);" });
+
+    await fireEvent.click(within(kinds).getByRole("tab", { name: "Pre-request" }));
+    expect(scriptEditor().value).toBe("before();");
+  });
+
+  it("highlights a script as JavaScript and says that scripts are not run yet", async () => {
+    await openRequest(SCRIPTED);
+    await showSection(/^Scripts/);
+
+    expect(scriptEditor().dataset.language).toBe("javascript");
+    expect(screen.getByText(strings.scripts.note)).toBeTruthy();
+    expect(strings.scripts.note).toBe("Скрипты пока не выполняются: выполнение появится на следующем этапе");
+  });
+
+  it("leaves a script with Windows line ends as it came until it is edited", async () => {
+    const script = "const a = 1;\r\nconsole.log(a);\r\n";
+    const { draft } = await openRequest({ ...BASE, scripts: { pre_request: script } });
+
+    await showSection(/^Scripts/);
+
+    expect(draft().scripts.pre_request).toBe(script);
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+  });
+
+  it("sets a setting to no and back to the default, and the tab is not changed again", async () => {
+    const { draft } = await openRequest();
+    await showSection(/^Settings/);
+    const follow = settingSelect(strings.requestSettings.followRedirects);
+    expect(follow.classList.contains("select")).toBe(true);
+    expect(follow.value).toBe("default");
+    expect(within(follow).getAllByRole<HTMLOptionElement>("option").map((option) => option.textContent!.trim())).toEqual([
+      "По умолчанию",
+      "Да",
+      "Нет",
+    ]);
+
+    await fireEvent.change(follow, { target: { value: "false" } });
+
+    expect(draft().settings.follow_redirects).toBe(false);
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Settings/ }).textContent).toMatch(/Settings\s*1$/);
+
+    await fireEvent.change(follow, { target: { value: "default" } });
+
+    expect(draft().settings.follow_redirects).toBeNull();
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+    expect(screen.getByRole("tab", { name: /^Settings/ }).textContent!.trim()).toBe("Settings");
+  });
+
+  it("shows the stored settings and sets the other two switches", async () => {
+    const { draft } = await openRequest(SCRIPTED);
+    await showSection(/^Settings/);
+
+    expect(settingSelect(strings.requestSettings.followRedirects).value).toBe("false");
+    expect(maxRedirects().value).toBe("5");
+    expect(settingSelect(strings.requestSettings.strictSsl).value).toBe("default");
+    expect(settingSelect(strings.requestSettings.sendBody).value).toBe("default");
+
+    await fireEvent.change(settingSelect(strings.requestSettings.strictSsl), { target: { value: "false" } });
+    await fireEvent.change(settingSelect(strings.requestSettings.sendBody), { target: { value: "true" } });
+
+    expect(draft().settings).toEqual({ follow_redirects: false, max_redirects: 5, strict_ssl: false, disable_body_pruning: true });
+  });
+
+  it("takes the maximum of redirects as a whole number and an empty field as the default", async () => {
+    const { draft } = await openRequest();
+    await showSection(/^Settings/);
+    const field = maxRedirects();
+    expect(field.value).toBe("");
+
+    await fireEvent.input(field, { target: { value: "3" } });
+    expect(draft().settings.max_redirects).toBe(3);
+    expect(field.getAttribute("aria-invalid")).not.toBe("true");
+    expect(screen.queryByText(strings.requestSettings.maxRedirectsInvalid)).toBeNull();
+
+    await fireEvent.input(field, { target: { value: "0" } });
+    expect(draft().settings.max_redirects).toBe(0);
+    await fireEvent.input(field, { target: { value: "9999" } });
+    expect(draft().settings.max_redirects).toBe(9999);
+
+    await fireEvent.input(field, { target: { value: "" } });
+    expect(draft().settings.max_redirects).toBeNull();
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+  });
+
+  it("marks a maximum of redirects that is not a whole number and leaves the draft as it was", async () => {
+    const { draft } = await openRequest();
+    await showSection(/^Settings/);
+    const field = maxRedirects();
+    await fireEvent.input(field, { target: { value: "3" } });
+
+    for (const wrong of ["1.5", "-1", "12345", "abc"]) {
+      await fireEvent.input(field, { target: { value: wrong } });
+
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+      expect(screen.getByText(strings.requestSettings.maxRedirectsInvalid)).toBeTruthy();
+      expect(draft().settings.max_redirects).toBe(3);
+      expect(field.value).toBe(wrong);
+    }
+    expect(strings.requestSettings.maxRedirectsInvalid).toBe("Целое число от 0 до 9999");
+
+    await fireEvent.input(field, { target: { value: "7" } });
+    expect(field.getAttribute("aria-invalid")).not.toBe("true");
+    expect(screen.queryByText(strings.requestSettings.maxRedirectsInvalid)).toBeNull();
+    expect(draft().settings.max_redirects).toBe(7);
+  });
+
+  it("sends the draft with the settings and the scripts", async () => {
+    const { api } = await openRequest(SCRIPTED);
+    const onSend = vi.fn(() =>
+      Promise.resolve({ response: null, error: { kind: "other" as const, message: "no server", fields: [] }, warnings: [] }),
+    );
+    api.onSend = onSend;
+    await showSection(/^Settings/);
+    await fireEvent.change(settingSelect(strings.requestSettings.strictSsl), { target: { value: "false" } });
+
+    await fireEvent.click(screen.getByRole("button", { name: strings.editor.send }));
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend).toHaveBeenCalledWith(
+      expect.any(String),
+      "req",
+      expect.objectContaining({
+        settings: { follow_redirects: false, max_redirects: 5, strict_ssl: false, disable_body_pruning: null },
+        scripts: { pre_request: "console.log(1);", test: "" },
+      }),
+    );
+  });
+
+  it("highlights a raw body in JavaScript as JavaScript", async () => {
+    await openRequest({ method: "POST", url: "u", body: { mode: "raw", data: { text: "let a;", language: "javascript" } } });
+    await showSection(/^Body/);
+
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.body.text }).dataset.language).toBe("javascript");
+  });
+});

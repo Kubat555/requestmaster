@@ -58,6 +58,7 @@ describe("CollectionEditor", () => {
         { key: "host", value: "staging.test", secret: false, enabled: true, postman_extra: { type: "string", description: "server" } },
         { key: "password", value: "hunter2", secret: true, enabled: true, postman_extra: {} },
       ],
+      scripts: { pre_request: "", test: "" },
     });
   });
 

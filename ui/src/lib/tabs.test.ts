@@ -34,8 +34,31 @@ describe("normalizeContent", () => {
       headers: [],
       body: { mode: "none" },
       auth: null,
+      scripts: { pre_request: "", test: "" },
+      settings: { follow_redirects: null, max_redirects: null, strict_ssl: null, disable_body_pruning: null },
       disabled_auto_headers: [],
     });
+  });
+
+  it("writes out empty scripts and four settings that are not set", () => {
+    const normalized = normalizeContent("request", { method: "GET", url: "" });
+    expect(normalized.scripts).toEqual({ pre_request: "", test: "" });
+    expect(normalized.settings).toEqual({ follow_redirects: null, max_redirects: null, strict_ssl: null, disable_body_pruning: null });
+  });
+
+  it("changes nothing when a request or a collection is normalized again", () => {
+    const request = normalizeContent("request", {
+      method: "POST",
+      url: "u",
+      query: [{ key: "a", value: "b" }],
+      scripts: { test: "x" },
+      settings: { max_redirects: 3, strict_ssl: false },
+    });
+    expect(normalizeContent("request", request)).toEqual(request);
+    expect(request.settings).toEqual({ follow_redirects: null, max_redirects: 3, strict_ssl: false, disable_body_pruning: null });
+
+    const collection = normalizeContent("collection", { variables: [{ key: "host", value: "h" }], scripts: { pre_request: "p" } });
+    expect(normalizeContent("collection", collection)).toEqual(collection);
   });
 
   it("keeps what is set and fills the rows of an url-encoded body", () => {
@@ -50,13 +73,14 @@ describe("normalizeContent", () => {
     expect(normalized.headers).toEqual([{ key: "h", value: "v", enabled: false, postman_extra: { description: "d" } }]);
     expect(normalized.body).toEqual({ mode: "url_encoded", data: [{ key: "f", value: "1", enabled: true, postman_extra: {} }] });
     expect(normalized.auth).toEqual({ type: "bearer", token: "t" });
-    expect(normalized.scripts).toEqual({ test: "x" });
+    expect(normalized.scripts).toEqual({ pre_request: "", test: "x" });
   });
 
   it("writes out the defaults of a collection", () => {
     expect(normalizeContent("collection", { variables: [{ key: "host", value: "h" }] })).toEqual({
       auth: null,
       variables: [{ key: "host", value: "h", secret: false, enabled: true, postman_extra: {} }],
+      scripts: { pre_request: "", test: "" },
     });
   });
 });
@@ -77,7 +101,7 @@ describe("Tabs", () => {
     await tabs.open(api, "col");
     const collection = tabs.active as Tab<CollectionDraft>;
     expect(collection.kind).toBe("collection");
-    expect(collection.draft).toEqual({ auth: null, variables: [] });
+    expect(collection.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" } });
   });
 
   it("does not open a second tab for the same node, only activates it", async () => {
@@ -133,6 +157,18 @@ describe("Tabs", () => {
     expect(tab.dirty).toBe(false);
   });
 
+  it("is clean after a request whose script has Windows line ends is opened, and keeps the text as it came", async () => {
+    const script = "const a = 1;\r\nconsole.log(a);\r\n";
+    const stored: NodeDto[] = [
+      { id: "col", parent_id: null, kind: "collection", name: "API", content: {} },
+      { id: "req", parent_id: "col", kind: "request", name: "R", content: { method: "GET", url: "u", scripts: { pre_request: script } } },
+    ];
+    const tab = await openRequest(new Tabs(), createFakeApi({ nodes: stored }), "req");
+
+    expect(tab.dirty).toBe(false);
+    expect(tab.draft.scripts).toEqual({ pre_request: script, test: "" });
+  });
+
   it("revert puts the stored content back", async () => {
     const api = createFakeApi({ nodes: nodes() });
     const tab = await openRequest(new Tabs(), api, "req-a");
@@ -165,6 +201,8 @@ describe("Tabs", () => {
       headers: [],
       body: { mode: "none" },
       auth: null,
+      scripts: { pre_request: "", test: "" },
+      settings: { follow_redirects: null, max_redirects: null, strict_ssl: null, disable_body_pruning: null },
       disabled_auto_headers: [],
     });
     expect(tab.dirty).toBe(false);

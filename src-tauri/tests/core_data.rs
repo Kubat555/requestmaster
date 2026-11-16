@@ -187,6 +187,36 @@ fn save_node_content_round_trip_and_rejects_garbage() {
 }
 
 #[test]
+fn nulls_and_empty_scripts_from_the_window_are_defaults() {
+    let (core, _dir) = core();
+    import_one(&core, "demo.json", &collection("Demo"));
+    let id = id_by_name(&core, "Create user");
+
+    // what the window sends for a request whose Scripts and Settings were left alone
+    let mut content = core.get_node(&id).unwrap().content;
+    content["scripts"] = json!({ "pre_request": "", "test": "" });
+    content["settings"] =
+        json!({ "follow_redirects": null, "max_redirects": null, "strict_ssl": null, "disable_body_pruning": null });
+    core.save_node_content(&id, content).unwrap();
+
+    let saved = core.get_node(&id).unwrap().content;
+    let saved = saved.as_object().unwrap();
+    assert!(!saved.contains_key("settings"));
+    assert!(!saved.contains_key("scripts"));
+    assert_eq!(saved["method"], "POST");
+
+    // a setting and a script that are set come back, the ones left alone still do not
+    let mut content = Value::Object(saved.clone());
+    content["scripts"] = json!({ "pre_request": "", "test": "check();" });
+    content["settings"] =
+        json!({ "follow_redirects": false, "max_redirects": 3, "strict_ssl": null, "disable_body_pruning": null });
+    core.save_node_content(&id, content).unwrap();
+    let saved = core.get_node(&id).unwrap().content;
+    assert_eq!(saved["scripts"], json!({ "test": "check();" }));
+    assert_eq!(saved["settings"], json!({ "follow_redirects": false, "max_redirects": 3 }));
+}
+
+#[test]
 fn postman_extra_never_reaches_the_window_and_survives_save() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("app.db");

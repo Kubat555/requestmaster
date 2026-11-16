@@ -1,6 +1,8 @@
 <script lang="ts" module>
   /** Everything of CodeMirror the editor uses. Loaded once, when the first editor is shown. */
   let loading: ReturnType<typeof load> | undefined;
+  /** The JavaScript language: a chunk of its own, loaded once, by the first editor that shows JavaScript. */
+  let loadingJavascript: Promise<typeof import("@codemirror/lang-javascript")> | undefined;
 
   async function load() {
     const [{ EditorView, basicSetup }, { Compartment, EditorState }, { json }, { HighlightStyle, syntaxHighlighting }, { tags }] =
@@ -36,6 +38,7 @@
         { tag: tags.string, color: "var(--code-string)" },
         { tag: tags.number, color: "var(--code-number)" },
         { tag: [tags.bool, tags.null, tags.keyword], color: "var(--code-atom)" },
+        { tag: tags.comment, color: "var(--text-muted)" },
         { tag: tags.invalid, color: "var(--danger)" },
       ]),
     );
@@ -53,7 +56,7 @@
     /** Text of the editor. A change made by the user is reported with `onchange`, not written here. */
     value: string;
     /** What the text is highlighted as. */
-    language?: "json" | "text";
+    language?: "json" | "javascript" | "text";
     /** The text can be selected and copied but not changed. */
     readonly?: boolean;
     /** Accessible name of the text field. */
@@ -74,6 +77,15 @@
   }>();
   /** Text of the document in the editor: tells a change made by the user from one that came with `value`. */
   let shown = "";
+  /** The JavaScript language once it is loaded; until then JavaScript is shown without highlighting. */
+  let javascript = $state.raw<typeof import("@codemirror/lang-javascript")>();
+
+  /** The extension that highlights the text as `language`. */
+  function highlighting(cm: Awaited<ReturnType<typeof load>>) {
+    if (language === "json") return cm.json();
+    if (language === "javascript" && javascript) return javascript.javascript();
+    return [];
+  }
 
   onMount(() => {
     let unmounted = false;
@@ -92,7 +104,7 @@
             cm.basicSetup,
             cm.theme,
             cm.highlight,
-            languageSlot.of(language === "json" ? cm.json() : []),
+            languageSlot.of(highlighting(cm)),
             readonlySlot.of(cm.EditorState.readOnly.of(readonly)),
             cm.EditorView.contentAttributes.of(label ? { "aria-label": label } : {}),
             cm.EditorView.updateListener.of((update) => {
@@ -122,12 +134,24 @@
     editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: text } });
   });
 
+  // JavaScript is fetched when an editor first needs it; the effect below then switches the highlighting on.
+  $effect(() => {
+    if (language !== "javascript" || javascript) return;
+    let dropped = false;
+    void (loadingJavascript ??= import("@codemirror/lang-javascript")).then((module) => {
+      if (!dropped) javascript = module;
+    });
+    return () => {
+      dropped = true;
+    };
+  });
+
   $effect(() => {
     if (!editor) return;
     const { view, languageSlot, readonlySlot, cm } = editor;
     view.dispatch({
       effects: [
-        languageSlot.reconfigure(language === "json" ? cm.json() : []),
+        languageSlot.reconfigure(highlighting(cm)),
         readonlySlot.reconfigure(cm.EditorState.readOnly.of(readonly)),
       ],
     });

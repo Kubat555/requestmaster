@@ -3,6 +3,8 @@
   import AuthEditor from "./AuthEditor.svelte";
   import BodyEditor from "./BodyEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
+  import RequestSettingsEditor from "./RequestSettingsEditor.svelte";
+  import ScriptsEditor from "./ScriptsEditor.svelte";
   import UrlBar from "./UrlBar.svelte";
   import type { Api } from "../lib/api";
   import { canSend } from "../lib/sending.svelte";
@@ -19,8 +21,8 @@
 
   const api = getContext<Api>("api");
 
-  type Section = "params" | "headers" | "body" | "auth";
-  const SECTIONS: Section[] = ["params", "headers", "body", "auth"];
+  type Section = "params" | "headers" | "body" | "auth" | "scripts" | "settings";
+  const SECTIONS: Section[] = ["params", "headers", "body", "auth", "scripts", "settings"];
 
   const id = $props.id();
   let section = $state<Section>("params");
@@ -35,12 +37,17 @@
     return rows.filter((row) => row.enabled).length;
   }
 
-  /** Number of enabled rows next to the name of a section; 0 — no number. */
+  /**
+   * Number next to the name of a section: enabled rows, scripts that are not empty, settings that are set;
+   * 0 — no number.
+   */
   const counts = $derived<Record<Section, number>>({
     params: enabled(tab.draft.query) + enabled(tab.draft.path_variables),
     headers: enabled(tab.draft.headers),
     body: 0,
     auth: 0,
+    scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+    settings: Object.values(tab.draft.settings).filter((setting) => setting !== null).length,
   });
 
   function show(next: Section) {
@@ -103,6 +110,16 @@
   {#if visited.includes("auth")}
     <div class="panel scroll" role="tabpanel" id="{id}-panel-auth" aria-labelledby="{id}-tab-auth" hidden={section !== "auth"}>
       <AuthEditor bind:auth={tab.draft.auth} inherit />
+    </div>
+  {/if}
+  {#if visited.includes("scripts")}
+    <div class="panel" role="tabpanel" id="{id}-panel-scripts" aria-labelledby="{id}-tab-scripts" hidden={section !== "scripts"}>
+      <ScriptsEditor bind:scripts={tab.draft.scripts} />
+    </div>
+  {/if}
+  {#if visited.includes("settings")}
+    <div class="panel scroll" role="tabpanel" id="{id}-panel-settings" aria-labelledby="{id}-tab-settings" hidden={section !== "settings"}>
+      <RequestSettingsEditor bind:settings={tab.draft.settings} />
     </div>
   {/if}
 </div>

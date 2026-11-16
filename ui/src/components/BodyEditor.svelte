@@ -106,10 +106,10 @@
   {:else if body.mode === "raw"}
     {@const raw = body}
     <div class="code">
-      <!-- Only JSON has highlighting; the other languages decide the Content-Type alone. -->
+      <!-- JSON and JavaScript have highlighting; the other languages decide the Content-Type alone. -->
       <CodeEditor
         value={raw.data.text}
-        language={raw.data.language === "json" ? "json" : "text"}
+        language={raw.data.language === "json" || raw.data.language === "javascript" ? raw.data.language : "text"}
         label={strings.body.text}
         onchange={(text) => (raw.data.text = text)}
       />

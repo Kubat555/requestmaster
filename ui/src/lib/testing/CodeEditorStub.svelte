@@ -3,7 +3,7 @@
   // Not imported by the application, so it is not part of its build.
   interface Props {
     value: string;
-    language?: "json" | "text";
+    language?: "json" | "javascript" | "text";
     readonly?: boolean;
     label?: string;
     onchange?: (value: string) => void;

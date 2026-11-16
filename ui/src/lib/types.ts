@@ -86,12 +86,12 @@ export type Body =
   | { mode: "binary"; data: { file: FileRef | null } }
   | { mode: "graphql"; data: { query: string; variables: string } };
 
-/** Per-request settings; an absent one means the application-wide setting applies. */
+/** Per-request settings; one that is absent or `null` is not set: the default applies. */
 export interface RequestSettings {
-  follow_redirects?: boolean;
-  max_redirects?: number;
-  strict_ssl?: boolean;
-  disable_body_pruning?: boolean;
+  follow_redirects?: boolean | null;
+  max_redirects?: number | null;
+  strict_ssl?: boolean | null;
+  disable_body_pruning?: boolean | null;
 }
 
 /** Content of a request node. */
@@ -143,6 +143,17 @@ export type VariableRow = Required<Variable>;
 /** A body whose url-encoded rows have every default written out. */
 export type DraftBody = Exclude<Body, { mode: "url_encoded" }> | { mode: "url_encoded"; data: ParamRow[] };
 
+/** Scripts with both texts written out; an empty text is a script that is absent. */
+export type ScriptsDraft = Required<Scripts>;
+
+/** Per-request settings with every one written out; `null` = not set, the default applies. */
+export interface RequestSettingsDraft {
+  follow_redirects: boolean | null;
+  max_redirects: number | null;
+  strict_ssl: boolean | null;
+  disable_body_pruning: boolean | null;
+}
+
 /** Content of a request after {@link normalizeContent}. */
 export interface RequestDraft extends RequestContent {
   query: ParamRow[];
@@ -151,6 +162,8 @@ export interface RequestDraft extends RequestContent {
   body: DraftBody;
   /** `null` = inherit from the parent. */
   auth: Auth | null;
+  scripts: ScriptsDraft;
+  settings: RequestSettingsDraft;
   disabled_auto_headers: string[];
 }
 
@@ -159,10 +172,25 @@ export interface CollectionDraft extends CollectionContent {
   /** `null` = nothing set at this level. */
   auth: Auth | null;
   variables: VariableRow[];
+  scripts: ScriptsDraft;
 }
 
 function paramRow(param: Param): ParamRow {
   return { ...param, enabled: param.enabled ?? true, postman_extra: param.postman_extra ?? {} };
+}
+
+/** The text of a script is taken as it is, line ends included. */
+function scriptsDraft(scripts: Scripts | undefined): ScriptsDraft {
+  return { pre_request: scripts?.pre_request ?? "", test: scripts?.test ?? "" };
+}
+
+function settingsDraft(settings: RequestSettings | undefined): RequestSettingsDraft {
+  return {
+    follow_redirects: settings?.follow_redirects ?? null,
+    max_redirects: settings?.max_redirects ?? null,
+    strict_ssl: settings?.strict_ssl ?? null,
+    disable_body_pruning: settings?.disable_body_pruning ?? null,
+  };
 }
 
 function draftBody(body: Body | undefined): DraftBody {
@@ -182,9 +210,10 @@ function draftBody(body: Body | undefined): DraftBody {
 
 /**
  * Writes out every default the core leaves out of the JSON of a node: `enabled: true`, `secret: false`,
- * empty lists, the body "none", `auth: null`, an empty `postman_extra` of a row. Without it a value put back
- * by the user (a checkbox switched off and on) would differ from the stored content. The core reads the
- * result as it is. Nothing else is touched; the input is not changed.
+ * empty lists, the body "none", `auth: null`, an empty `postman_extra` of a row, empty scripts, `null` for a
+ * setting that is not set. Without it a value put back by the user (a checkbox switched off and on) would
+ * differ from the stored content. The core reads the result as it is. Nothing else is touched; the input is
+ * not changed.
  */
 export function normalizeContent(kind: "request", content: RequestContent): RequestDraft;
 export function normalizeContent(kind: "collection", content: CollectionContent): CollectionDraft;
@@ -202,6 +231,8 @@ export function normalizeContent(
         headers: (request.headers ?? []).map(paramRow),
         body: draftBody(request.body),
         auth: request.auth ?? null,
+        scripts: scriptsDraft(request.scripts),
+        settings: settingsDraft(request.settings),
         disabled_auto_headers: request.disabled_auto_headers ?? [],
       };
     }
@@ -216,6 +247,7 @@ export function normalizeContent(
           enabled: variable.enabled ?? true,
           postman_extra: variable.postman_extra ?? {},
         })),
+        scripts: scriptsDraft(collection.scripts),
       };
     }
   }
