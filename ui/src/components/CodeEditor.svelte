@@ -80,10 +80,13 @@
   /** The JavaScript language once it is loaded; until then JavaScript is shown without highlighting. */
   let javascript = $state.raw<typeof import("@codemirror/lang-javascript")>();
 
-  /** The extension that highlights the text as `language`. */
+  /**
+   * The extension that highlights the text as `language`. JavaScript is the bare language, not `javascript()`:
+   * that one also brings completion sources and snippets, and a snippet takes Tab away from leaving the editor.
+   */
   function highlighting(cm: Awaited<ReturnType<typeof load>>) {
     if (language === "json") return cm.json();
-    if (language === "javascript" && javascript) return javascript.javascript();
+    if (language === "javascript" && javascript) return javascript.javascriptLanguage;
     return [];
   }
 
