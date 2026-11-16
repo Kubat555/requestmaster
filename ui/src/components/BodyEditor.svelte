@@ -116,7 +116,7 @@
     </div>
   {:else if body.mode === "url_encoded"}
     <div class="scroll">
-      <KeyValueTable bind:rows={body.data} label={strings.body.fields} create={newField} />
+      <KeyValueTable bind:rows={body.data} label={strings.body.fields} create={newField} variables />
     </div>
   {:else if body.mode === "form_data"}
     <div class="scroll">

@@ -335,6 +335,21 @@ export interface EnvironmentDto {
   variables: VariableRow[];
 }
 
+/** Where the value of a variable comes from; `dynamic` — a `{{$name}}` the core makes a value for at every send. */
+export type VariableScopeName = "global" | "collection" | "environment" | "dynamic";
+
+/** One name that `{{name}}` resolves at a node. */
+export interface ScopeVariable {
+  /** The name without braces; a dynamic one starts with `$`. */
+  name: string;
+  /** The scope that wins for this name. */
+  scope: VariableScopeName;
+  /** The value after the full substitution; `null` for a secret and for a dynamic name. */
+  value: string | null;
+  /** The variable is secret or its value refers to a secret one: a mask is shown instead of the value. */
+  secret: boolean;
+}
+
 /** A cookie set by the response. */
 export interface CookieDto {
   name: string;

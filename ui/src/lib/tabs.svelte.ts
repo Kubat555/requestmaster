@@ -17,6 +17,7 @@ import {
   type RequestDraft,
   type VariableRow,
 } from "./types";
+import { bumpVariables } from "./variableScope.svelte";
 import { workspace } from "./workspace.svelte";
 
 /** What a tab shows. */
@@ -100,6 +101,8 @@ export class Tab<C extends TabContent = TabContent> implements TabLike {
       return false;
     }
     this.saved = content;
+    // The requests of a collection resolve `{{name}}` by its stored variables.
+    if (this.kind === "collection") bumpVariables();
     await workspace.reloadTree(api);
     return true;
   }
@@ -208,6 +211,8 @@ export class EnvironmentTab implements TabLike {
     this.#unsaved = false;
     this.failed = false;
     this.variables = environment.variables;
+    // What changed them in the storage (an import of global variables) is what the requests resolve by now.
+    bumpVariables();
   }
 
   /** Drops the pending save: the tab is removed with whatever is not saved. */
@@ -232,6 +237,7 @@ export class EnvironmentTab implements TabLike {
         return false;
       }
       this.failed = false;
+      bumpVariables();
     }
     return true;
   }

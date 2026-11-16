@@ -172,6 +172,24 @@ export const strings = {
     show: "Показать",
     hide: "Скрыть",
   },
+  variables: {
+    /** The scope of a variable in words: the colour alone does not tell it. */
+    scopes: {
+      global: "Глобальная",
+      collection: "Коллекция",
+      environment: "Окружение",
+      dynamic: "Динамическая",
+    },
+    /** Stands for the value of a secret variable. */
+    secretMask: "••••••",
+    dynamicValue: "значение создаётся при отправке",
+    emptyValue: "пустое значение",
+    notFound: "Переменная не найдена",
+    /** The number next to Send, for a screen reader. */
+    unresolved: (count: number) => `Не найдено переменных: ${count}`,
+    /** Name of the list of the autocompletion. */
+    suggestions: "Переменные",
+  },
   body: {
     kind: "Вид тела",
     kinds: {

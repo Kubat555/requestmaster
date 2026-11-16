@@ -12,11 +12,13 @@
     sending: boolean;
     /** Whether a send may be started. */
     canSend: boolean;
+    /** Names of the variables the request uses that are not found; the send is not held back by them. */
+    unresolved: string[];
     onsend: () => void;
     oncancel: () => void;
   }
 
-  let { method = $bindable(), url = $bindable(), sending, canSend, onsend, oncancel }: Props = $props();
+  let { method = $bindable(), url = $bindable(), sending, canSend, unresolved, onsend, oncancel }: Props = $props();
 
   /** Methods of the list; any other one is typed as text. */
   const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -48,8 +50,24 @@
   {/if}
   <!-- `data-url-input`: Ctrl+L looks for the field of the shown tab by it. -->
   <div class="url">
-    <Field mono data-url-input label={strings.editor.url} placeholder={strings.editor.urlPlaceholder} spellcheck="false" bind:value={url} />
+    <Field
+      mono
+      variables
+      data-url-input
+      label={strings.editor.url}
+      placeholder={strings.editor.urlPlaceholder}
+      spellcheck="false"
+      bind:value={url}
+    />
   </div>
+  <!-- Next to the button, not in it: the name of the button stays the same. The number is for the eyes, the
+       sentence for a screen reader, the names are in the tooltip. -->
+  {#if unresolved.length > 0}
+    <span class="unresolved" role="status" title={unresolved.join(", ")}>
+      <span aria-hidden="true">{unresolved.length}</span>
+      <span class="visually-hidden">{strings.variables.unresolved(unresolved.length)}</span>
+    </span>
+  {/if}
   <!-- One button for both actions, so that the focus stays on it; the two texts lie on top of each other
        and only the one of the current action is visible. -->
   <Button
@@ -87,6 +105,30 @@
   .url {
     flex: 1;
     min-width: 0;
+  }
+
+  /* How many variables are not found: the colour of such a variable in the fields. */
+  .unresolved {
+    flex: none;
+    align-self: center;
+    min-width: 20px;
+    padding: 0 var(--space);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+    color: var(--danger);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    text-align: center;
+    cursor: default;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .texts {

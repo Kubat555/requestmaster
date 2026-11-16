@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { HTMLInputAttributes } from "svelte/elements";
   import Icon from "./Icon.svelte";
+  import VarInput from "../VarInput.svelte";
   import type { IconName } from "../../lib/icons";
 
   interface Props extends Omit<HTMLInputAttributes, "aria-label" | "value"> {
@@ -12,17 +13,23 @@
     icon?: IconName;
     /** The text is data (an address, a token): drawn with the monospace font. */
     mono?: boolean;
+    /** The `{{variables}}` in the text are marked, explained and offered; for a plain text field only. */
+    variables?: boolean;
   }
 
-  let { value = $bindable(), label, icon, mono = false, type = "text", ...rest }: Props = $props();
+  let { value = $bindable(), label, icon, mono = false, variables = false, type = "text", ...rest }: Props = $props();
 </script>
 
 <!-- A one-line text field as wide as its place. Any other attribute goes to the input itself. -->
-<span class="field">
+<span class="field" class:mono>
   {#if icon}
     <Icon name={icon} />
   {/if}
-  <input {...rest} {type} class:mono aria-label={label} bind:value />
+  {#if variables && type === "text"}
+    <VarInput {...rest} aria-label={label} bind:value />
+  {:else}
+    <input {...rest} {type} class:mono aria-label={label} bind:value />
+  {/if}
 </span>
 
 <style>
@@ -61,8 +68,19 @@
     outline: none;
   }
 
-  input.mono {
+  input.mono,
+  .field.mono > :global(.var-input) {
     font-family: var(--font-mono);
+  }
+
+  /* The field that marks variables draws itself; here it only gets the colour of the text. */
+  .field > :global(.var-input) {
+    color: var(--text);
+  }
+
+  /* The frame already shows the focus. */
+  .field > :global(.var-input:focus-within) {
+    outline: none;
   }
 
   input::placeholder {

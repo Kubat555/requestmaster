@@ -54,6 +54,15 @@
     edited();
   }
 
+  /**
+   * The mark "secret" of a variable was changed. One that is not secret is not "shown" any more: made secret
+   * again, it is masked.
+   */
+  function onSecretChanged(variable: VariableRow) {
+    if (!variable.secret) revealed = revealed.filter((other) => other !== variable);
+    edited();
+  }
+
   function toggleRevealed(variable: VariableRow) {
     revealed = revealed.includes(variable) ? revealed.filter((other) => other !== variable) : [...revealed, variable];
   }
@@ -107,7 +116,12 @@
               />
             </td>
             <td class="secret">
-              <input type="checkbox" aria-label={strings.environment.secret} bind:checked={variable.secret} onchange={edited} />
+              <input
+                type="checkbox"
+                aria-label={strings.environment.secret}
+                bind:checked={variable.secret}
+                onchange={() => onSecretChanged(variable)}
+              />
             </td>
             <td class="actions">
               {#if variable.secret}

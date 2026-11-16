@@ -6,6 +6,7 @@ import { strings } from "./strings";
 import { toasts } from "./toasts.svelte";
 import { applyMove, type Place } from "./treeDrop";
 import type { EnvSummary, NodeKind, TreeRow } from "./types";
+import { bumpVariables } from "./variableScope.svelte";
 
 /** The state of one window. The application uses {@link workspace}; a test creates its own. */
 export class Workspace {
@@ -49,6 +50,7 @@ export class Workspace {
       this.rows = rows;
       this.environments = environments;
       this.activeEnvironmentId = activeEnvironmentId;
+      bumpVariables();
     } catch (error) {
       toasts.error(String(error));
     }
@@ -75,6 +77,8 @@ export class Workspace {
       const [environments, activeEnvironmentId] = await Promise.all([api.environments(), api.activeEnvironment()]);
       this.environments = environments;
       this.activeEnvironmentId = activeEnvironmentId;
+      // Called after an environment was created, renamed or deleted, and after an import.
+      bumpVariables();
     } catch (error) {
       toasts.error(String(error));
     }
@@ -125,7 +129,8 @@ export class Workspace {
       toasts.error(String(error));
       return false;
     }
-    // The core has cleared the choice too; this holds even when the re-reading below fails.
+    // The core has cleared the choice too; this and the lost variables hold even when the re-reading below fails.
+    bumpVariables();
     if (this.activeEnvironmentId === id) this.activeEnvironmentId = null;
     if (this.renamingEnvironmentId === id) this.renamingEnvironmentId = null;
     await this.reloadEnvironments(api);
@@ -213,6 +218,8 @@ export class Workspace {
     const moved = this.#moves.then(async () => {
       try {
         await api.moveNode(id, place.parentId, place.index);
+        // In another collection the node has other variables.
+        bumpVariables();
         return true;
       } catch (error) {
         toasts.error(String(error));
@@ -300,7 +307,10 @@ export class Workspace {
       toasts.error(String(error));
       // A later choice made while this one was being saved is not undone.
       if (this.activeEnvironmentId === id) this.activeEnvironmentId = previous;
+      return;
     }
+    // Only now: variables read while the command was running would be the ones of the previous environment.
+    bumpVariables();
   }
 }
 

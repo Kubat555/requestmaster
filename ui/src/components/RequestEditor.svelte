@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext } from "svelte";
+  import { getContext, setContext, untrack } from "svelte";
   import AuthEditor from "./AuthEditor.svelte";
   import BodyEditor from "./BodyEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
@@ -9,8 +9,10 @@
   import type { Api } from "../lib/api";
   import { canSend } from "../lib/sending.svelte";
   import { strings } from "../lib/strings";
-  import type { Tab } from "../lib/tabs.svelte";
+  import { tabs, type Tab } from "../lib/tabs.svelte";
   import type { ParamRow, RequestDraft } from "../lib/types";
+  import { VariableScope } from "../lib/variableScope.svelte";
+  import { requestTokenNames } from "../lib/variables";
 
   interface Props {
     /** The tab of the request; the editors change its draft. */
@@ -20,6 +22,21 @@
   let { tab }: Props = $props();
 
   const api = getContext<Api>("api");
+
+  /** The variables `{{name}}` resolves to in this request; the fields below mark their tokens by it. */
+  const scope = setContext("variables", new VariableScope(untrack(() => tab.nodeId)));
+
+  // Read while the tab is shown, and again after something has changed variables; a hidden tab reads when shown.
+  $effect(() => {
+    if (tabs.active === tab && scope.stale) untrack(() => void scope.refresh(api));
+  });
+
+  /**
+   * Names of the variables the request uses that are not found; none while the variables are not read. Counted
+   * here, from the draft: a variable of an inherited auth or a nested `{{a{{b}}}}` is not seen, so the warning
+   * after a send may name more.
+   */
+  const unresolved = $derived(scope.loaded ? requestTokenNames(tab.draft).filter((name) => scope.lookup(name) === null) : []);
 
   type Section = "params" | "headers" | "body" | "auth" | "scripts" | "settings";
   const SECTIONS: Section[] = ["params", "headers", "body", "auth", "scripts", "settings"];
@@ -67,6 +84,7 @@
     bind:url={tab.draft.url}
     sending={tab.sending.state === "sending"}
     canSend={canSend(tab)}
+    {unresolved}
     onsend={() => void tab.sending.send(api, tab)}
     oncancel={() => tab.sending.cancel(api)}
   />
@@ -90,16 +108,17 @@
   </div>
 
   <div class="panel scroll" role="tabpanel" id="{id}-panel-params" aria-labelledby="{id}-tab-params" hidden={section !== "params"}>
-    <KeyValueTable bind:rows={tab.draft.query} label={strings.editor.query} create={newRow} />
-    <!-- Path variables come with the request; without any the block would be an empty table. -->
+    <KeyValueTable bind:rows={tab.draft.query} label={strings.editor.query} create={newRow} variables />
+    <!-- Path variables come with the request; without any the block would be an empty table. The key is the
+         `:name` of the address and is not substituted, so only the values mark variables. -->
     {#if tab.draft.path_variables.length > 0}
       <h3>{strings.editor.pathVariables}</h3>
-      <KeyValueTable bind:rows={tab.draft.path_variables} label={strings.editor.pathVariables} create={newRow} />
+      <KeyValueTable bind:rows={tab.draft.path_variables} label={strings.editor.pathVariables} create={newRow} variables="value" />
     {/if}
   </div>
   {#if visited.includes("headers")}
     <div class="panel scroll" role="tabpanel" id="{id}-panel-headers" aria-labelledby="{id}-tab-headers" hidden={section !== "headers"}>
-      <KeyValueTable bind:rows={tab.draft.headers} label={strings.editor.headers} create={newRow} />
+      <KeyValueTable bind:rows={tab.draft.headers} label={strings.editor.headers} create={newRow} variables />
     </div>
   {/if}
   {#if visited.includes("body")}

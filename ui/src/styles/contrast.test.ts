@@ -39,11 +39,14 @@ describe("colour tokens", () => {
     ["--accent-contrast", "--accent"],
     // Text of the code editor lies on the background of the window.
     ...["--code-key", "--code-string", "--code-number", "--code-atom"].map((name): [string, string] => [name, "--bg"]),
+    // A `{{variable}}` in a field of the editor lies on the background of the window too.
+    ...tokensWithPrefix("--var-").map((name): [string, string] => [name, "--bg"]),
   ];
 
   it("finds every method and status colour", () => {
     expect(tokensWithPrefix("--method-")).toHaveLength(6);
     expect(tokensWithPrefix("--status-")).toHaveLength(4);
+    expect(tokensWithPrefix("--var-")).toEqual(["--var-global", "--var-collection", "--var-environment", "--var-dynamic"]);
   });
 
   it.each(pairs)("%s on %s has a contrast of at least 4.5", (foreground, background) => {

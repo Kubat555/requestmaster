@@ -9,6 +9,7 @@ import {
   type NodeDto,
   type NodeKind,
   type RequestContent,
+  type ScopeVariable,
   type SendResult,
   type Variable,
   type VariableRow,
@@ -255,6 +256,30 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       if (id === GLOBALS_ID) throw "globals cannot be deleted";
       environments.splice(environments.indexOf(findEnvironment(id)), 1);
       if (activeEnvironment === id) activeEnvironment = null;
+    },
+    async variablesInScope(nodeId) {
+      // The scopes from the widest to the narrowest, as the core has them; a later one wins a name. What the
+      // core does besides is left out: a value that refers to another variable is given as it is written.
+      let root = findNode(nodeId);
+      while (root.parent_id !== null) root = findNode(root.parent_id);
+      const scopes: [ScopeVariable["scope"], Variable[]][] = [
+        ["global", findEnvironment(GLOBALS_ID).variables],
+        ["collection", root.kind === "collection" ? (root.content.variables ?? []) : []],
+        ["environment", activeEnvironment === null ? [] : findEnvironment(activeEnvironment).variables],
+      ];
+      const found = new Map<string, ScopeVariable>();
+      for (const [scope, variables] of scopes) {
+        for (const variable of variables.filter((candidate) => candidate.enabled !== false)) {
+          const secret = variable.secret === true;
+          // The value of a secret variable never leaves the core.
+          found.set(variable.key, { name: variable.key, scope, value: secret ? null : variable.value, secret });
+        }
+      }
+      const byName = [...found.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const dynamic = ["$guid", "$randomUUID", "$timestamp", "$isoTimestamp", "$randomInt"]
+        .filter((name) => !found.has(name))
+        .map((name): ScopeVariable => ({ name, scope: "dynamic", value: null, secret: false }));
+      return [...byName, ...dynamic];
     },
     // No file is written: the path is made of the name the core gives the file, as if the user had kept it.
     async exportCollection(id) {

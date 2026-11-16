@@ -1,6 +1,7 @@
 <script lang="ts" generics="Row extends { key: string; value: string; enabled: boolean }">
   import { tick } from "svelte";
   import IconButton from "./ui/IconButton.svelte";
+  import VarInput from "./VarInput.svelte";
   import { strings } from "../lib/strings";
 
   interface Props {
@@ -14,9 +15,14 @@
     create: () => Row;
     /** Whether the value of the row is masked until the user asks to show it. */
     secret?: (row: Row) => boolean;
+    /**
+     * The `{{variables}}` in the cells are marked, explained and offered: `true` — in the keys and the values,
+     * `"value"` — in the values only. A masked value is never marked.
+     */
+    variables?: boolean | "value";
   }
 
-  let { rows = $bindable(), label, keyLabel = strings.table.key, create, secret }: Props = $props();
+  let { rows = $bindable(), label, keyLabel = strings.table.key, create, secret, variables = false }: Props = $props();
 
   let body: HTMLTableSectionElement;
   /** Rows whose masked value the user asked to show. */
@@ -46,6 +52,11 @@
   function toggleRevealed(row: Row) {
     revealed = revealed.includes(row) ? revealed.filter((other) => other !== row) : [...revealed, row];
   }
+
+  // A row that stopped being secret is not "shown" any more: made secret again, it is masked.
+  $effect(() => {
+    if (revealed.some((row) => !secret?.(row))) revealed = revealed.filter((row) => secret?.(row));
+  });
 </script>
 
 <table aria-label={label}>
@@ -63,16 +74,26 @@
       {@const shown = revealed.includes(row)}
       <tr class:off={!row.enabled}>
         <td class="check"><input type="checkbox" aria-label={strings.table.enabled} bind:checked={row.enabled} /></td>
-        <td><input type="text" data-field="key" aria-label={keyLabel} spellcheck="false" bind:value={row.key} /></td>
         <td>
-          <input
-            type={masked && !shown ? "password" : "text"}
-            data-field="value"
-            aria-label={strings.table.value}
-            spellcheck="false"
-            autocomplete="off"
-            bind:value={row.value}
-          />
+          {#if variables === true}
+            <VarInput data-field="key" aria-label={keyLabel} spellcheck="false" bind:value={row.key} />
+          {:else}
+            <input type="text" data-field="key" aria-label={keyLabel} spellcheck="false" bind:value={row.key} />
+          {/if}
+        </td>
+        <td>
+          {#if variables && !(masked && !shown)}
+            <VarInput data-field="value" aria-label={strings.table.value} spellcheck="false" autocomplete="off" bind:value={row.value} />
+          {:else}
+            <input
+              type={masked && !shown ? "password" : "text"}
+              data-field="value"
+              aria-label={strings.table.value}
+              spellcheck="false"
+              autocomplete="off"
+              bind:value={row.value}
+            />
+          {/if}
         </td>
         <td class="actions">
           {#if masked}
@@ -164,6 +185,13 @@
     font-family: var(--font-mono);
   }
 
+  /* A cell that marks variables draws its field itself; the size, the font and the padding are the same. */
+  td > :global(.var-input) {
+    height: var(--row-height);
+    font-family: var(--font-mono);
+    --var-input-padding: calc(var(--space) * 2);
+  }
+
   input::placeholder {
     color: var(--text-muted);
   }
@@ -175,7 +203,8 @@
 
   /* A row that is switched off is kept but not sent. */
   .off input[type="text"],
-  .off input[type="password"] {
+  .off input[type="password"],
+  .off :global(.var-input) {
     color: var(--text-muted);
   }
 

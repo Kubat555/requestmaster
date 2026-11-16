@@ -15,6 +15,7 @@ import type {
   NodeDto,
   NodeKind,
   RequestContent,
+  ScopeVariable,
   SendResult,
   TreeRow,
   VariableRow,
@@ -66,6 +67,11 @@ export interface Api {
   createEnvironment(name: string): Promise<string>;
   /** Deletes the environment; the active one stops being active. The globals cannot be deleted. */
   deleteEnvironment(id: string): Promise<void>;
+  /**
+   * The names `{{name}}` resolves at the node (a request, a folder or a collection) with the active environment,
+   * by what is in the storage. The value of a secret variable does not come.
+   */
+  variablesInScope(nodeId: string): Promise<ScopeVariable[]>;
   /**
    * Asks where to save and writes the collection as a Postman file. Resolves to the path of the file; `null` —
    * the user closed the window that asks, and nothing was written. A node that is not a collection is rejected.
@@ -120,6 +126,7 @@ export const tauriApi: Api = {
   saveEnvironment: (id, name, variables) => invoke<void>("save_environment", { id, name, variables }),
   createEnvironment: (name) => invoke<string>("create_environment", { name }),
   deleteEnvironment: (id) => invoke<void>("delete_environment", { id }),
+  variablesInScope: (nodeId) => invoke<ScopeVariable[]>("variables_in_scope", { node_id: nodeId }),
   exportCollection: (id) => invoke<string | null>("export_collection", { id }),
   exportEnvironment: (id) => invoke<string | null>("export_environment", { id }),
   sendRequest: (sendId, requestId, draft) =>
