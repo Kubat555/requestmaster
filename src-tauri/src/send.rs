@@ -25,7 +25,15 @@ pub(crate) struct SendState {
     /// Cancellation tokens of the sends in flight, by the `send_id` the window chose.
     running: Mutex<HashMap<String, CancellationToken>>,
     /// Files of the response bodies not released yet, by `body.id`.
-    bodies: Mutex<HashMap<String, PathBuf>>,
+    bodies: Mutex<HashMap<String, StoredBody>>,
+}
+
+/// A response body the window still shows.
+struct StoredBody {
+    /// The file with the body as received and decoded.
+    path: PathBuf,
+    /// Extension of the file name offered when the body is saved, see [`body_extension`].
+    extension: &'static str,
 }
 
 impl SendState {
@@ -133,7 +141,7 @@ impl AppCore {
     /// Bytes of a response body by the rules of [`rqm_runner::body_view`]: the whole body, or its first
     /// part when it is too large; `pretty` re-indents a whole body that is valid JSON.
     pub fn response_body(&self, body_id: &str, pretty: bool) -> Result<Vec<u8>, String> {
-        let path = lock(&self.send.bodies).get(body_id).cloned().ok_or("response body is gone")?;
+        let path = self.body_path(body_id)?;
         let view = body_view(&path, pretty).map_err(|error| format!("cannot read the response body: {error}"))?;
         Ok(view.bytes)
     }
@@ -145,17 +153,48 @@ impl AppCore {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
+    /// The file name offered when a response body is saved: `response.<extension>`, the extension chosen by
+    /// [`body_extension`]. An unknown id is the error `response body is gone`.
+    pub fn response_file_name(&self, body_id: &str) -> Result<String, String> {
+        let bodies = lock(&self.send.bodies);
+        let body = bodies.get(body_id).ok_or("response body is gone")?;
+        Ok(format!("response.{}", body.extension))
+    }
+
+    /// Copies a response body, as received and decoded, to `target`. The file is copied on disk and never
+    /// read into memory, so a body too large to show is saved whole. An unknown id is the error
+    /// `response body is gone`.
+    pub fn save_response_body(&self, body_id: &str, target: &Path) -> Result<(), String> {
+        let path = self.body_path(body_id)?;
+        // Copying a file onto itself would empty it. A target that does not exist yet cannot be resolved
+        // and cannot be the body file.
+        if let (Ok(source), Ok(target)) = (path.canonicalize(), target.canonicalize()) {
+            if source == target {
+                return Err("cannot save the response onto itself".to_string());
+            }
+        }
+        std::fs::copy(&path, target).map_err(|error| format!("cannot write the file: {error}"))?;
+        Ok(())
+    }
+
     /// Deletes the file of a response body and forgets its id. An unknown id is not an error.
     pub fn release_body(&self, body_id: &str) {
-        if let Some(path) = lock(&self.send.bodies).remove(body_id) {
+        if let Some(body) = lock(&self.send.bodies).remove(body_id) {
             // A file that cannot be deleted now goes when the core empties its folder at the next start.
-            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(body.path);
         }
+    }
+
+    /// The file of a response body not released yet.
+    fn body_path(&self, body_id: &str) -> Result<PathBuf, String> {
+        let bodies = lock(&self.send.bodies);
+        Ok(bodies.get(body_id).ok_or("response body is gone")?.path.clone())
     }
 
     /// The response for the window; its body file is registered under a new `body.id`.
     fn response_dto(&self, response: HttpResponse) -> Result<ResponseDto, String> {
-        let body = self.register_body(&response.body_path)?;
+        let content_type = header_value(&response.headers, "content-type");
+        let body = self.register_body(&response.body_path, content_type)?;
         let cookies = response_cookies(&response).into_iter().map(Into::into).collect();
         Ok(ResponseDto {
             status: response.status,
@@ -174,11 +213,13 @@ impl AppCore {
         })
     }
 
-    /// Describes the body file at `path` and keeps it under a new id until [`AppCore::release_body`].
-    fn register_body(&self, path: &Path) -> Result<BodyInfo, String> {
+    /// Describes the body file at `path` and keeps it under a new id until [`AppCore::release_body`];
+    /// `content_type` is the `Content-Type` header of the response.
+    fn register_body(&self, path: &Path, content_type: Option<&str>) -> Result<BodyInfo, String> {
         let view = body_view(path, true).map_err(|error| format!("cannot read the response body: {error}"))?;
         let id = rqm_model::new_id();
-        lock(&self.send.bodies).insert(id.clone(), path.to_path_buf());
+        let stored = StoredBody { path: path.to_path_buf(), extension: body_extension(content_type, view.pretty) };
+        lock(&self.send.bodies).insert(id.clone(), stored);
         Ok(BodyInfo { id, total: view.total, truncated: view.truncated, json: view.pretty })
     }
 }
@@ -187,6 +228,28 @@ impl AppCore {
 /// operations; the map itself is intact.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The value of the first header with this name, whatever the case of its letters.
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers.iter().find(|(header, _)| header.eq_ignore_ascii_case(name)).map(|(_, value)| value.as_str())
+}
+
+/// Extension of the file name offered when a response body is saved, by the `Content-Type` header of the
+/// response; `json` tells that the body itself is valid JSON, whatever the header says.
+pub(crate) fn body_extension(content_type: Option<&str>, json: bool) -> &'static str {
+    let content_type = content_type.unwrap_or_default().trim().to_ascii_lowercase();
+    if json || content_type.contains("json") {
+        "json"
+    } else if content_type.starts_with("text/html") {
+        "html"
+    } else if content_type.contains("xml") {
+        "xml"
+    } else if content_type.starts_with("text/") {
+        "txt"
+    } else {
+        "bin"
+    }
 }
 
 /// Reads the draft of a request: the content of the node without the top-level `postman_extra`.
@@ -235,4 +298,26 @@ pub(crate) fn warning_dto(warning: SendWarning) -> Warning {
         SendWarning::UnresolvedVariables { names } => (WarningKind::UnresolvedVariables, names),
     };
     Warning { kind, items }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::body_extension;
+
+    #[test]
+    fn body_extension_table() {
+        let table = [
+            (Some("application/json; charset=utf-8"), false, "json"),
+            (None, true, "json"),
+            (Some("application/problem+json"), false, "json"),
+            (Some("text/html; charset=utf-8"), false, "html"),
+            (Some("text/xml"), false, "xml"),
+            (Some("text/plain"), false, "txt"),
+            (Some("image/png"), false, "bin"),
+            (None, false, "bin"),
+        ];
+        for (content_type, json, extension) in table {
+            assert_eq!(body_extension(content_type, json), extension, "{content_type:?}, json = {json}");
+        }
+    }
 }

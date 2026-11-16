@@ -271,9 +271,11 @@ fn commands_are_listed_everywhere() {
         "save_draft",
         "get_settings",
         "save_settings",
+        "save_response_body",
+        "pick_files",
     ];
     assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
-    assert_eq!(COMMANDS.len(), 34);
+    assert_eq!(COMMANDS.len(), 36);
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
     let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

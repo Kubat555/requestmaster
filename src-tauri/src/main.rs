@@ -13,7 +13,8 @@ fn create_core() -> Result<AppCore, String> {
 fn main() {
     let finished = create_core().and_then(|core| {
         tauri::Builder::default()
-            // The system "Save as" window of the export commands; without the plugin the first export panics.
+            // The system windows "Save as" and "Open"; without the plugin the first command that asks for a
+            // file panics.
             .plugin(tauri_plugin_dialog::init())
             .manage(core)
             .invoke_handler(tauri::generate_handler![
@@ -51,6 +52,8 @@ fn main() {
                 commands::save_draft,
                 commands::get_settings,
                 commands::save_settings,
+                commands::save_response_body,
+                commands::pick_files,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

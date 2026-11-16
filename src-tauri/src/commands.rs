@@ -4,9 +4,11 @@
 //! the window; the store lock is taken and released inside the `AppCore` method and is never held across
 //! an `.await`. `cancel_send` alone is synchronous: it only fires a token.
 
+use std::path::{Path, PathBuf};
+
 use rqm_model::NodeKind;
 use tauri::State;
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::dto::{
     EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, ScopeVariable,
@@ -182,24 +184,24 @@ pub async fn delete_environment(core: State<'_, AppCore>, id: String) -> Result<
 /// closed the "Save as" window.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn export_collection(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     core: State<'_, AppCore>,
     id: String,
 ) -> Result<Option<String>, String> {
     let (file_name, text) = core.export_collection_text(&id)?;
-    save_as(&app, &file_name, &text)
+    save_text_as(&window, &file_name, &text)
 }
 
 /// Saves the environment (the id `globals` = the globals set) as a Postman file the user chooses; returns
 /// its path, or `null` when the user closed the "Save as" window.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn export_environment(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     core: State<'_, AppCore>,
     id: String,
 ) -> Result<Option<String>, String> {
     let (file_name, text) = core.export_environment_text(&id)?;
-    save_as(&app, &file_name, &text)
+    save_text_as(&window, &file_name, &text)
 }
 
 /// History entries, newest first; `before_id` continues the list below that entry.
@@ -264,15 +266,61 @@ pub async fn save_settings(core: State<'_, AppCore>, settings: SettingsDto) -> R
     core.save_settings(settings)
 }
 
-/// Asks the user where to save a file named `file_name` and writes `text` there. `None` when the user
-/// closed the window without choosing. The blocking dialog is allowed here: the export commands are `async`
-/// and do not run on the main thread.
-fn save_as(app: &tauri::AppHandle, file_name: &str, text: &str) -> Result<Option<String>, String> {
-    let chosen = app.dialog().file().set_file_name(file_name).add_filter("JSON", &["json"]).blocking_save_file();
-    let Some(chosen) = chosen else {
+/// Saves a response body, as received and decoded, to a file the user chooses; returns its path, or `null`
+/// when the user closed the "Save as" window.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_response_body(
+    window: tauri::WebviewWindow,
+    core: State<'_, AppCore>,
+    body_id: String,
+) -> Result<Option<String>, String> {
+    let file_name = core.response_file_name(&body_id)?;
+    let extension = Path::new(&file_name).extension().and_then(|extension| extension.to_str()).unwrap_or_default();
+    let Some(path) = ask_save_path(&window, &file_name, extension)? else {
         return Ok(None);
     };
-    let path = chosen.into_path().map_err(|error| format!("cannot use the chosen place: {error}"))?;
+    core.save_response_body(&body_id, &path)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Asks the user for a file to attach to a request, or for several when `multiple`; returns the chosen
+/// paths, none when the user closed the window.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn pick_files(window: tauri::WebviewWindow, multiple: bool) -> Result<Vec<String>, String> {
+    let dialog = window.dialog().file().set_parent(&window);
+    let chosen = if multiple {
+        dialog.blocking_pick_files().unwrap_or_default()
+    } else {
+        dialog.blocking_pick_file().into_iter().collect()
+    };
+    chosen.into_iter().map(|file| Ok(chosen_path(file)?.to_string_lossy().into_owned())).collect()
+}
+
+/// Asks the user where to save a file named `file_name`; the system window belongs to `window` and stays
+/// above it. `None` when the user closed it without choosing. The blocking dialog is allowed here: the
+/// commands that ask are `async` and do not run on the main thread.
+fn ask_save_path(window: &tauri::WebviewWindow, file_name: &str, extension: &str) -> Result<Option<PathBuf>, String> {
+    let chosen = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_file_name(file_name)
+        .add_filter(extension.to_ascii_uppercase(), &[extension])
+        .blocking_save_file();
+    chosen.map(chosen_path).transpose()
+}
+
+/// The path of a file the user chose in a system window.
+fn chosen_path(file: FilePath) -> Result<PathBuf, String> {
+    file.into_path().map_err(|error| format!("cannot use the chosen place: {error}"))
+}
+
+/// Asks the user where to save the JSON file named `file_name` and writes `text` there; returns its path,
+/// `None` when the user closed the window without choosing.
+fn save_text_as(window: &tauri::WebviewWindow, file_name: &str, text: &str) -> Result<Option<String>, String> {
+    let Some(path) = ask_save_path(window, file_name, "json")? else {
+        return Ok(None);
+    };
     std::fs::write(&path, text).map_err(|error| format!("cannot write the file: {error}"))?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }

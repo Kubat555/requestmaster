@@ -37,6 +37,8 @@ fn main() {
         "save_draft",
         "get_settings",
         "save_settings",
+        "save_response_body",
+        "pick_files",
     ]));
     // A build script reports a failure by panicking; the message is tauri-build's own.
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

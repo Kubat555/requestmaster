@@ -337,3 +337,117 @@ async fn unreadable_active_environment_counts_as_none() {
         assert_eq!(result.response.unwrap().status, 200, "{broken}");
     }
 }
+
+/// A server that answers `GET /x` with `200` and this body under this `Content-Type`.
+async fn typed_server(body: Vec<u8>, content_type: &str) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/x"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, content_type))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// The only file in the bodies folder: the body of the one response the core holds.
+fn only_body_file(dir: &TempDir) -> PathBuf {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(bodies_dir(dir)).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(files.len(), 1);
+    files.remove(0)
+}
+
+#[tokio::test]
+async fn response_body_is_saved_as_received() {
+    let server = json_server().await;
+    let (core, dir) = core();
+    import_items(&core, json!([get_item("Get", &format!("{}/x", server.uri()))]));
+    let response = core.send_request("send-1", &id_by_name(&core, "Get"), None).await.unwrap().response.unwrap();
+    assert!(response.body.json);
+
+    let target = dir.path().join("saved.json");
+    assert_eq!(core.save_response_body(&response.body.id, &target), Ok(()));
+    // the bytes of the server, not the re-indented view
+    assert_eq!(std::fs::read(&target).unwrap(), JSON_BODY.as_bytes());
+    // the body stays with the core: it is still shown and can be saved again, over the same file too
+    assert_eq!(core.response_body(&response.body.id, false).unwrap(), JSON_BODY.as_bytes());
+    assert_eq!(core.save_response_body(&response.body.id, &target), Ok(()));
+    assert_eq!(std::fs::read(&target).unwrap(), JSON_BODY.as_bytes());
+
+    // a place that cannot be written is an error with the reason
+    let nowhere = dir.path().join("no-such-folder").join("saved.json");
+    let error = core.save_response_body(&response.body.id, &nowhere).unwrap_err();
+    assert!(error.starts_with("cannot write the file: "), "{error}");
+}
+
+#[tokio::test]
+async fn body_above_the_inline_limit_is_saved_whole() {
+    const LENGTH: usize = 22_020_096; // 21 MiB
+    let body: Vec<u8> = (0..LENGTH).map(|index| b'a' + (index % 26) as u8).collect();
+    let server = typed_server(body.clone(), "application/octet-stream").await;
+    let (core, dir) = core();
+    import_items(&core, json!([get_item("Big", &format!("{}/x", server.uri()))]));
+    let response = core.send_request("send-1", &id_by_name(&core, "Big"), None).await.unwrap().response.unwrap();
+    assert!(response.body.truncated);
+
+    let target = dir.path().join("saved.bin");
+    assert_eq!(core.save_response_body(&response.body.id, &target), Ok(()));
+    assert_eq!(std::fs::metadata(&target).unwrap().len(), 22_020_096);
+    assert!(std::fs::read(&target).unwrap() == body, "the saved file differs from the body of the server");
+}
+
+#[tokio::test]
+async fn saving_a_released_body_is_an_error() {
+    let server = json_server().await;
+    let (core, dir) = core();
+    import_items(&core, json!([get_item("Get", &format!("{}/x", server.uri()))]));
+    let response = core.send_request("send-1", &id_by_name(&core, "Get"), None).await.unwrap().response.unwrap();
+    core.release_body(&response.body.id);
+
+    let target = dir.path().join("saved.json");
+    assert_eq!(core.save_response_body(&response.body.id, &target), Err("response body is gone".to_string()));
+    assert!(!target.exists(), "nothing is written");
+    assert_eq!(core.response_file_name(&response.body.id), Err("response body is gone".to_string()));
+    assert_eq!(core.save_response_body("never-existed", &target), Err("response body is gone".to_string()));
+    assert_eq!(core.response_file_name("never-existed"), Err("response body is gone".to_string()));
+}
+
+#[tokio::test]
+async fn saving_onto_the_body_file_itself_is_refused_and_keeps_it() {
+    let server = json_server().await;
+    let (core, dir) = core();
+    import_items(&core, json!([get_item("Get", &format!("{}/x", server.uri()))]));
+    let response = core.send_request("send-1", &id_by_name(&core, "Get"), None).await.unwrap().response.unwrap();
+    let body_file = only_body_file(&dir);
+
+    let refused = Err("cannot save the response onto itself".to_string());
+    assert_eq!(core.save_response_body(&response.body.id, &body_file), refused);
+    // the same file under another spelling of its path
+    let name = body_file.file_name().unwrap();
+    let respelled = bodies_dir(&dir).join("..").join("bodies").join(name);
+    assert_eq!(core.save_response_body(&response.body.id, &respelled), refused);
+
+    assert_eq!(std::fs::read(&body_file).unwrap(), JSON_BODY.as_bytes(), "the body file is intact");
+    assert_eq!(core.response_body(&response.body.id, false).unwrap(), JSON_BODY.as_bytes());
+}
+
+#[tokio::test]
+async fn response_file_name_follows_the_content_type() {
+    let cases: [(&[u8], &str, &str); 6] = [
+        (b"<html></html>", "text/html; charset=utf-8", "response.html"),
+        (b"<a/>", "application/xml", "response.xml"),
+        (b"hello", "text/plain", "response.txt"),
+        (b"\x89PNG", "image/png", "response.bin"),
+        (b"{\"title\":\"x\"}", "application/problem+json", "response.json"),
+        // a JSON body wins over the type the server named
+        (JSON_BODY.as_bytes(), "text/plain", "response.json"),
+    ];
+    let (core, _dir) = core();
+    for (number, (body, content_type, file_name)) in cases.into_iter().enumerate() {
+        let server = typed_server(body.to_vec(), content_type).await;
+        let name = format!("Get {number}");
+        import_items(&core, json!([get_item(&name, &format!("{}/x", server.uri()))]));
+        let result = core.send_request(&format!("send-{number}"), &id_by_name(&core, &name), None).await.unwrap();
+        let response = result.response.unwrap();
+        assert_eq!(core.response_file_name(&response.body.id), Ok(file_name.to_string()), "{content_type}");
+    }
+}

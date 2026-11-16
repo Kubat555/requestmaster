@@ -54,4 +54,6 @@ pub const COMMANDS: &[&str] = &[
     "save_draft",
     "get_settings",
     "save_settings",
+    "save_response_body",
+    "pick_files",
 ];
