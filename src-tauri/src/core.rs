@@ -111,6 +111,17 @@ impl AppCore {
         self.store()?.duplicate_node(id).map_err(message)
     }
 
+    /// Moves the node under `parent_id` (`None` = among the collections) to position `index`, counted among
+    /// the children of that parent without the moved node; an index past the end means the last place.
+    /// A place the tree rules forbid is an error that names the broken rule, and nothing changes.
+    pub fn move_node(&self, id: &str, parent_id: Option<&str>, index: usize) -> Result<(), String> {
+        self.store()?.move_node(id, parent_id, index).map_err(|error| match error {
+            // As in `create_node`: the window gets the rule itself, "a request cannot have children".
+            StoreError::InvalidMove(rule) => rule,
+            other => message(other),
+        })
+    }
+
     /// Deletes the node with its descendants.
     pub fn delete_node(&self, id: &str) -> Result<(), String> {
         self.store()?.delete_node(id).map_err(message)

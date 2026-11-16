@@ -9,8 +9,8 @@ use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::dto::{
-    EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, SendResult, TreeRow,
-    VariableDto,
+    EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, ScopeVariable,
+    SendResult, TreeRow, VariableDto,
 };
 use crate::AppCore;
 
@@ -129,6 +129,24 @@ pub async fn duplicate_node(core: State<'_, AppCore>, id: String) -> Result<Stri
 #[tauri::command(rename_all = "snake_case")]
 pub async fn delete_node(core: State<'_, AppCore>, id: String) -> Result<(), String> {
     core.delete_node(&id)
+}
+
+/// Moves the node under `parent_id` (`null` = among the collections) to position `index`, counted without
+/// the moved node.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn move_node(
+    core: State<'_, AppCore>,
+    id: String,
+    parent_id: Option<String>,
+    index: usize,
+) -> Result<(), String> {
+    core.move_node(&id, parent_id.as_deref(), index)
+}
+
+/// The variables `{{name}}` resolves at the node, with the active environment.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn variables_in_scope(core: State<'_, AppCore>, node_id: String) -> Result<Vec<ScopeVariable>, String> {
+    core.variables_in_scope(&node_id)
 }
 
 /// The environment with its variables; the id `globals` gives the globals set.

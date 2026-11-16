@@ -154,6 +154,179 @@ fn rename_duplicate_and_delete() {
     assert!(core.tree().unwrap().is_empty());
 }
 
+/// C ─ F ─ Inner ─ Deep ; C ─ R2 ; C ─ R3
+fn seeded(core: &AppCore) -> [String; 6] {
+    let collection = core.create_node(None, NodeKind::Collection, "C").unwrap();
+    let folder = core.create_node(Some(&collection), NodeKind::Folder, "F").unwrap();
+    let inner = core.create_node(Some(&folder), NodeKind::Folder, "Inner").unwrap();
+    let deep = core.create_node(Some(&inner), NodeKind::Request, "Deep").unwrap();
+    let second = core.create_node(Some(&collection), NodeKind::Request, "R2").unwrap();
+    let third = core.create_node(Some(&collection), NodeKind::Request, "R3").unwrap();
+    [collection, folder, inner, deep, second, third]
+}
+
+/// `names` with the positions 0..n, as [`children`] returns them.
+fn ordered(names: &[&str]) -> Vec<(String, i64)> {
+    names.iter().zip(0..).map(|(name, position)| (name.to_string(), position)).collect()
+}
+
+#[test]
+fn move_node_reorders_and_moves() {
+    let (core, _dir) = core();
+    let [collection, folder, inner, deep, second, third] = seeded(&core);
+
+    // among the siblings: the index counts the children without the moved node
+    core.move_node(&folder, Some(&collection), 1).unwrap();
+    assert_eq!(children(&core, Some(&collection)), ordered(&["R2", "F", "R3"]));
+    core.move_node(&third, Some(&collection), 0).unwrap();
+    assert_eq!(children(&core, Some(&collection)), ordered(&["R3", "R2", "F"]));
+    // an index past the end means "the last one"
+    core.move_node(&third, Some(&collection), 99).unwrap();
+    assert_eq!(children(&core, Some(&collection)), ordered(&["R2", "F", "R3"]));
+
+    // into a folder and out of it
+    core.move_node(&second, Some(&inner), 0).unwrap();
+    assert_eq!(children(&core, Some(&inner)), ordered(&["R2", "Deep"]));
+    assert_eq!(children(&core, Some(&collection)), ordered(&["F", "R3"]));
+    assert_eq!(core.get_node(&second).unwrap().parent_id.as_deref(), Some(inner.as_str()));
+    core.move_node(&deep, Some(&collection), 1).unwrap();
+    assert_eq!(children(&core, Some(&collection)), ordered(&["F", "Deep", "R3"]));
+    assert_eq!(children(&core, Some(&inner)), ordered(&["R2"]));
+
+    // the collections themselves, and a folder with its descendants into another collection
+    let other = core.create_node(None, NodeKind::Collection, "Other").unwrap();
+    core.move_node(&other, None, 0).unwrap();
+    assert_eq!(children(&core, None), ordered(&["Other", "C"]));
+    core.move_node(&folder, Some(&other), 0).unwrap();
+    assert_eq!(children(&core, Some(&other)), ordered(&["F"]));
+    assert_eq!(children(&core, Some(&folder)), ordered(&["Inner"]));
+    assert_eq!(children(&core, Some(&inner)), ordered(&["R2"]));
+    assert_eq!(children(&core, Some(&collection)), ordered(&["Deep", "R3"]));
+    assert_eq!(core.tree().unwrap().len(), 7, "nothing is lost or copied");
+}
+
+#[test]
+fn move_node_refuses_forbidden_places_and_changes_nothing() {
+    let (core, _dir) = core();
+    let [collection, folder, inner, deep, second, third] = seeded(&core);
+    let before = as_json(&core.tree().unwrap());
+
+    // the error is the broken rule itself, without the `invalid move:` prefix of the store
+    let into_itself_or_descendant = "a node cannot be moved into itself or its descendant".to_string();
+    assert_eq!(core.move_node(&folder, Some(&folder), 0), Err(into_itself_or_descendant.clone()));
+    assert_eq!(core.move_node(&folder, Some(&inner), 0), Err(into_itself_or_descendant));
+    assert_eq!(core.move_node(&second, None, 0), Err("only a collection can be a root".to_string()));
+    assert_eq!(core.move_node(&folder, None, 0), Err("only a collection can be a root".to_string()));
+    assert_eq!(core.move_node(&collection, Some(&folder), 0), Err("a collection can only be a root".to_string()));
+    assert_eq!(core.move_node(&second, Some(&third), 0), Err("a request cannot have children".to_string()));
+    assert_eq!(core.move_node(&folder, Some(&deep), 0), Err("a request cannot have children".to_string()));
+    // a node or a parent that does not exist is an error too, in the words of the store
+    assert!(core.move_node("no-such-node", Some(&collection), 0).is_err());
+    assert!(core.move_node(&second, Some("no-such-node"), 0).is_err());
+
+    assert_eq!(as_json(&core.tree().unwrap()), before, "the tree is as it was");
+}
+
+/// A collection named `name` whose variable `host` is `host`, with one request `<name> request`.
+fn collection_with_host(core: &AppCore, name: &str, host: &str) -> (String, String) {
+    let collection = core.create_node(None, NodeKind::Collection, name).unwrap();
+    core.save_node_content(&collection, json!({ "variables": [{ "key": "host", "value": host }] })).unwrap();
+    let request = core.create_node(Some(&collection), NodeKind::Request, &format!("{name} request")).unwrap();
+    (collection, request)
+}
+
+/// The entry `name` of `variables_in_scope(node_id)` as the window gets it.
+fn scope_entry(core: &AppCore, node_id: &str, name: &str) -> Value {
+    let all = core.variables_in_scope(node_id).unwrap();
+    as_json(&all.into_iter().find(|variable| variable.name == name).unwrap())
+}
+
+#[test]
+fn moved_request_sees_the_variables_of_its_new_collection() {
+    let (core, _dir) = core();
+    let (_first, request) = collection_with_host(&core, "First", "one");
+    let (second, _) = collection_with_host(&core, "Second", "two");
+    let folder = core.create_node(Some(&second), NodeKind::Folder, "F").unwrap();
+
+    let expected = |value: &str| json!({ "name": "host", "scope": "collection", "value": value, "secret": false });
+    assert_eq!(scope_entry(&core, &request, "host"), expected("one"));
+    core.move_node(&request, Some(&folder), 0).unwrap();
+    assert_eq!(scope_entry(&core, &request, "host"), expected("two"));
+    // a folder and the collection itself see the same collection scope
+    assert_eq!(scope_entry(&core, &folder, "host"), expected("two"));
+    assert_eq!(scope_entry(&core, &second, "host"), expected("two"));
+}
+
+#[test]
+fn variables_in_scope_uses_the_active_environment() {
+    let (core, _dir) = core();
+    let (collection, request) = collection_with_host(&core, "C", "c");
+    core.save_environment("globals", "", vec![variable("host", "g"), variable("only_global", "1")]).unwrap();
+    let environment = core.create_environment("E").unwrap();
+    let secret = VariableDto { secret: true, ..variable("token", "s3cr3t") };
+    core.save_environment(&environment, "E", vec![variable("host", "e"), secret]).unwrap();
+    core.save_node_content(
+        &collection,
+        json!({ "variables": [{ "key": "host", "value": "c" }, { "key": "auth", "value": "Bearer {{token}}" }] }),
+    )
+    .unwrap();
+    let other = core.create_environment("Other").unwrap();
+    core.save_environment(&other, "Other", vec![variable("host", "o")]).unwrap();
+
+    // no environment is chosen: the collection wins over the globals, the token is unknown
+    assert_eq!(
+        scope_entry(&core, &request, "host"),
+        json!({ "name": "host", "scope": "collection", "value": "c", "secret": false })
+    );
+    assert_eq!(
+        scope_entry(&core, &request, "auth"),
+        json!({ "name": "auth", "scope": "collection", "value": "Bearer {{token}}", "secret": false })
+    );
+
+    core.set_active_environment(Some(&environment)).unwrap();
+    assert_eq!(
+        scope_entry(&core, &request, "host"),
+        json!({ "name": "host", "scope": "environment", "value": "e", "secret": false })
+    );
+    assert_eq!(
+        scope_entry(&core, &request, "only_global"),
+        json!({ "name": "only_global", "scope": "global", "value": "1", "secret": false })
+    );
+    // the secret and the open variable that refers to it come without a value
+    assert_eq!(
+        scope_entry(&core, &request, "token"),
+        json!({ "name": "token", "scope": "environment", "value": null, "secret": true })
+    );
+    assert_eq!(
+        scope_entry(&core, &request, "auth"),
+        json!({ "name": "auth", "scope": "collection", "value": null, "secret": true })
+    );
+    assert_eq!(
+        scope_entry(&core, &request, "$guid"),
+        json!({ "name": "$guid", "scope": "dynamic", "value": null, "secret": false })
+    );
+    let all = as_json(&core.variables_in_scope(&request).unwrap());
+    assert!(!all.to_string().contains("s3cr3t"), "{all}");
+    let names: Vec<&str> = all.as_array().unwrap().iter().map(|entry| entry["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        ["auth", "host", "only_global", "token", "$guid", "$randomUUID", "$timestamp", "$isoTimestamp", "$randomInt"]
+    );
+
+    core.set_active_environment(Some(&other)).unwrap();
+    assert_eq!(scope_entry(&core, &request, "host")["value"], "o");
+    // the active environment was deleted: the choice is gone, not an error
+    core.delete_environment(&other).unwrap();
+    assert_eq!(scope_entry(&core, &request, "host")["scope"], "collection");
+}
+
+#[test]
+fn variables_in_scope_of_an_unknown_node_is_an_error() {
+    let (core, _dir) = core();
+    let error = core.variables_in_scope("no-such-node").unwrap_err();
+    assert!(error.contains("no-such-node"), "{error}");
+}
+
 #[test]
 fn environment_is_created_saved_and_read() {
     let (core, _dir) = core();

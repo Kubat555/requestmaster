@@ -94,3 +94,14 @@ fn sub(res: &Resolver, s: &str) -> (String, Vec<String>) { let o = res.substitut
     assert_eq!(apply_path_variables("https://h.test/:id.json", &v), "https://h.test/7.json");
     assert_eq!(apply_path_variables("https://h.test/:e/x", &[("e".to_string(), String::new())]), "https://h.test/:e/x");
 }
+#[test] fn dynamic_names_all_resolve() {
+    for name in DYNAMIC_NAMES { assert!(system_dynamic(name).is_some(), "{name}"); }
+    assert!(system_dynamic("nope").is_none());
+}
+#[test] fn entries_are_sorted_by_name() {
+    use ScopeKind::*;
+    let res = r(&[(Global, "zeta", "1"), (Environment, "alpha", "{{zeta}}"), (Collection, "Mid", "3"), (Global, "alpha", "g"), (Global, "$guid", "u")]);
+    // the raw value (not substituted) and the scope that won; byte order of the names
+    assert_eq!(res.entries(), vec![("$guid", "u", Global), ("Mid", "3", Collection), ("alpha", "{{zeta}}", Environment), ("zeta", "1", Global)]);
+    assert!(r(&[]).entries().is_empty());
+}

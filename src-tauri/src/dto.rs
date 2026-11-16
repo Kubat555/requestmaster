@@ -375,6 +375,55 @@ pub struct EnvironmentDto {
     pub variables: Vec<VariableDto>,
 }
 
+/// Where the value of a `{{name}}` comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VariableScope {
+    /// The globals set.
+    Global,
+    /// The collection of the node.
+    Collection,
+    /// The active environment.
+    Environment,
+    /// `{{$guid}}` and the like: a new value on every occurrence at the send.
+    Dynamic,
+}
+
+impl From<rqm_runner::VariableOrigin> for VariableScope {
+    fn from(origin: rqm_runner::VariableOrigin) -> Self {
+        match origin {
+            rqm_runner::VariableOrigin::Global => VariableScope::Global,
+            rqm_runner::VariableOrigin::Collection => VariableScope::Collection,
+            rqm_runner::VariableOrigin::Environment => VariableScope::Environment,
+            rqm_runner::VariableOrigin::Dynamic => VariableScope::Dynamic,
+        }
+    }
+}
+
+/// One name that `{{name}}` resolves at a node, for the highlighting and the autocompletion in the window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopeVariable {
+    /// The name without braces; a dynamic one starts with `$`.
+    pub name: String,
+    /// The scope that wins for this name.
+    pub scope: VariableScope,
+    /// The value after the full substitution; `null` for a secret and for a dynamic name.
+    pub value: Option<String>,
+    /// `true` — the variable is secret or its value refers to a secret one; the window shows a mask.
+    pub secret: bool,
+}
+
+impl From<rqm_runner::ScopeVariable> for ScopeVariable {
+    fn from(variable: rqm_runner::ScopeVariable) -> Self {
+        ScopeVariable {
+            name: variable.name,
+            scope: variable.origin.into(),
+            value: variable.value,
+            secret: variable.secret,
+        }
+    }
+}
+
 /// The short facts of a history entry. Stored as JSON in the `summary` column of `history`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistorySummary {

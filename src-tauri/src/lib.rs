@@ -8,6 +8,7 @@ pub mod dto;
 mod export;
 mod history;
 mod send;
+mod variables;
 
 pub use crate::core::{AppCore, CoreConfig, ACTIVE_ENVIRONMENT_KEY};
 
@@ -42,4 +43,6 @@ pub const COMMANDS: &[&str] = &[
     "history_get",
     "history_clear",
     "copy_response_body",
+    "move_node",
+    "variables_in_scope",
 ];

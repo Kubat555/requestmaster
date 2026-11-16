@@ -4,6 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
+/// Names [`system_dynamic`] knows, without the `$`.
+pub const DYNAMIC_NAMES: [&str; 5] = ["guid", "randomUUID", "timestamp", "isoTimestamp", "randomInt"];
+
 /// `guid`, `randomUUID` (UUID v4), `timestamp` (Unix seconds), `isoTimestamp` (UTC, `YYYY-MM-DDTHH:MM:SS.mmmZ`),
 /// `randomInt` (0..=1000). Unknown name → `None`.
 pub fn system_dynamic(name: &str) -> Option<String> {

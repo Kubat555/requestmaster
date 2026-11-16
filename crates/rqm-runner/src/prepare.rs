@@ -3,11 +3,11 @@
 use std::path::PathBuf;
 
 use rqm_http::{HttpBody, HttpRequest, MultipartPart, PartValue, SendOptions};
-use rqm_model::{Body, FormValue, NodeContent, Param, RawLanguage, Variable};
-use rqm_vars::{apply_path_variables, Resolver, Scope, ScopeKind};
+use rqm_model::{Body, FormValue, NodeContent, Param, RawLanguage};
+use rqm_vars::{apply_path_variables, Resolver};
 
 use crate::auth::{auth_effect, effective_auth, AuthEffect};
-use crate::SendInput;
+use crate::{ScopeSources, SendInput};
 
 /// Methods whose body is not sent unless the request disables body pruning (the list of postman-runtime).
 const BODYLESS_METHODS: [&str; 5] = ["GET", "HEAD", "COPY", "PURGE", "UNLOCK"];
@@ -91,7 +91,7 @@ pub fn prepare(
         warnings.push(SendWarning::ScriptsNotExecuted { nodes: script_nodes });
     }
 
-    let mut vars = Vars { resolver: resolver(input), dynamic, unresolved: Vec::new() };
+    let mut vars = Vars { resolver: ScopeSources::of_input(input).resolver(), dynamic, unresolved: Vec::new() };
 
     let substituted_url = vars.substitute(&request.url);
     let mut url = substituted_url.trim().to_string();
@@ -150,25 +150,6 @@ pub fn prepare(
     };
     let http = HttpRequest { method: request.method.clone(), url: finish_url(&url, &query), headers, body, options };
     Ok(Prepared { http, warnings })
-}
-
-/// Scopes of a send, the widest first: globals, variables of the collection, the environment.
-/// The local scope is empty at this stage (it is filled by scripts).
-fn resolver(input: &SendInput) -> Resolver {
-    fn enabled(variables: &[Variable]) -> Vec<(String, String)> {
-        let enabled = variables.iter().filter(|variable| variable.enabled);
-        enabled.map(|variable| (variable.key.clone(), variable.value.clone())).collect()
-    }
-    let collection = input.ancestors.iter().find_map(|node| match &node.content {
-        NodeContent::Collection(content) => Some(content.variables.as_slice()),
-        _ => None,
-    });
-    let environment = input.environment.as_ref().map(|environment| environment.variables.as_slice());
-    Resolver::new(vec![
-        Scope { kind: ScopeKind::Global, values: enabled(&input.globals.variables) },
-        Scope { kind: ScopeKind::Collection, values: enabled(collection.unwrap_or_default()) },
-        Scope { kind: ScopeKind::Environment, values: enabled(environment.unwrap_or_default()) },
-    ])
 }
 
 /// Names of the nodes that have a non-blank script, from the collection down to the request.

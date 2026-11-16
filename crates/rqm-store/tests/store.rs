@@ -116,6 +116,37 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     assert_eq!(children(&s, &c), vec![("R3".into(), 0), ("F1".into(), 1), ("R2".into(), 2), ("R1".into(), 3)]);
     assert!(children(&s, &f2).is_empty());
 }
+#[test] fn move_within_a_parent_and_between_collections() {
+    let (mut s, [c, f1, f2, r1, r2, r3]) = seeded();
+    // `index` counts the children of the new parent without the moved node
+    s.move_node(&f1, Some(&c), 1).unwrap();
+    assert_eq!(children(&s, &c), vec![("R2".into(), 0), ("F1".into(), 1), ("R3".into(), 2)]);
+    s.move_node(&r3, Some(&c), 0).unwrap();
+    assert_eq!(children(&s, &c), vec![("R3".into(), 0), ("R2".into(), 1), ("F1".into(), 2)]);
+    s.move_node(&r3, Some(&c), 0).unwrap();
+    assert_eq!(children(&s, &c), vec![("R3".into(), 0), ("R2".into(), 1), ("F1".into(), 2)], "moving to its own place changes nothing");
+    assert_eq!(children(&s, &f1), vec![("F2".into(), 0)], "the descendants stay with the moved folder");
+
+    let roots = |s: &Store| -> Vec<(String, i64)> { s.tree().unwrap().into_iter().filter(|r| r.parent_id.is_none()).map(|r| (r.name, r.sort_order)).collect() };
+    let c2 = s.create_node(None, NodeKind::Collection, "C2", &collection()).unwrap();
+    s.create_node(Some(&c2), NodeKind::Request, "R4", &request("GET")).unwrap();
+    assert_eq!(roots(&s), vec![("C".into(), 0), ("C2".into(), 1)]);
+    s.move_node(&c2, None, 0).unwrap();
+    assert_eq!(roots(&s), vec![("C2".into(), 0), ("C".into(), 1)]);
+
+    // a request into another collection: both lists of children are renumbered 0..n
+    s.move_node(&r2, Some(&c2), 0).unwrap();
+    assert_eq!(children(&s, &c2), vec![("R2".into(), 0), ("R4".into(), 1)]);
+    assert_eq!(children(&s, &c), vec![("R3".into(), 0), ("F1".into(), 1)]);
+    assert_eq!(s.node(&r2).unwrap().parent_id.as_deref(), Some(c2.as_str()));
+    assert_eq!(s.ancestors(&r2).unwrap().into_iter().map(|n| n.id).collect::<Vec<_>>(), vec![c2.clone()]);
+    // a folder with its descendants into another collection
+    s.move_node(&f1, Some(&c2), 1).unwrap();
+    assert_eq!(children(&s, &c2), vec![("R2".into(), 0), ("F1".into(), 1), ("R4".into(), 2)]);
+    assert_eq!(children(&s, &c), vec![("R3".into(), 0)]);
+    assert_eq!(s.ancestors(&r1).unwrap().into_iter().map(|n| n.id).collect::<Vec<_>>(), vec![c2.clone(), f1.clone(), f2.clone()]);
+    assert_eq!(s.subtree(&c2).unwrap().len(), 6);
+}
 #[test] fn duplicate_is_deep_with_fresh_ids() {
     let (mut s, [c, f1, ..]) = seeded();
     let copy = s.duplicate_node(&f1).unwrap();

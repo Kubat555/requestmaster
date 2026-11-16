@@ -264,9 +264,11 @@ fn commands_are_listed_everywhere() {
         "history_get",
         "history_clear",
         "copy_response_body",
+        "move_node",
+        "variables_in_scope",
     ];
     assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
-    assert_eq!(COMMANDS.len(), 27);
+    assert_eq!(COMMANDS.len(), 29);
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
     let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

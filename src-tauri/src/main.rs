@@ -44,6 +44,8 @@ fn main() {
                 commands::history_get,
                 commands::history_clear,
                 commands::copy_response_body,
+                commands::move_node,
+                commands::variables_in_scope,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

@@ -7,7 +7,7 @@ mod dynamic;
 
 use std::collections::{HashMap, HashSet};
 
-pub use dynamic::system_dynamic;
+pub use dynamic::{system_dynamic, DYNAMIC_NAMES};
 
 /// Upper bound of substitution passes, the same as in postman-collection. It is what makes
 /// self-referencing and cyclic variables terminate.
@@ -66,6 +66,14 @@ impl Resolver {
     /// Effective value of the variable and the scope it comes from.
     pub fn lookup(&self, name: &str) -> Option<(&str, ScopeKind)> {
         self.values.get(name).map(|(value, kind)| (value.as_str(), *kind))
+    }
+
+    /// Every effective variable as (name, raw value, scope), sorted by name.
+    pub fn entries(&self) -> Vec<(&str, &str, ScopeKind)> {
+        let mut entries: Vec<(&str, &str, ScopeKind)> =
+            self.values.iter().map(|(name, (value, kind))| (name.as_str(), value.as_str(), *kind)).collect();
+        entries.sort_unstable_by_key(|(name, _, _)| *name);
+        entries
     }
 
     /// Uses the system clock and random generator for `{{$...}}`.

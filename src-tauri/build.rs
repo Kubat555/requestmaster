@@ -30,6 +30,8 @@ fn main() {
         "history_get",
         "history_clear",
         "copy_response_body",
+        "move_node",
+        "variables_in_scope",
     ]));
     // A build script reports a failure by panicking; the message is tauri-build's own.
     tauri_build::try_build(attributes).expect("failed to run tauri-build");
