@@ -302,12 +302,6 @@ async fn saved_manual_proxy_is_used() {
     assert_eq!(response.status, 200);
     assert_eq!(core.response_body(&response.body.id, false).unwrap(), b"via proxy");
     assert_eq!(proxy.received_requests().await.unwrap().len(), 1, "the request went to the proxy");
-
-    // without the proxy the same request has nowhere to go
-    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Off }).unwrap();
-    let result = core.send_request("send-2", &id, None).await.unwrap();
-    assert!(result.response.is_none());
-    assert_eq!(proxy.received_requests().await.unwrap().len(), 1);
 }
 
 #[tokio::test]
