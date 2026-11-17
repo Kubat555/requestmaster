@@ -56,7 +56,7 @@
             <!-- The address is in the tooltip: the row has room for the name only. -->
             <button
               type="button"
-              class="row"
+              class="row hover-row"
               class:selected={tabs.active?.id === historyTabId(item.id)}
               data-history={item.id}
               title={item.url}
@@ -140,11 +140,6 @@
     text-align: left;
     white-space: nowrap;
     cursor: default;
-  }
-
-  /* Hover and selection switch at once, without a transition. */
-  .row:hover {
-    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
   }
 
   .row.selected {

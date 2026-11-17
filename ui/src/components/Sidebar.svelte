@@ -240,6 +240,11 @@
     padding: calc(var(--space) * 2) calc(var(--space) * 2) 0;
   }
 
+  /* The rich motion level: what the chosen section shows fades in. */
+  :global(:root[data-motion="rich"]) .sections ~ :global(*) {
+    animation: fade-in var(--dur-3) var(--ease);
+  }
+
   .toolbar {
     flex: none;
     display: flex;

@@ -24,6 +24,11 @@ export function formatMs(ms: number): string {
   return `${decimal(ms / 1000, 2)} ${strings.units.seconds}`;
 }
 
+/** Time that has passed so far, in milliseconds, as seconds with tenths: `0,4 с`, `12,3 с`. Never ahead of the clock. */
+export function formatElapsed(ms: number): string {
+  return `${decimal(Math.floor(ms / 100) / 10, 1)} ${strings.units.seconds}`;
+}
+
 /** `7` -> `07`. */
 function twoDigits(value: number): string {
   return String(value).padStart(2, "0");
@@ -68,7 +73,7 @@ const COLOURED_METHODS = ["get", "post", "put", "patch", "delete"];
 /** A longer method is cut so that the names next to it stay aligned. */
 const METHOD_MAX = 6;
 
-/** CSS class of an HTTP method, the same in the tree and on a tab; the rules are in `styles/base.css`. */
+/** CSS class of an HTTP method, the same wherever a method is shown; the rules are in `styles/base.css`. */
 export function methodClass(method: string): string {
   const lower = method.toLowerCase();
   return COLOURED_METHODS.includes(lower) ? `method-${lower}` : "method-other";

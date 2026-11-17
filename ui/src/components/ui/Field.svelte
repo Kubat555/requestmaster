@@ -20,8 +20,9 @@
   let { value = $bindable(), label, icon, mono = false, variables = false, type = "text", ...rest }: Props = $props();
 </script>
 
-<!-- A one-line text field as wide as its place. Any other attribute goes to the input itself. -->
-<span class="field" class:mono>
+<!-- A one-line text field as wide as its place. Any other attribute goes to the input itself. The frame is
+     what pulses when something is copied from the field or pasted into it (`fieldEffects.ts`). -->
+<span class="field" class:mono data-pulse-frame>
   {#if icon}
     <Icon name={icon} />
   {/if}

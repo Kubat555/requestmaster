@@ -8,6 +8,7 @@
   import UrlBar from "./UrlBar.svelte";
   import type { Api } from "../lib/api";
   import { canSend } from "../lib/sending.svelte";
+  import { slideIndicator } from "../lib/slideIndicator";
   import { strings } from "../lib/strings";
   import { tabs, type Tab } from "../lib/tabs.svelte";
   import { filledScripts, type ParamRow, type RequestDraft } from "../lib/types";
@@ -89,7 +90,7 @@
     oncancel={() => tab.sending.cancel(api)}
   />
 
-  <div class="section-tabs" role="tablist" aria-label={strings.editor.sections}>
+  <div class="section-tabs" role="tablist" aria-label={strings.editor.sections} {@attach slideIndicator}>
     {#each SECTIONS as name (name)}
       <button
         type="button"

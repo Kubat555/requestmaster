@@ -406,6 +406,10 @@ export const strings = {
     proxyUrl: "Адрес прокси",
     proxyUrlPlaceholder: "http://host:port",
     proxyUrlInvalid: "Адрес должен начинаться с http:// или https://",
+    /** How much the window animates, and its three levels. */
+    motion: "Анимации",
+    motionLevels: { off: "Выключены", normal: "Обычные", rich: "Расширенные" },
+    motionNote: "Расширенные — эффекты для мощных компьютеров",
     save: "Сохранить",
     cancel: "Отмена",
     saved: "Настройки сохранены",

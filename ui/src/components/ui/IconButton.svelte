@@ -33,6 +33,15 @@
     border-radius: var(--radius);
     color: var(--text-muted);
     cursor: pointer;
+    transition:
+      background-color var(--dur-2) var(--ease),
+      color var(--dur-2) var(--ease),
+      transform var(--dur-1) var(--ease);
+  }
+
+  /* A press is felt: the button gives way a little. A disabled one does not answer. */
+  .icon-btn:active:enabled {
+    transform: scale(var(--press-scale));
   }
 
   .icon-btn.sm {

@@ -1,4 +1,5 @@
 import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { flushSync } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
 import ResponsePanel from "./ResponsePanel.svelte";
@@ -8,7 +9,15 @@ import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
 import { toasts } from "../lib/toasts.svelte";
 import { createFakeApi, type SendHandler } from "../lib/testing/fakeApi";
-import type { NodeDto, ResponseDto, SendErrorDto, SendResult, Warning } from "../lib/types";
+import {
+  normalizeContent,
+  type NodeDto,
+  type RequestDraft,
+  type ResponseDto,
+  type SendErrorDto,
+  type SendResult,
+  type Warning,
+} from "../lib/types";
 
 vi.mock("./CodeEditor.svelte", async () => ({ default: (await import("../lib/testing/CodeEditorStub.svelte")).default }));
 
@@ -145,8 +154,11 @@ describe("ResponsePanel", () => {
 
     await clickSend();
 
-    expect(screen.getByRole("button", { name: strings.editor.cancel })).toBeTruthy();
+    const cancel = screen.getByRole("button", { name: strings.editor.cancel });
     expect(screen.queryByRole("button", { name: strings.editor.send })).toBeNull();
+    // The arrows of the button stay and move while the request is on its way.
+    expect(cancel.classList.contains("exchanging")).toBe(true);
+    expect(cancel.querySelectorAll("svg path")).toHaveLength(2);
 
     const event = await press(CTRL_ENTER);
     expect(event.defaultPrevented).toBe(true);
@@ -155,7 +167,21 @@ describe("ResponsePanel", () => {
     resolve(answered());
     expect(await panel().findByText("200 OK")).toBeTruthy();
     expect(sendButton().disabled).toBe(false);
+    expect(sendButton().classList.contains("exchanging")).toBe(false);
     expect(screen.queryByRole("button", { name: strings.editor.cancel })).toBeNull();
+  });
+
+  it("the status of a response drops into its place once: again for the next response only", async () => {
+    await openRequest({ onSend: async () => answered() });
+    await clickSend();
+    const status = await panel().findByText("200 OK");
+    expect(status.classList.contains("pop-in")).toBe(true);
+
+    await fireEvent.animationEnd(status);
+    expect(status.classList.contains("pop-in")).toBe(false);
+
+    await clickSend();
+    await waitFor(() => expect(panel().getByText("200 OK").classList.contains("pop-in")).toBe(true));
   });
 
   it("shows the waiting indicator only after a delay", async () => {
@@ -164,15 +190,116 @@ describe("ResponsePanel", () => {
 
     await clickSend();
     // A quick answer must not make the panel blink.
-    expect(panel().queryByText(strings.response.sending)).toBeNull();
+    expect(panel().queryByRole("status", { name: strings.response.sending })).toBeNull();
     expect(panel().getByText(strings.response.empty)).toBeTruthy();
 
-    expect(await panel().findByText(strings.response.sending)).toBeTruthy();
+    expect(await panel().findByRole("status", { name: strings.response.sending })).toBeTruthy();
+    // The sentence is the name of the indicator, not a text on the screen.
+    expect(panel().queryByText(strings.response.sending)).toBeNull();
     expect(panel().queryByText(strings.response.empty)).toBeNull();
 
     resolve(answered());
     expect(await panel().findByText("200 OK")).toBeTruthy();
-    expect(panel().queryByText(strings.response.sending)).toBeNull();
+    expect(panel().queryByRole("status", { name: strings.response.sending })).toBeNull();
+  });
+
+  describe("the waiting indicator", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The panel of a send that stays unanswered until the test resolves it, under a clock the test moves. */
+    function waitingPanel() {
+      vi.useFakeTimers();
+      const { onSend, resolve } = deferred();
+      const api = createFakeApi({ onSend });
+      const sending = new Sending();
+      const view = render(ResponsePanel, { props: { sending }, context: new Map([["api", api]]) });
+      const draft: RequestDraft = normalizeContent("request", { method: "GET", url: "https://api.test/users" });
+      const sent = sending.send(api, { nodeId: "req", draft, sending });
+      flushSync();
+      const indicator = () => screen.queryByRole("status", { name: strings.response.sending });
+      /** Moves the clock and lets the panel redraw. */
+      const pass = (ms: number) => {
+        vi.advanceTimersByTime(ms);
+        flushSync();
+      };
+      return { view, sending, sent, resolve, indicator, pass };
+    }
+
+    it("is not shown during the first 150 ms and is shown after them", () => {
+      const { indicator, pass } = waitingPanel();
+
+      pass(149);
+      expect(indicator()).toBeNull();
+
+      pass(1);
+      expect(indicator()).not.toBeNull();
+    });
+
+    it("is a turning ring, a progress line and the time, all of them hidden from a screen reader", () => {
+      const { indicator, pass } = waitingPanel();
+      pass(150);
+
+      const parts = [...indicator()!.children];
+
+      expect(indicator()!.querySelector(".spinner.lg")).not.toBeNull();
+      expect(indicator()!.querySelector(".progress")).not.toBeNull();
+      expect(parts.every((part) => part.getAttribute("aria-hidden") === "true")).toBe(true);
+    });
+
+    it("counts the time from the start of the send, in tenths of a second, ten times a second", () => {
+      const { indicator, pass } = waitingPanel();
+      const elapsed = () => indicator()!.querySelector(".elapsed")!.textContent;
+
+      pass(150);
+      // Not from zero: 150 ms had passed before the indicator appeared.
+      expect(elapsed()).toBe(`0,1 ${strings.units.seconds}`);
+
+      pass(100);
+      expect(elapsed()).toBe(`0,2 ${strings.units.seconds}`);
+
+      pass(200);
+      expect(elapsed()).toBe(`0,4 ${strings.units.seconds}`);
+
+      pass(1000);
+      expect(elapsed()).toBe(`1,4 ${strings.units.seconds}`);
+    });
+
+    it("stops its timers when the send ends", async () => {
+      const { sent, resolve, indicator, pass } = waitingPanel();
+      pass(400);
+      expect(vi.getTimerCount()).toBe(1);
+
+      resolve(answered());
+      await sent;
+      flushSync();
+
+      expect(indicator()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("sets no timer going when the send ends before the delay", async () => {
+      const { sent, resolve, indicator, pass } = waitingPanel();
+      pass(100);
+
+      resolve(answered());
+      await sent;
+      flushSync();
+      pass(1000);
+
+      expect(indicator()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("stops its timers when the panel is removed", () => {
+      const { view, pass } = waitingPanel();
+      pass(400);
+
+      view.unmount();
+
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it("Cancel shows that the request was cancelled; the late response does not replace it", async () => {
@@ -365,7 +492,7 @@ describe("ResponsePanel", () => {
         answered({
           redirects: [
             { status: 301, method: "GET", url: "http://api.test/users", location: "https://api.test/users" },
-            { status: 302, method: "GET", url: "https://api.test/users", location: "/v2/users" },
+            { status: 302, method: "POST", url: "https://api.test/users", location: "/v2/users" },
           ],
         }),
     });
@@ -382,6 +509,11 @@ describe("ResponsePanel", () => {
     expect(hops).toHaveLength(2);
     expect(hops[0].textContent).toContain("301");
     expect(hops[0].textContent).toContain("http://api.test/users");
+    // The method of a hop has the colour of the method, as everywhere.
+    const methods = hops.map((hop) => hop.querySelector(".method")!);
+    expect(methods.map((method) => method.textContent)).toEqual(["GET", "POST"]);
+    expect(methods[0].classList.contains("method-get")).toBe(true);
+    expect(methods[1].classList.contains("method-post")).toBe(true);
     expect(hops[1].textContent).toContain("/v2/users");
   });
 

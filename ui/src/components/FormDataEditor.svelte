@@ -76,7 +76,7 @@
   </thead>
   <tbody bind:this={body}>
     {#each parts as part, index (index)}
-      <tr class:off={!part.enabled}>
+      <tr class="hover-row" class:off={!part.enabled}>
         <td class="check"><input type="checkbox" aria-label={strings.table.enabled} bind:checked={part.enabled} /></td>
         <td><VarInput data-field="key" aria-label={strings.table.key} spellcheck="false" bind:value={part.key} /></td>
         <td class="kind">
@@ -152,11 +152,14 @@
     table-layout: fixed;
   }
 
+  /* The heading row stands apart from the rows: a raised background and bold text, so that it is not
+     taken for the empty row with its placeholders. */
   th {
     height: var(--row-height);
     padding: 0 calc(var(--space) * 2);
-    color: var(--text-muted);
-    font-weight: 400;
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 600;
     text-align: left;
   }
 
@@ -221,10 +224,6 @@
 
   input::placeholder {
     color: var(--text-muted);
-  }
-
-  input[type="checkbox"] {
-    accent-color: var(--accent);
   }
 
   /* A part that is switched off is kept but not sent. */

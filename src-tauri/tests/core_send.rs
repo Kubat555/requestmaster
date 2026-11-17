@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use requestmaster_lib::dto::{ImportFile, ProxyDto, SettingsDto};
+use requestmaster_lib::dto::{ImportFile, MotionLevel, ProxyDto, SettingsDto};
 use requestmaster_lib::{AppCore, CoreConfig, ACTIVE_ENVIRONMENT_KEY, SETTINGS_KEY};
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -306,7 +306,7 @@ async fn saved_timeout_stops_a_slow_server() {
     let (core, dir) = core();
     import_items(&core, json!([get_item("Slow", &format!("{}/slow", server.uri()))]));
     let id = id_by_name(&core, "Slow");
-    core.save_settings(SettingsDto { timeout_ms: 200, verify_tls: true, proxy: ProxyDto::System }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 200, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }).unwrap();
 
     let started = Instant::now();
     let result = as_json(&core.send_request("send-1", &id, None).await.unwrap());
@@ -316,7 +316,7 @@ async fn saved_timeout_stops_a_slow_server() {
     assert_eq!(files_in(&bodies_dir(&dir)), 0);
 
     // the setting works from the next send on, without a restart: no limit again — the response arrives
-    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }).unwrap();
     let result = core.send_request("send-2", &id, None).await.unwrap();
     assert_eq!(result.response.unwrap().status, 200);
 }
@@ -330,7 +330,7 @@ async fn saved_manual_proxy_is_used() {
     import_items(&core, json!([get_item("Far", "http://example.invalid/x")]));
     let id = id_by_name(&core, "Far");
 
-    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Manual { url: proxy.uri() } }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Manual { url: proxy.uri() }, motion: MotionLevel::Normal }).unwrap();
     let result = core.send_request("send-1", &id, None).await.unwrap();
     assert!(result.error.is_none(), "{:?}", result.error);
     let response = result.response.unwrap();

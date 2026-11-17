@@ -62,4 +62,9 @@
     min-height: 120px;
     border-top: 1px solid var(--border);
   }
+
+  /* The rich motion level: the editor of the script that was chosen fades in. */
+  :global(:root[data-motion="rich"]) .code > :global(*) {
+    animation: fade-in var(--dur-3) var(--ease);
+  }
 </style>

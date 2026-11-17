@@ -7,6 +7,7 @@ import Icon from "./Icon.svelte";
 import IconButton from "./IconButton.svelte";
 import Menu from "./Menu.svelte";
 import Segmented from "./Segmented.svelte";
+import Spinner from "./Spinner.svelte";
 
 /** Content of a button: plain text. */
 function text(value: string) {
@@ -61,21 +62,21 @@ describe("Button", () => {
 });
 
 describe("Button that is busy", () => {
-  it("cannot be pressed, says so to screen readers and shows the turning mark in the place of its icon", async () => {
+  it("cannot be pressed, says so to screen readers and shows the turning ring in the place of its icon", async () => {
     const onclick = vi.fn();
     const view = render(Button, { props: { icon: "trash", onclick, children: text("Delete") } });
     const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete" });
     expect(button.getAttribute("aria-busy")).toBeNull();
     expect(button.querySelector(".spinner")).toBeNull();
-    const icon = button.querySelector("svg")!.innerHTML;
+    expect(button.querySelectorAll("svg")).toHaveLength(1);
 
     await view.rerender({ icon: "trash", busy: true, onclick, children: text("Delete") });
     button.click();
 
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-busy")).toBe("true");
-    expect(button.querySelectorAll("svg")).toHaveLength(1);
-    expect(button.querySelector(".spinner svg")!.innerHTML).not.toBe(icon);
+    expect(button.querySelectorAll("svg")).toHaveLength(0);
+    expect(button.querySelector(".spinner")).not.toBeNull();
     expect(onclick).not.toHaveBeenCalled();
 
     await view.rerender({ icon: "trash", busy: false, onclick, children: text("Delete") });
@@ -83,6 +84,7 @@ describe("Button that is busy", () => {
     expect(button.disabled).toBe(false);
     expect(button.getAttribute("aria-busy")).toBeNull();
     expect(button.querySelector(".spinner")).toBeNull();
+    expect(button.querySelectorAll("svg")).toHaveLength(1);
   });
 
   it("stays disabled after the command when it was disabled anyway", async () => {
@@ -93,6 +95,24 @@ describe("Button that is busy", () => {
     await view.rerender({ disabled: true, busy: false, children: text("Delete") });
 
     expect(button.disabled).toBe(true);
+  });
+});
+
+describe("Spinner", () => {
+  it("is a decoration hidden from screen readers, small unless asked otherwise", () => {
+    const { container } = render(Spinner);
+
+    const ring = container.querySelector(".spinner")!;
+
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(ring.classList.contains("sm")).toBe(true);
+    expect(ring.classList.contains("lg")).toBe(false);
+  });
+
+  it("has a class for the large size", () => {
+    const { container } = render(Spinner, { props: { size: "lg" } });
+
+    expect(container.querySelector(".spinner")!.classList.contains("lg")).toBe(true);
   });
 });
 

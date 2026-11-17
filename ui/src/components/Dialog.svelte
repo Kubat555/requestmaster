@@ -81,10 +81,10 @@
 
 <!-- Not `<dialog>.showModal()`: the test environment may lack it. The backdrop keeps the pointer out of the
      window behind, the focus trap — the keyboard. -->
-<div class="backdrop" role="presentation" onmousedown={onBackdropMousedown}>
+<div class="backdrop fade-in" role="presentation" onmousedown={onBackdropMousedown}>
   <div
     bind:this={dialog}
-    class="dialog"
+    class="dialog scale-in"
     role="dialog"
     aria-modal="true"
     aria-labelledby={titleId}
@@ -105,6 +105,11 @@
     justify-content: center;
     padding: calc(var(--space) * 6);
     background: color-mix(in srgb, var(--bg) 70%, transparent);
+  }
+
+  /* The rich motion level: the window behind the dialog is blurred as well as dimmed. */
+  :global(:root[data-motion="rich"]) .backdrop {
+    backdrop-filter: blur(var(--blur-backdrop));
   }
 
   .dialog {

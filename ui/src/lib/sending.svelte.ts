@@ -37,6 +37,8 @@ export class Sending {
   state = $state<"idle" | "sending">("idle");
   /** Outcome of the last send that was not dropped; `null` before the first one. Replaced as a whole. */
   result = $state.raw<SendResult | null>(null);
+  /** When the running send started, by `performance.now()`; of the last send when none is running. */
+  startedAt = 0;
   /** Id of the send whose result will be taken: the last one started; `null` — none, or it was cancelled. */
   #awaited: string | null = null;
   /** The api of the last send: closing the tab releases the stored body through it. */
@@ -53,6 +55,7 @@ export class Sending {
     const sendId = crypto.randomUUID();
     this.#awaited = sendId;
     this.#api = api;
+    this.startedAt = performance.now();
     this.state = "sending";
 
     let result: SendResult;

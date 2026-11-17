@@ -205,7 +205,7 @@
   <ul bind:this={list} aria-label={strings.environment.list}>
     {#each rows as environment (environment.id)}
       {@const active = environment.id === workspace.activeEnvironmentId}
-      <li class="row" class:selected={tabs.active?.id === environmentTabId(environment.id)}>
+      <li class="row hover-row" class:selected={tabs.active?.id === environmentTabId(environment.id)}>
         {#if workspace.renamingEnvironmentId === environment.id}
           <span class="mark"><Icon name="environment" /></span>
           <RenameInput value={environment.name} ondone={(name, byKey) => onRenamed(environment, name, byKey)} />
@@ -298,11 +298,6 @@
     height: var(--row-height);
     padding: 0 calc(var(--space) * 3) 0 calc(var(--space) * 2);
     white-space: nowrap;
-  }
-
-  /* Hover and selection switch at once, without a transition. */
-  .row:hover {
-    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
   }
 
   .row.selected {

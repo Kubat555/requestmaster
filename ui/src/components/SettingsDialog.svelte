@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import Dialog from "./Dialog.svelte";
   import Button from "./ui/Button.svelte";
   import Field from "./ui/Field.svelte";
+  import Segmented from "./ui/Segmented.svelte";
   import type { Api } from "../lib/api";
+  import { motion, motionLevelOf } from "../lib/motion.svelte";
+  import { playOnce } from "../lib/playOnce";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
-  import type { ProxyDto } from "../lib/types";
+  import { MOTION_LEVELS, type MotionLevel, type ProxyDto } from "../lib/types";
 
   interface Props {
     /** Called when the dialog is done: the settings are saved, or the user gave up. The owner removes it. */
@@ -24,6 +27,8 @@
   const WHOLE = /^\d+$/;
   /** A proxy address the field takes: `http://` or `https://` with something after it. */
   const PROXY_URL = /^https?:\/\/\S/i;
+  /** The motion levels to choose from. */
+  const MOTION_OPTIONS = MOTION_LEVELS.map((value) => ({ value, label: strings.settings.motionLevels[value] }));
 
   /** The saved settings are read: the fields are on the screen. */
   let loaded = $state(false);
@@ -32,6 +37,19 @@
   let proxyMode = $state<ProxyDto["mode"]>("system");
   /** The address of the manual proxy; kept while another choice is made, sent only with the manual one. */
   let proxyUrl = $state("");
+  /** How much the window animates; applied when the settings are saved. */
+  let motionLevel = $state<MotionLevel>("normal");
+
+  let form: HTMLFormElement;
+
+  /** The rich motion level: the fields whose values the save refused shake once. */
+  async function shakeInvalid() {
+    // The marks of the refused fields are on the screen after the next draw.
+    await tick();
+    for (const field of form.querySelectorAll('[aria-invalid="true"]')) {
+      playOnce(field.closest("[data-pulse-frame]") ?? field, "shake");
+    }
+  }
 
   /** The last save found the value of the field unfit. */
   let timeoutInvalid = $state(false);
@@ -47,6 +65,7 @@
         verifyTls = settings.verify_tls;
         proxyMode = settings.proxy.mode;
         proxyUrl = settings.proxy.mode === "manual" ? settings.proxy.url : "";
+        motionLevel = motionLevelOf(settings.motion);
         loaded = true;
       },
       (error) => (failure = String(error)),
@@ -76,17 +95,22 @@
     timeoutInvalid = timeoutMs === null;
     proxyUrlInvalid = proxy === null;
     failure = null;
-    if (timeoutMs === null || proxy === null) return;
+    if (timeoutMs === null || proxy === null) {
+      if (motion.rich) void shakeInvalid();
+      return;
+    }
 
     saving = true;
     try {
-      await api.saveSettings({ timeout_ms: timeoutMs, verify_tls: verifyTls, proxy });
+      await api.saveSettings({ timeout_ms: timeoutMs, verify_tls: verifyTls, proxy, motion: motionLevel });
     } catch (error) {
       failure = String(error);
       return;
     } finally {
       saving = false;
     }
+    // The window moves the new way from now on; a send has nothing to do with it.
+    motion.choose(motionLevel);
     toasts.info(strings.settings.saved);
     onclose();
   }
@@ -94,7 +118,7 @@
 
 <!-- The application settings. Nothing is saved until Save: Cancel and Escape leave them as they were. -->
 <Dialog title={strings.settings.title} {onclose}>
-  <form class="settings" novalidate onsubmit={save}>
+  <form bind:this={form} class="settings" novalidate onsubmit={save}>
     {#if loaded}
       <div class="row">
         <span class="name">{strings.settings.timeout}</span>
@@ -156,6 +180,12 @@
           {/if}
         {/if}
       </fieldset>
+
+      <div class="row">
+        <span class="name">{strings.settings.motion}</span>
+        <Segmented options={MOTION_OPTIONS} bind:value={motionLevel} label={strings.settings.motion} />
+        <span class="note">{strings.settings.motionNote}</span>
+      </div>
     {/if}
 
     {#if failure !== null}

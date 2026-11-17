@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
 import KeyValueTable from "./KeyValueTable.svelte";
 import type { Api } from "../lib/api";
+import { motion } from "../lib/motion.svelte";
 import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeSeed } from "../lib/testing/fakeApi";
@@ -879,5 +880,91 @@ describe("a secret that was switched off and on again", () => {
 
     expect(value().type).toBe("password");
     await tabs.environment("env-dev")!.flush(api);
+  });
+});
+
+describe("the glow of typed letters in a field with variables", () => {
+  afterEach(() => motion.choose("normal"));
+
+  /** The letters of the layer that glow, piece by piece. */
+  function typed(input: HTMLElement): string[] {
+    return [...layerOf(input)!.querySelectorAll(".typed")].map((span) => span.textContent ?? "");
+  }
+
+  it("draws the field as before at the normal level: nothing glows", async () => {
+    await openRequest({ method: "GET", url: "{{host}}/x" });
+    await tokenHasClass(urlInput, "{{host}}", "var-environment");
+
+    await type(urlInput(), "{{host}}/xy");
+
+    expect(layerOf(urlInput())!.textContent).toBe("{{host}}/xy");
+    expect(typed(urlInput())).toEqual([]);
+    expect(layerOf(urlInput())!.querySelectorAll("span")).toHaveLength(2);
+  });
+
+  it("glows the letters typed at the rich level, each in its own piece, and the text stays the same", async () => {
+    const { draft } = await openRequest({ method: "GET", url: "{{host}}/x" });
+    motion.choose("rich");
+
+    await type(urlInput(), "{{host}}/xy");
+    expect(typed(urlInput())).toEqual(["y"]);
+    await type(urlInput(), "{{host}}/xyz");
+    expect(typed(urlInput())).toEqual(["y", "z"]);
+
+    expect(layerOf(urlInput())!.textContent).toBe("{{host}}/xyz");
+    expect(draft().url).toBe("{{host}}/xyz");
+    // No style attribute: the glow is a class.
+    expect(layerOf(urlInput())!.querySelector(".typed[style]")).toBeNull();
+  });
+
+  it("the letters are plain again when their glow is over, one piece at a time", async () => {
+    await openRequest({ method: "GET", url: "a" });
+    motion.choose("rich");
+    await type(urlInput(), "ab");
+    await type(urlInput(), "abc");
+    const [first, second] = layerOf(urlInput())!.querySelectorAll(".typed");
+
+    await fireEvent.animationEnd(first);
+    expect(typed(urlInput())).toEqual(["c"]);
+    // The piece that still glows is the same element: its glow goes on.
+    expect(layerOf(urlInput())!.querySelector(".typed")).toBe(second);
+
+    await fireEvent(second, new Event("animationcancel"));
+    expect(typed(urlInput())).toEqual([]);
+    expect(layerOf(urlInput())!.textContent).toBe("abc");
+  });
+
+  it("glows a pasted text as one piece, also inside a token, and keeps the token whole", async () => {
+    await openRequest({ method: "GET", url: "" });
+    motion.choose("rich");
+
+    await type(urlInput(), "{{host}}/users");
+    await tokenHasClass(urlInput, "{{host}}", "var-environment");
+
+    expect(typed(urlInput())).toEqual(["{{host}}", "/users"]);
+    expect(tokenOf(urlInput(), "{{host}}").dataset.name).toBe("host");
+    expect(layerOf(urlInput())!.textContent).toBe("{{host}}/users");
+  });
+
+  it("drops the glow when the text of the field comes from outside", async () => {
+    const { draft } = await openRequest({ method: "GET", url: "a" });
+    motion.choose("rich");
+    await type(urlInput(), "ab");
+    expect(typed(urlInput())).toEqual(["b"]);
+
+    draft().url = "zz";
+    await tick();
+
+    expect(layerOf(urlInput())!.textContent).toBe("zz");
+    expect(typed(urlInput())).toEqual([]);
+  });
+
+  it("deleting a letter makes nothing glow", async () => {
+    await openRequest({ method: "GET", url: "abc" });
+    motion.choose("rich");
+
+    await type(urlInput(), "ab");
+
+    expect(typed(urlInput())).toEqual([]);
   });
 });

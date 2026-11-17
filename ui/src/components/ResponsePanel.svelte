@@ -6,11 +6,18 @@
   import ResponseStatus from "./ResponseStatus.svelte";
   import SendWarnings from "./SendWarnings.svelte";
   import EmptyState from "./ui/EmptyState.svelte";
+  import Spinner from "./ui/Spinner.svelte";
   import type { Api } from "../lib/api";
   import { exportToFile } from "../lib/exporting";
+  import { formatElapsed } from "../lib/format";
+  import { icons } from "../lib/icons";
+  import { motion } from "../lib/motion.svelte";
+  import { playOnce } from "../lib/playOnce";
   import type { Sending } from "../lib/sending.svelte";
+  import { slideIndicator } from "../lib/slideIndicator";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
+  import type { ResponseDto } from "../lib/types";
 
   interface Props {
     /** The send state of the tab whose response is shown. */
@@ -27,18 +34,30 @@
   const SECTIONS: Section[] = ["body", "headers", "cookies"];
   /** A send that takes less does not replace what the panel shows with the waiting indicator. */
   const INDICATOR_DELAY_MS = 150;
+  /** How often the time of the running send is written anew. */
+  const ELAPSED_TICK_MS = 100;
 
   const id = $props.id();
   /** Stays as chosen when the next response arrives. */
   let section = $state<Section>("body");
   /** A send has been running for longer than the delay. */
   let waiting = $state(false);
+  /** How long the running send has been going, ms: from its real start, not from when the indicator appeared. */
+  let elapsed = $state(0);
 
   $effect(() => {
     if (sending.state !== "sending") return;
-    const timer = setTimeout(() => (waiting = true), INDICATOR_DELAY_MS);
+    // Read on every tick: a send started while another one runs counts from its own start.
+    const measure = () => (elapsed = performance.now() - sending.startedAt);
+    let ticker: ReturnType<typeof setInterval> | undefined;
+    const timer = setTimeout(() => {
+      measure();
+      waiting = true;
+      ticker = setInterval(measure, ELAPSED_TICK_MS);
+    }, INDICATOR_DELAY_MS);
     return () => {
       clearTimeout(timer);
+      clearInterval(ticker);
       waiting = false;
     };
   });
@@ -47,6 +66,17 @@
   const response = $derived(result?.response ?? null);
   const error = $derived(result?.error ?? null);
 
+  let panel: HTMLDivElement;
+  /** The response that has already arrived on the screen. */
+  let arrived: ResponseDto | null = null;
+
+  // The rich motion level: a new response rises into the panel, once.
+  $effect(() => {
+    if (!response || response === arrived) return;
+    arrived = response;
+    if (motion.rich) playOnce(panel, "arrived");
+  });
+
   /**
    * The view of the body, chosen in `ResponseBody` and used here to copy what is shown. Every response starts
    * with Pretty when its body is JSON.
@@ -54,23 +84,26 @@
   let pretty = $derived(response?.body.json ?? false);
 
   /**
-   * Puts the body into the clipboard as it is shown. The text comes from the core; a failure of the command
-   * is shown with its message, a clipboard that is missing or refuses — with a message of its own.
+   * Puts the body into the clipboard as it is shown; resolves to whether it is there. The text comes from the
+   * core; a failure of the command is shown with its message, a clipboard that is missing or refuses — with a
+   * message of its own.
    */
-  async function copyBody() {
-    if (!response) return;
+  async function copyBody(): Promise<boolean> {
+    if (!response) return false;
     let text: string;
     try {
       text = await api.copyResponseBody(response.body.id, pretty);
     } catch (error) {
       toasts.error(String(error));
-      return;
+      return false;
     }
     try {
       await navigator.clipboard.writeText(text);
       toasts.info(strings.response.copied);
+      return true;
     } catch {
       toasts.error(strings.response.copyFailed);
+      return false;
     }
   }
 
@@ -116,9 +149,35 @@
   });
 </script>
 
-<div class="response-panel">
+<div bind:this={panel} class="response-panel">
   {#if waiting}
-    <p class="note" role="status">{strings.response.sending}</p>
+    <!-- What happens is said by the name; the ring, the line and the time are for the eyes, and the time,
+         changing ten times a second, is kept from a screen reader. At the rich motion level the ring gives
+         way to the two arrows of the application, flying towards each other. -->
+    <div class="sending" role="status" aria-label={strings.response.sending}>
+      <div class="progress" aria-hidden="true"></div>
+      {#if motion.rich}
+        <svg
+          class="exchange"
+          width="32"
+          height="32"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          {#each icons.send as d, index (index)}
+            <path {d} />
+          {/each}
+        </svg>
+      {:else}
+        <Spinner size="lg" />
+      {/if}
+      <span class="elapsed" aria-hidden="true">{formatElapsed(elapsed)}</span>
+    </div>
   {:else if !result}
     <EmptyState icon="send" title={strings.response.emptyTitle} text={strings.response.empty} />
   {:else}
@@ -134,7 +193,7 @@
     {:else if response}
       <ResponseStatus {response} oncopy={copyBody} onsave={saveBody} />
 
-      <div class="section-tabs" role="tablist" aria-label={strings.response.sections}>
+      <div class="section-tabs" role="tablist" aria-label={strings.response.sections} {@attach slideIndicator}>
         {#each SECTIONS as name (name)}
           <button
             type="button"
@@ -179,10 +238,117 @@
     min-height: 0;
   }
 
-  .note {
-    margin: 0;
-    padding: calc(var(--space) * 3);
+  /* The ring and the time under it, in the middle of the panel; the ring takes the colour of the accent. */
+  .sending {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--space) * 2);
+    min-height: 0;
+    overflow: hidden;
+    color: var(--accent);
+  }
+
+  .elapsed {
     color: var(--text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A thin line along the top edge of the panel; a piece of it runs across again and again. */
+  .progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    overflow: hidden;
+  }
+
+  .progress::before {
+    content: "";
+    display: block;
+    width: 40%;
+    height: 100%;
+    background: currentColor;
+    animation: progress-run var(--dur-loop) ease-in-out infinite var(--loop-state);
+  }
+
+  /* From behind the left edge to behind the right one: 250% of its own width is the whole line. */
+  @keyframes progress-run {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(250%);
+    }
+  }
+
+  /* Without motion the line stands still along the whole edge; the time goes on. */
+  :global(:root[data-motion="off"]) .progress::before {
+    width: 100%;
+    animation: none;
+  }
+
+  /* The rich motion level: the request arrow flies to the right and the response arrow to the left, each from
+     its side through the middle and on, again and again; they are not cut at the edge of the drawing. */
+  :global(:root[data-motion="rich"]) .exchange {
+    overflow: visible;
+  }
+
+  :global(:root[data-motion="rich"]) .exchange path {
+    animation: fly var(--dur-loop) ease-in-out infinite var(--loop-state);
+  }
+
+  :global(:root[data-motion="rich"]) .exchange path:first-child {
+    --fly-from: -5px;
+    --fly-to: 5px;
+  }
+
+  :global(:root[data-motion="rich"]) .exchange path:last-child {
+    --fly-from: 5px;
+    --fly-to: -5px;
+  }
+
+  @keyframes fly {
+    from {
+      opacity: 0;
+      transform: translateX(var(--fly-from));
+    }
+
+    30%,
+    70% {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+      transform: translateX(var(--fly-to));
+    }
+  }
+
+  /* The rich motion level: a new response fades in while its parts rise into their places. The parts are cut
+     at the edge of the panel meanwhile, so that nothing sticks out of it and no scrollbar blinks. The fade of
+     a shown section (base.css) stays in the list of a part, so that it is not played again after the rise. */
+  :global(:root[data-motion="rich"]) .response-panel:global(.arrived) {
+    overflow: hidden;
+    animation: fade-in var(--dur-4) var(--ease);
+  }
+
+  :global(:root[data-motion="rich"]) .response-panel:global(.arrived) > :global(*) {
+    animation:
+      fade-in var(--dur-3) var(--ease),
+      arrive var(--dur-4) var(--ease);
+  }
+
+  @keyframes arrive {
+    from {
+      transform: translateY(8px);
+    }
   }
 
   .failure {

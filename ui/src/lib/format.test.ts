@@ -4,6 +4,7 @@ import {
   environmentName,
   formatBytes,
   formatClock,
+  formatElapsed,
   formatMs,
   methodClass,
   methodLabel,
@@ -25,6 +26,15 @@ describe("formatMs", () => {
     expect(formatMs(0)).toBe("0 мс");
     expect(formatMs(123.4)).toBe("123 мс");
     expect(formatMs(1240)).toBe("1,24 с");
+  });
+});
+
+describe("formatElapsed", () => {
+  it("shows seconds with tenths and a decimal comma, never ahead of the clock", () => {
+    expect(formatElapsed(0)).toBe("0,0 с");
+    expect(formatElapsed(430)).toBe("0,4 с");
+    expect(formatElapsed(999)).toBe("0,9 с");
+    expect(formatElapsed(12345)).toBe("12,3 с");
   });
 });
 

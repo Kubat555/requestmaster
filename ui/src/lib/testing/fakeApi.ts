@@ -125,7 +125,9 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     variables: variablesOf(environment.id),
   }));
   let activeEnvironment = seed.activeEnvironment ?? null;
-  let settings: SettingsDto = structuredClone(seed.settings ?? { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" } });
+  let settings: SettingsDto = structuredClone(
+    seed.settings ?? { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal" },
+  );
   const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
   let lastId = 0;
   const newId = () => `new-${++lastId}`;

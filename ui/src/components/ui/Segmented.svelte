@@ -1,5 +1,6 @@
 <script lang="ts" generics="Value extends string">
   import { tick } from "svelte";
+  import { slideIndicator } from "../../lib/slideIndicator";
 
   interface Option {
     value: Value;
@@ -42,8 +43,9 @@
   }
 </script>
 
-<!-- Buttons under one border, one of them chosen: switches the content of a panel. -->
-<div bind:this={group} class="segmented" role="tablist" aria-label={label}>
+<!-- Buttons under one border, one of them chosen: switches the content of a panel. At the rich motion level
+     the background of the chosen one is a mark that slides from button to button. -->
+<div bind:this={group} class="segmented" role="tablist" aria-label={label} {@attach slideIndicator}>
   {#each options as option, index (option.value)}
     {@const selected = option.value === value}
     <!-- Tab stops at the chosen option only; the arrows go to the others. -->
@@ -82,6 +84,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color var(--dur-2) var(--ease),
+      color var(--dur-2) var(--ease);
   }
 
   button + button {
@@ -101,5 +106,23 @@
     color: var(--text-muted);
     cursor: default;
     opacity: 0.5;
+  }
+
+  /* The rich motion level: the sliding mark (slideIndicator.ts) is the background of the chosen button. It lies
+     under the texts — the group is a stacking context of its own — and the button itself gives its background up. */
+  :global(:root[data-motion="rich"]) .segmented {
+    position: relative;
+    isolation: isolate;
+  }
+
+  :global(:root[data-motion="rich"]) .segmented > :global(.slide-indicator) {
+    top: 0;
+    bottom: 0;
+    z-index: -1;
+    background: var(--surface-2);
+  }
+
+  :global(:root[data-motion="rich"]) .segmented:has(> :global(.slide-indicator)) > button[aria-selected="true"] {
+    background: transparent;
   }
 </style>

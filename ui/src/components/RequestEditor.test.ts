@@ -130,9 +130,24 @@ describe("RequestEditor", () => {
     const options = within(method).getAllByRole<HTMLOptionElement>("option").map((option) => option.value);
     expect(options.slice(0, 7)).toEqual(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
+    // The closed list has the colour of the chosen method, every item its own.
+    expect(method.classList.contains("method-get")).toBe(true);
+    expect(within(method).getAllByRole("option").map((option) => option.classList[0])).toEqual([
+      "method-get",
+      "method-post",
+      "method-put",
+      "method-patch",
+      "method-delete",
+      "method-other",
+      "method-other",
+      "method-other",
+    ]);
+
     await fireEvent.change(method, { target: { value: "DELETE" } });
 
     expect(draft().method).toBe("DELETE");
+    expect(method.classList.contains("method-delete")).toBe(true);
+    expect(method.classList.contains("method-get")).toBe(false);
     expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
     expect(tree).not.toHaveBeenCalled();
   });
@@ -151,6 +166,7 @@ describe("RequestEditor", () => {
   it("shows a stored method that is not in the list as the user's own", async () => {
     await openRequest({ method: "PURGE", url: "https://api.test/cache" });
     expect(screen.getByRole<HTMLInputElement>("textbox", { name: strings.editor.customMethod }).value).toBe("PURGE");
+    expect(screen.getByRole("combobox", { name: strings.editor.method }).classList.contains("method-other")).toBe(true);
   });
 
   it("switches a parameter off in Params and counts the enabled rows", async () => {

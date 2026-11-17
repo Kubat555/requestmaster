@@ -50,7 +50,7 @@
      of the mouse must not take the focus away. -->
 <div
   bind:this={list}
-  class="var-suggest"
+  class="var-suggest pop-in"
   role="listbox"
   {id}
   aria-label={strings.variables.suggestions}

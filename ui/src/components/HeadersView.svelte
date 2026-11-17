@@ -21,7 +21,7 @@
     </thead>
     <tbody>
       {#each headers as [name, value], index (index)}
-        <tr>
+        <tr class="hover-row">
           <td class="name">{name}</td>
           <td>{value}</td>
         </tr>
@@ -52,12 +52,75 @@
   }
 
   th {
-    color: var(--text-muted);
+    background: var(--surface-2);
+    color: var(--text);
     font-family: var(--font-ui);
     font-weight: 600;
   }
 
   .name {
     width: 30%;
+  }
+
+  /* The rich motion level: the rows come in one after another. Only the first twelve wait their turn; the rest
+     come together right after them, so that a long list does not take long. */
+  :global(:root[data-motion="rich"]) tbody tr {
+    animation: row-in var(--dur-3) var(--ease) backwards;
+    animation-delay: calc(var(--stagger) * 12);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(1) {
+    animation-delay: calc(var(--stagger) * 0);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(2) {
+    animation-delay: calc(var(--stagger) * 1);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(3) {
+    animation-delay: calc(var(--stagger) * 2);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(4) {
+    animation-delay: calc(var(--stagger) * 3);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(5) {
+    animation-delay: calc(var(--stagger) * 4);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(6) {
+    animation-delay: calc(var(--stagger) * 5);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(7) {
+    animation-delay: calc(var(--stagger) * 6);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(8) {
+    animation-delay: calc(var(--stagger) * 7);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(9) {
+    animation-delay: calc(var(--stagger) * 8);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(10) {
+    animation-delay: calc(var(--stagger) * 9);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(11) {
+    animation-delay: calc(var(--stagger) * 10);
+  }
+
+  :global(:root[data-motion="rich"]) tbody tr:nth-child(12) {
+    animation-delay: calc(var(--stagger) * 11);
+  }
+
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
 </style>

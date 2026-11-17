@@ -251,9 +251,14 @@ describe("Sidebar", () => {
     expect(folder.getAttribute("aria-expanded")).toBe("false");
     expect(folder.getAttribute("aria-level")).toBe("2");
     expect(screen.queryByRole("treeitem", { name: /List users/ })).toBeNull();
+    // One arrow that is turned, not two pictures swapped: the turn can be smooth.
+    const arrow = folder.querySelector(".arrow")!;
+    expect(arrow.classList.contains("open")).toBe(false);
 
     await fireEvent.keyDown(folder, { key: "ArrowRight" });
     expect(folder.getAttribute("aria-expanded")).toBe("true");
+    expect(folder.querySelector(".arrow")).toBe(arrow);
+    expect(arrow.classList.contains("open")).toBe(true);
     const request = screen.getByRole("treeitem", { name: /List users/ });
     expect(request.getAttribute("aria-level")).toBe("3");
     expect(request.hasAttribute("aria-expanded")).toBe(false);

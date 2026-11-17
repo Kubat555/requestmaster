@@ -2,6 +2,9 @@
   import type { HTMLInputAttributes } from "svelte/elements";
   import VarSuggest, { optionId } from "./VarSuggest.svelte";
   import VarTooltip from "./VarTooltip.svelte";
+  import { editBetween, glowPieces, glowsAfter, type FieldGlow, type GlowPiece } from "../lib/fieldGlow";
+  import { motion } from "../lib/motion.svelte";
+  import { whenAnimationOver } from "../lib/playOnce";
   import type { ScopeVariable } from "../lib/types";
   import { useVariableScope } from "../lib/variableScope.svelte";
   import { applyCompletion, completionAt, findTokens, suggest, type VarToken } from "../lib/variables";
@@ -22,11 +25,15 @@
   /** How far the text of the field is scrolled to the left: the layer follows. */
   let scrollLeft = $state(0);
 
-  /** A piece of the text: a token with the classes of its scope, or the text between two tokens. */
+  /**
+   * A piece of the text: a token with the classes of its scope, or the text between two tokens. `pieces` — the
+   * same text cut where its just typed letters glow; `null` when none of it does.
+   */
   interface Part {
     text: string;
     token: VarToken | null;
     className: string;
+    pieces: GlowPiece[] | null;
   }
 
   function classOf(token: VarToken): string {
@@ -36,17 +43,51 @@
     return variable ? `var var-${variable.scope}` : "var var-unresolved";
   }
 
+  /**
+   * The letters just typed or pasted, which glow at the rich motion level, and the text they are the letters
+   * of: a text that came from outside since then has none.
+   */
+  let glow = $state.raw<{ text: string; glows: FieldGlow[] }>({ text: "", glows: [] });
+  /** The id of the glowing piece made last. */
+  let lastGlowId = 0;
+  /** The text of the field before the edit being handled. */
+  let textBefore = "";
+
+  $effect(() => {
+    textBefore = value;
+  });
+
   const parts = $derived.by(() => {
+    const glows = glow.text === value ? glow.glows : [];
     const found: Part[] = [];
+    const add = (from: number, to: number, token: VarToken | null) => {
+      const text = value.slice(from, to);
+      found.push({ text, token, className: token ? classOf(token) : "", pieces: glowPieces(text, from, glows) });
+    };
     let end = 0;
     for (const token of findTokens(value)) {
-      if (token.from > end) found.push({ text: value.slice(end, token.from), token: null, className: "" });
-      found.push({ text: value.slice(token.from, token.to), token, className: classOf(token) });
+      if (token.from > end) add(end, token.from, null);
+      add(token.from, token.to, token);
       end = token.to;
     }
-    if (end < value.length) found.push({ text: value.slice(end), token: null, className: "" });
+    if (end < value.length) add(end, value.length, null);
     return found;
   });
+
+  /** The edit the field has just taken: at the rich motion level its new letters glow, the ones before move with the text. */
+  function glowTyped(field: HTMLInputElement) {
+    const before = textBefore;
+    textBefore = field.value;
+    if (!motion.rich) return;
+    const glows = glow.text === before ? glow.glows : [];
+    const edit = editBetween(before, field.value, field.selectionStart ?? field.value.length);
+    glow = { text: field.value, glows: glowsAfter(glows, edit, ++lastGlowId) };
+  }
+
+  /** The glow of a piece is over, or was cut short: the piece is plain text again. */
+  function endGlow(id: number) {
+    glow = { text: glow.text, glows: glow.glows.filter((piece) => piece.id !== id) };
+  }
 
   /** The token under the pointer and the place of the hint about it; `null` — no hint. */
   let hovered = $state.raw<{ name: string; left: number; top: number } | null>(null);
@@ -133,6 +174,7 @@
 
   const onInput: NonNullable<Props["oninput"]> = (event) => {
     oninput?.(event);
+    glowTyped(event.currentTarget);
     hovered = null;
     syncScroll();
     openOffer();
@@ -203,6 +245,14 @@
   };
 </script>
 
+<!-- The text of a part: as it is, or — at the rich motion level, while some of its letters glow — in pieces, the
+     glowing ones each in a span that tells when its glow is over. No space between the tags: the layer keeps
+     every space of its text. -->
+{#snippet textOf(part: Part)}{#if part.pieces}{#each part.pieces as piece (piece.key)}{#if piece.glow !== null}{@const id = piece.glow}<span
+          class="typed"
+          {@attach whenAnimationOver(() => endGlow(id))}>{piece.text}</span
+        >{:else}{piece.text}{/if}{/each}{:else}{part.text}{/if}{/snippet}
+
 <!-- A one-line text field that marks the `{{variables}}` in its text, tells about the one under the pointer and
      offers names while one is typed. An `<input>` cannot colour a part of its text, so the same text is drawn
      under it with the tokens coloured, and the text of the field itself is transparent. Any attribute goes to
@@ -211,8 +261,9 @@
   {#if scope}
     <div bind:this={layer} class="var-layer" aria-hidden="true">
       <span class="var-line" style:transform="translateX({-scrollLeft}px)"
-        >{#each parts as part, index (index)}{#if part.token}<span class={part.className} data-name={part.token.name}>{part.text}</span
-            >{:else}{part.text}{/if}{/each}</span
+        >{#each parts as part, index (index)}{#if part.token}<span class={part.className} data-name={part.token.name}
+              >{@render textOf(part)}</span
+            >{:else}{@render textOf(part)}{/if}{/each}</span
       >
     </div>
     <input
@@ -336,5 +387,20 @@
     color: var(--danger);
     text-decoration: underline;
     text-decoration-color: var(--danger);
+  }
+
+  /* The rich motion level: a letter just typed or pasted starts in the accent colour with a glow and comes to
+     its own colour. Only the colour and the shadow change, so the text stays under the caret of the field. */
+  :global(:root[data-motion="rich"]) .typed {
+    animation: typed-glow var(--dur-glow) ease-out;
+  }
+
+  @keyframes typed-glow {
+    from {
+      color: var(--accent);
+      text-shadow:
+        var(--glow),
+        var(--glow);
+    }
   }
 </style>

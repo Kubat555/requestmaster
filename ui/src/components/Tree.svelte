@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { getContext, onMount, tick } from "svelte";
+  import { getContext, onMount, tick, untrack } from "svelte";
   import TreeDialogs from "./TreeDialogs.svelte";
   import TreeMenu, { type TreeAction } from "./TreeMenu.svelte";
   import TreeRow from "./TreeRow.svelte";
   import EmptyState from "./ui/EmptyState.svelte";
   import type { Api } from "../lib/api";
+  import { motion } from "../lib/motion.svelte";
   import { strings } from "../lib/strings";
   import { tabs } from "../lib/tabs.svelte";
   import {
@@ -104,6 +105,27 @@
 
   /** Ids of the nodes whose open tab has unsaved edits: their rows are marked. */
   const dirtyIds = $derived(new Set(tabs.list.filter((tab) => tab.dirty).map((tab) => tab.nodeId)));
+
+  const NO_IDS: ReadonlySet<string> = new Set();
+  /**
+   * The rich motion level: ids of the drawn rows that have just appeared in the tree — the children of a node
+   * that was expanded, a new or an imported node. They fade in; the set is emptied when they have.
+   */
+  let freshIds = $state.raw(NO_IDS);
+  /** Where every node stood and whether a filter was on, before the rows changed last. */
+  let rowsBefore: { index: Map<string, number>; filtering: boolean } | null = null;
+
+  // Only the rows that are drawn are looked at, against the index the tree has anyway: nothing is measured and
+  // the rows are not walked. A filter shows and hides rows with every letter, so its rows do not fade; neither
+  // do the rows the tree starts with, nor the ones that scrolling brings into the DOM.
+  $effect.pre(() => {
+    const now = { index: indexById, filtering };
+    const was = rowsBefore;
+    rowsBefore = now;
+    const appeared = motion.rich && was !== null && was.index !== now.index && was.index.size > 0 && !was.filtering && !now.filtering;
+    const fresh = appeared ? untrack(() => drawn).filter((row) => !was.index.has(row.node.id)) : [];
+    freshIds = fresh.length > 0 ? new Set(fresh.map((row) => row.node.id)) : NO_IDS;
+  });
 
   /** Reads how far the area is scrolled and how high it is. */
   function measure() {
@@ -395,6 +417,7 @@
     ondragleave={onDragLeave}
     ondrop={onDrop}
     ondragend={onDragEnd}
+    onanimationend={() => (freshIds = NO_IDS)}
   >
     {#each drawn as { node, depth, posInSet, setSize, index } (node.id)}
       <TreeRow
@@ -409,6 +432,8 @@
         dirty={dirtyIds.has(node.id)}
         renaming={workspace.renamingId === node.id}
         draggable={!filtering && workspace.renamingId !== node.id}
+        dragging={dragging?.id === node.id}
+        fresh={freshIds.has(node.id)}
         drop={dropTarget?.id === node.id ? dropTarget.zone : null}
         onactivate={() => activate(node)}
         ontoggle={() => toggle(node)}

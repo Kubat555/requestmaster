@@ -19,14 +19,30 @@
   /* Heights: a button or a field, a small one, a row of the tree or of a table, a request tab. */
   --control-height: 32px; --control-height-sm: 28px; --row-height: 30px; --tab-height: 40px;
   --dur-1: 83ms; --dur-2: 120ms; --dur-3: 167ms; --dur-4: 250ms; --ease: cubic-bezier(0, 0, 0, 1);
+  /* Motion that repeats while something runs: one turn of a spinner, one pass of a progress line or of the
+     arrows of the Send button. Not zeroed without motion: what repeats is stopped by `--loop-state`, which
+     every such animation takes as its play state — it then stands at its first frame. */
+  --dur-spin: 800ms; --dur-loop: 1400ms; --loop-state: running;
+  /* The rich motion level only (`data-motion="rich"`, see motion.svelte.ts): the longer effects, the easing
+     that overshoots a little, how far apart the rows of a list appear, how long a just typed letter glows
+     (typingGlow.ts removes its mark a little later), and the glow itself in the colour of the accent. */
+  --dur-5: 400ms; --dur-6: 600ms; --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --stagger: 30ms; --dur-glow: 500ms;
+  --glow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent);
+  /* How much the window behind a dialog is blurred, and the shadow of a row of the tree that is being dragged. */
+  --blur-backdrop: 6px; --shadow-lift: 0 6px 16px rgb(0 0 0 / 0.45);
+  /* How much a button shrinks while it is pressed. */
+  --press-scale: 0.97;
   /* Not in the plan's list: the only shadow, for popups, kept here so that components hold no colours. */
   --shadow-popup: 0 8px 24px rgb(0 0 0 / 0.4);
   /* Scrollbar thumb, at rest and under the pointer: a quiet grey one step lighter than the borders. */
   --scroll-thumb: #3a4250; --scroll-thumb-hover: #5b6575;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; --dur-4: 0ms;
-  }
+/* Without motion: the level "off" of the settings, which is also the level in effect while the operating
+   system asks for less motion (motion.svelte.ts writes it to the root element). Nothing takes time and nothing
+   repeats; the few rules that need more than that are written under the same attribute. */
+:root[data-motion="off"] {
+  --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; --dur-4: 0ms; --dur-5: 0ms; --dur-6: 0ms;
+  --loop-state: paused;
 }

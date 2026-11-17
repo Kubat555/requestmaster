@@ -560,7 +560,8 @@ pub struct DraftDto {
     pub content: serde_json::Value,
 }
 
-/// The application settings of a send. Stored as JSON under the `settings` key of `app_state`.
+/// The application settings: what every send takes, and how much the window moves. Stored as JSON under the
+/// `settings` key of `app_state`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsDto {
     /// Limit for the whole exchange in milliseconds; `0` — no limit.
@@ -569,6 +570,36 @@ pub struct SettingsDto {
     pub verify_tls: bool,
     /// Which proxy to use.
     pub proxy: ProxyDto,
+    /// How much the window animates. The core only keeps it — a send ignores it. Written by the dialog of the
+    /// settings; read by the window when it starts and after the dialog has saved. Settings stored before the
+    /// field existed have none: they read as [`MotionLevel::Normal`].
+    #[serde(default)]
+    pub motion: MotionLevel,
+}
+
+/// How much the window animates; chosen in the dialog of the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionLevel {
+    /// Nothing moves, as with the reduced motion of the operating system.
+    Off,
+    /// The short transitions the window has always had.
+    #[default]
+    Normal,
+    /// The effects for a powerful computer on top of the normal ones.
+    Rich,
+}
+
+impl<'de> Deserialize<'de> for MotionLevel {
+    /// Anything that is not the name of a level — a level of a later build, a value of another type — is
+    /// [`MotionLevel::Normal`], so that the settings around it stay readable.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match serde_json::Value::deserialize(deserializer)?.as_str() {
+            Some("off") => MotionLevel::Off,
+            Some("rich") => MotionLevel::Rich,
+            _ => MotionLevel::Normal,
+        })
+    }
 }
 
 /// The proxy choice of the application settings.

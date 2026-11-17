@@ -2,6 +2,7 @@
   import AuthEditor from "./AuthEditor.svelte";
   import DescriptionField from "./DescriptionField.svelte";
   import ScriptsEditor from "./ScriptsEditor.svelte";
+  import { slideIndicator } from "../lib/slideIndicator";
   import { strings } from "../lib/strings";
   import type { Tab } from "../lib/tabs.svelte";
   import { filledScripts, type FolderDraft } from "../lib/types";
@@ -45,7 +46,7 @@
 
 <!-- What a folder gives to the requests inside it: the authorization and the scripts; and its description. It has no variables. -->
 <div class="folder-editor">
-  <div class="section-tabs" role="tablist" aria-label={strings.folder.sections}>
+  <div class="section-tabs" role="tablist" aria-label={strings.folder.sections} {@attach slideIndicator}>
     {#each SECTIONS as name (name)}
       <button
         type="button"

@@ -3,6 +3,7 @@
   import DescriptionField from "./DescriptionField.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
   import ScriptsEditor from "./ScriptsEditor.svelte";
+  import { slideIndicator } from "../lib/slideIndicator";
   import { strings } from "../lib/strings";
   import type { Tab } from "../lib/tabs.svelte";
   import { filledScripts, type CollectionDraft, type VariableRow } from "../lib/types";
@@ -44,7 +45,7 @@
 </script>
 
 <div class="collection-editor">
-  <div class="section-tabs" role="tablist" aria-label={strings.collection.sections}>
+  <div class="section-tabs" role="tablist" aria-label={strings.collection.sections} {@attach slideIndicator}>
     {#each SECTIONS as name (name)}
       <button
         type="button"

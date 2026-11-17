@@ -550,13 +550,22 @@ export interface DraftDto {
 /** The proxy of every send: the one of the system, none, or the one at `url` (`http://` or `https://`). */
 export type ProxyDto = { mode: "system" } | { mode: "off" } | { mode: "manual"; url: string };
 
-/** The application settings: what every send takes. */
+/**
+ * How much the window animates: nothing, the short transitions it has always had, or the effects for a powerful
+ * computer on top of them.
+ */
+export const MOTION_LEVELS = ["off", "normal", "rich"] as const;
+export type MotionLevel = (typeof MOTION_LEVELS)[number];
+
+/** The application settings: what every send takes, and how much the window animates. */
 export interface SettingsDto {
   /** How long a send may take, in milliseconds; 0 — no limit. */
   timeout_ms: number;
   /** Whether the certificate of the server is verified, unless the request says otherwise. */
   verify_tls: boolean;
   proxy: ProxyDto;
+  /** Not used by a send: the window reads it at the start and applies it at once when it is saved (`motion.svelte.ts`). */
+  motion: MotionLevel;
 }
 
 /** What the window remembers between two launches. */

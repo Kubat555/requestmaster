@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Tab, Tabs } from "./tabs.svelte";
 import { toasts } from "./toasts.svelte";
 import { createFakeApi, type FakeApi } from "./testing/fakeApi";
@@ -104,6 +104,21 @@ describe("Sending", () => {
     expect(sending.state).toBe("idle");
     expect(sending.result).toEqual(result);
     expect(api.released).toEqual([]);
+  });
+
+  it("remembers when the running send started; a send that replaces it starts the count anew", () => {
+    const { api, tab, sending } = setup();
+    const now = vi.spyOn(performance, "now");
+
+    now.mockReturnValue(1000);
+    void sending.send(api, tab);
+    expect(sending.startedAt).toBe(1000);
+
+    now.mockReturnValue(1700);
+    void sending.send(api, tab);
+    expect(sending.startedAt).toBe(1700);
+
+    now.mockRestore();
   });
 
   it("gives every send an id of its own", async () => {

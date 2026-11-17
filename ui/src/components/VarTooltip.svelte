@@ -20,7 +20,7 @@
 </script>
 
 <!-- What a `{{name}}` under the pointer stands for: the scope is said in words, the colour only repeats it. -->
-<div class="var-tooltip" role="tooltip" {id} style:left="{left}px" style:top="{top}px">
+<div class="var-tooltip pop-in" role="tooltip" {id} style:left="{left}px" style:top="{top}px">
   <div class="head">
     <span class="name">{name}</span>
     <span class={["scope", variable ? `scope-${variable.scope}` : "scope-unresolved"]}>{described.scope}</span>

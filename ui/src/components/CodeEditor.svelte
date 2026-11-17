@@ -16,6 +16,7 @@
       { variableSupport },
       { openSearchPanel },
       { baseSetup, indentation, tabIndentation },
+      { contentReplaced, typingGlow },
     ] = await Promise.all([
       import("@codemirror/view"),
       import("@codemirror/state"),
@@ -25,6 +26,7 @@
       import("../lib/codemirror/variables"),
       import("@codemirror/search"),
       import("../lib/codemirror/setup"),
+      import("../lib/codemirror/typingGlow"),
     ]);
 
     // Colours come from tokens.css. The built-in highlighting is made for a light background.
@@ -134,6 +136,8 @@
       nonce,
       variableSupport,
       openSearchPanel,
+      contentReplaced,
+      typingGlow,
     };
   }
 </script>
@@ -143,6 +147,7 @@
   import type { EditorView } from "@codemirror/view";
   import type { Compartment, Extension } from "@codemirror/state";
   import { detectIndentUnit } from "../lib/codemirror/indent";
+  import { motion } from "../lib/motion.svelte";
   import { useVariableScope } from "../lib/variableScope.svelte";
 
   interface Props {
@@ -176,6 +181,7 @@
     readonlySlot: Compartment;
     variablesSlot: Compartment;
     indentSlot: Compartment;
+    glowSlot: Compartment;
     cm: Awaited<ReturnType<typeof load>>;
   }>();
   /** Text of the document in the editor: tells a change made by the user from one that came with `value`. */
@@ -238,6 +244,7 @@
       const readonlySlot = new cm.Compartment();
       const variablesSlot = new cm.Compartment();
       const indentSlot = new cm.Compartment();
+      const glowSlot = new cm.Compartment();
       shown = value;
       indentUnit = detectIndentUnit(shown);
       view = new cm.EditorView({
@@ -254,6 +261,7 @@
             readonlySlot.of(editing(cm)),
             variablesSlot.of(variableSupport(cm)),
             indentSlot.of(indentation(cm)),
+            glowSlot.of(cm.typingGlow(motion.rich)),
             cm.EditorView.contentAttributes.of(label ? { "aria-label": label } : {}),
             cm.EditorView.updateListener.of((update) => {
               if (!update.docChanged) return;
@@ -265,7 +273,7 @@
           ],
         }),
       });
-      editor = { view, languageSlot, readonlySlot, variablesSlot, indentSlot, cm };
+      editor = { view, languageSlot, readonlySlot, variablesSlot, indentSlot, glowSlot, cm };
       if (searchAsked) cm.openSearchPanel(view);
       searchAsked = false;
     });
@@ -277,7 +285,7 @@
   });
 
   // A text that came from outside (another content, a revert, Beautify) replaces the document; its indentation
-  // unit is found anew.
+  // unit is found anew. At the rich motion level the new text flashes softly once.
   $effect(() => {
     const text = value;
     if (!editor || text === shown) return;
@@ -286,7 +294,7 @@
     indentUnit = detectIndentUnit(text);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text },
-      effects: indentSlot.reconfigure(indentation(cm)),
+      effects: [indentSlot.reconfigure(indentation(cm)), cm.contentReplaced.of(null)],
     });
   });
 
@@ -319,6 +327,14 @@
     if (!editor) return;
     const { view, variablesSlot, cm } = editor;
     view.dispatch({ effects: variablesSlot.reconfigure(variableSupport(cm)) });
+  });
+
+  // The glow of typed, pasted and copied text exists at the rich motion level only; saving another level in the
+  // settings switches it in every open editor.
+  $effect(() => {
+    if (!editor) return;
+    const { view, glowSlot, cm } = editor;
+    view.dispatch({ effects: glowSlot.reconfigure(cm.typingGlow(motion.rich)) });
   });
 </script>
 

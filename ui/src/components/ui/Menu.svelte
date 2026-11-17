@@ -121,7 +121,7 @@
 <!-- A list of actions that pops up at a button or at the point of a click. The owner shows it with `{#if}`. -->
 <div
   bind:this={menu}
-  class="menu"
+  class="menu pop-in"
   role="menu"
   aria-label={label}
   tabindex="-1"
@@ -167,20 +167,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-popup);
     box-shadow: var(--shadow-popup);
-    animation: menu-in var(--dur-2) var(--ease);
-  }
-
-  @keyframes menu-in {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .menu {
-      animation: none;
-    }
   }
 
   button {

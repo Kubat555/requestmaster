@@ -270,6 +270,9 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
     cursor: pointer;
+    transition:
+      background-color var(--dur-2) var(--ease),
+      color var(--dur-2) var(--ease);
   }
 
   .bar button:hover:enabled {

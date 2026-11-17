@@ -14,7 +14,9 @@ export const icons = {
   "chevron-right": ["M6 4l4 4-4 4"],
   search: ["M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0z", "M10.5 10.5L14 14"],
   plus: ["M8 3v10", "M3 8h10"],
-  send: ["M14 2L7.5 8.5", "M14 2L9.5 14l-2-5.5L2 6.5z"],
+  // The arrows of the icon of the application: the request goes to the right, the response comes back to
+  // the left. One path an arrow, so that the Send button can move each of them.
+  send: ["M2.5 5H12M9.5 2.5L12 5 9.5 7.5", "M13.5 11H4M6.5 8.5L4 11l2.5 2.5"],
   copy: [SHEET, SHEET_BEHIND],
   // A diskette: the label above, the shutter below.
   save: ["M3.5 2.5h7L13.5 5.5v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z", "M5 2.5V6h5V2.5", "M5 13.5v-4h6v4"],
@@ -58,8 +60,6 @@ export const icons = {
     "M11.5 6.5h.01",
     "M5.5 9.5h5",
   ],
-  // Three quarters of a circle: turned by the button that waits for its command.
-  spinner: ["M14 8a6 6 0 1 1-6-6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /** Name of an icon of the set. */

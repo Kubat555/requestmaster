@@ -1,5 +1,5 @@
 //! The application settings of [`AppCore`]: what every send takes — the timeout, the certificate check and
-//! the proxy.
+//! the proxy — and the motion level of the window, which the core only keeps.
 
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ use rqm_runner::AppSettings;
 use rqm_store::Store;
 
 use crate::core::{message, AppCore};
-use crate::dto::{ProxyDto, SettingsDto};
+use crate::dto::{MotionLevel, ProxyDto, SettingsDto};
 
 /// Key of `app_state` holding the application settings: the JSON of [`SettingsDto`]. Written by
 /// `save_settings`; read by `get_settings` and by every send.
@@ -18,8 +18,8 @@ pub const SETTINGS_KEY: &str = "settings";
 pub const MAX_TIMEOUT_MS: u64 = 3_600_000;
 
 impl AppCore {
-    /// The application settings; the defaults (no timeout, the certificate is verified, the system proxy)
-    /// while nothing is saved or the saved value cannot be read.
+    /// The application settings; the defaults (no timeout, the certificate is verified, the system proxy,
+    /// the normal motion) while nothing is saved or the saved value cannot be read.
     pub fn get_settings(&self) -> Result<SettingsDto, String> {
         let value = self.store()?.state_get(SETTINGS_KEY).map_err(message)?;
         Ok(value.as_deref().and_then(read_settings).unwrap_or_else(default_settings))
@@ -76,7 +76,7 @@ fn read_settings(value: &str) -> Option<SettingsDto> {
     serde_json::from_str(value).ok()
 }
 
-/// The settings before anything was saved; the same as `AppSettings::default()`.
+/// The settings before anything was saved; for a send the same as `AppSettings::default()`.
 fn default_settings() -> SettingsDto {
-    SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System }
+    SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }
 }

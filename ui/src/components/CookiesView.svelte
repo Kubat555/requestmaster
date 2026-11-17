@@ -37,7 +37,7 @@
     </thead>
     <tbody>
       {#each cookies as cookie, index (index)}
-        <tr>
+        <tr class="hover-row">
           <td>{cookie.name}</td>
           <td>{cookie.value}</td>
           <td>{cookie.domain}</td>
@@ -73,7 +73,8 @@
   }
 
   th {
-    color: var(--text-muted);
+    background: var(--surface-2);
+    color: var(--text);
     font-family: var(--font-ui);
     font-weight: 600;
   }

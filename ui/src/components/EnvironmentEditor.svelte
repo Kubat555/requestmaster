@@ -90,7 +90,7 @@
       <tbody bind:this={body}>
         {#each tab.variables as variable, index (index)}
           {@const shown = revealed.includes(variable)}
-          <tr class:off={!variable.enabled} onfocusout={onRowFocusOut}>
+          <tr class="hover-row" class:off={!variable.enabled} onfocusout={onRowFocusOut}>
             <td class="check">
               <input type="checkbox" aria-label={strings.table.enabled} bind:checked={variable.enabled} onchange={edited} />
             </td>
@@ -210,11 +210,14 @@
     table-layout: fixed;
   }
 
+  /* The heading row stands apart from the rows: a raised background and bold text, so that it is not
+     taken for the empty row with its placeholders. */
   th {
     height: var(--row-height);
     padding: 0 calc(var(--space) * 2);
-    color: var(--text-muted);
-    font-weight: 400;
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 600;
     text-align: left;
   }
 
@@ -268,11 +271,6 @@
 
   input::placeholder {
     color: var(--text-muted);
-  }
-
-  input[type="checkbox"] {
-    accent-color: var(--accent);
-    vertical-align: middle;
   }
 
   /* A variable that is switched off is kept but not substituted. */

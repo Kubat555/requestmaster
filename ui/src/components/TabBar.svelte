@@ -3,6 +3,9 @@
   import IconButton from "./ui/IconButton.svelte";
   import Menu, { type MenuItem } from "./ui/Menu.svelte";
   import { methodClass, methodLabel, wheelScrollLeft } from "../lib/format";
+  import { motion } from "../lib/motion.svelte";
+  import { playOnce } from "../lib/playOnce";
+  import { slideIndicator } from "../lib/slideIndicator";
   import { strings } from "../lib/strings";
   import { TAB_MENU_ACTIONS, tabPanelId, tabsToClose, tabTitleId, type AnyTab, type TabMenuAction, type Tabs } from "../lib/tabs.svelte";
   import type { RequestDraft } from "../lib/types";
@@ -77,6 +80,37 @@
     document.getElementById(tabTitleId(activeId))?.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
 
+  /** The tabs in the bar with where each stands on the screen, from the left edge of the bar, px. */
+  function places(): [HTMLElement, number][] {
+    return [...bar.querySelectorAll<HTMLElement>("[data-tab-id]")].map((tab) => [tab, tab.offsetLeft - bar.scrollLeft]);
+  }
+
+  /** Where the tabs stood right before the number of tabs changed, by their ids; `null` — not asked. */
+  let stood: Map<string, number> | null = null;
+
+  // The rich motion level: when a tab is closed, the tabs after it slide into its place instead of jumping. The
+  // closed tab is gone from the bar at once — nothing of it is left to click or to focus; only the tabs that
+  // stay are moved, by a transform, from where they stood to where they stand now. The places are read before
+  // the bar is drawn anew and after it, and only then: the bar is not measured at any other time.
+  $effect.pre(() => {
+    void tabs.list.length;
+    stood = motion.rich && bar ? new Map(places().map(([tab, left]) => [tab.dataset.tabId ?? "", left])) : null;
+  });
+
+  // Declared after the effect that brings the shown tab into view: the bar is scrolled by then.
+  $effect(() => {
+    const count = tabs.list.length;
+    const before = stood;
+    stood = null;
+    if (!before || count >= before.size) return;
+    for (const [tab, left] of places()) {
+      const shift = (before.get(tab.dataset.tabId ?? "") ?? left) - left;
+      if (shift === 0) continue;
+      tab.style.setProperty("--slide-from", `${shift}px`);
+      playOnce(tab, "sliding");
+    }
+  });
+
   /** The wheel moves the bar sideways: there is nothing to scroll down to. */
   function onWheel(event: WheelEvent) {
     const left = wheelScrollLeft(event.deltaX, event.deltaY, bar);
@@ -122,13 +156,14 @@
   }
 </script>
 
-<div bind:this={bar} class="tab-bar" role="tablist" aria-label={strings.tabs.label} onwheel={onWheel}>
+<!-- At the rich motion level the accent line of the shown tab is one mark that slides from tab to tab. -->
+<div bind:this={bar} class="tab-bar" role="tablist" aria-label={strings.tabs.label} onwheel={onWheel} {@attach slideIndicator}>
   {#each tabs.list as tab, index (tab.id)}
     {@const active = tabs.active === tab}
     {@const method = methodOf(tab)}
     <!-- The menu is for the pointer here; the keyboard asks for it on the title. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="tab" class:active oncontextmenu={(event) => onContextMenu(event, tab)}>
+    <div class="tab fade-in" class:active data-slide-item data-tab-id={tab.id} oncontextmenu={(event) => onContextMenu(event, tab)}>
       <!-- Tab stops at the shown tab only; the arrows go to the others. -->
       <button
         type="button"
@@ -179,7 +214,8 @@
     overflow-x: auto;
   }
 
-  /* Switching is instant: no transition. */
+  /* A new tab fades in; the background and the accent line of the shown tab change smoothly, the content
+     under the bar switches at once. */
   .tab {
     flex: none;
     display: flex;
@@ -189,6 +225,10 @@
     border-right: 1px solid var(--border);
     border-top: 2px solid transparent;
     color: var(--text-muted);
+    transition:
+      background-color var(--dur-2) var(--ease),
+      border-color var(--dur-2) var(--ease),
+      color var(--dur-2) var(--ease);
   }
 
   .tab:hover {
@@ -238,5 +278,35 @@
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
+  }
+
+  /* The rich motion level. The accent line of the shown tab is the sliding mark (slideIndicator.ts): a child of
+     the bar, so it scrolls with the tabs; the line of the tab itself gives way to it. */
+  :global(:root[data-motion="rich"]) .tab-bar {
+    position: relative;
+  }
+
+  :global(:root[data-motion="rich"]) .tab-bar > :global(.slide-indicator) {
+    top: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  :global(:root[data-motion="rich"]) .tab-bar:has(> :global(.slide-indicator)) .tab.active {
+    border-top-color: transparent;
+  }
+
+  /* A tab that slides into the place of a closed one: it starts where it stood (`--slide-from`). The fade of a
+     new tab stays in the list, so that it is not played again when the slide is over. */
+  :global(:root[data-motion="rich"]) .tab:global(.sliding) {
+    animation:
+      fade-in var(--dur-3) var(--ease),
+      tab-slide var(--dur-3) var(--ease);
+  }
+
+  @keyframes tab-slide {
+    from {
+      transform: translateX(var(--slide-from));
+    }
   }
 </style>

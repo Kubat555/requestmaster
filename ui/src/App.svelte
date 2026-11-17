@@ -19,6 +19,7 @@
   import EmptyState from "./components/ui/EmptyState.svelte";
   import IconButton from "./components/ui/IconButton.svelte";
   import type { Api } from "./lib/api";
+  import { installFieldEffects } from "./lib/fieldEffects";
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { layout, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN } from "./lib/layout.svelte";
   import { installMeasure } from "./lib/measure";
@@ -201,6 +202,7 @@
       shortcuts: () => (shortcutsOpen = true),
     });
     const removeContextMenuGuard = installContextMenuGuard();
+    const removeFieldEffects = installFieldEffects();
     let stopCloseListening: (() => void) | undefined;
     api.onCloseRequested(onCloseRequested).then(
       (stop) => {
@@ -216,6 +218,7 @@
       session.stop();
       removeHotkeys();
       removeContextMenuGuard();
+      removeFieldEffects();
       stopCloseListening?.();
     };
   });

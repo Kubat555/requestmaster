@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
+import { motion } from "../lib/motion.svelte";
 import { createFakeApi } from "../lib/testing/fakeApi";
 import { toasts } from "../lib/toasts.svelte";
-import type { SettingsDto } from "../lib/types";
+import type { MotionLevel, SettingsDto } from "../lib/types";
 
 vi.mock("./CodeEditor.svelte", async () => ({ default: (await import("../lib/testing/CodeEditorStub.svelte")).default }));
 
@@ -41,14 +42,29 @@ function proxyUrl(): HTMLInputElement {
   return within(dialog()).getByRole("textbox", { name: strings.settings.proxyUrl });
 }
 
+/** The choice of the motion level and its option by the name. */
+function motionChoice(): HTMLElement {
+  return within(dialog()).getByRole("tablist", { name: strings.settings.motion });
+}
+
+function motionOption(name: string): HTMLElement {
+  return within(motionChoice()).getByRole("tab", { name });
+}
+
+/** The option of the motion level that is chosen. */
+function chosenMotion(): string | null {
+  return within(motionChoice()).getByRole("tab", { selected: true }).textContent?.trim() ?? null;
+}
+
 async function save(): Promise<void> {
   await fireEvent.click(within(dialog()).getByRole("button", { name: strings.settings.save }));
 }
 
-// The tabs and the notifications of the window live in modules; every test starts without them.
+// The tabs, the notifications and the motion level of the window live in modules; every test starts without them.
 afterEach(() => {
   for (const tab of [...tabs.list]) tabs.close(tab.id);
   toasts.items = [];
+  motion.choose("normal");
 });
 
 describe("SettingsDialog", () => {
@@ -75,7 +91,12 @@ describe("SettingsDialog", () => {
   });
 
   it("opens with the saved values and explains the fields", async () => {
-    await openSettings({ timeout_ms: 15000, verify_tls: false, proxy: { mode: "manual", url: "http://10.0.0.1:3128" } });
+    await openSettings({
+      timeout_ms: 15000,
+      verify_tls: false,
+      proxy: { mode: "manual", url: "http://10.0.0.1:3128" },
+      motion: "normal",
+    });
 
     expect(timeout().value).toBe("15000");
     expect(verifyTls().checked).toBe(false);
@@ -109,12 +130,12 @@ describe("SettingsDialog", () => {
   });
 
   it("takes the timeout 0 and the largest one", async () => {
-    const { saveSettings } = await openSettings({ timeout_ms: 500, verify_tls: true, proxy: { mode: "off" } });
+    const { saveSettings } = await openSettings({ timeout_ms: 500, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
 
     await fireEvent.input(timeout(), { target: { value: "0" } });
     await save();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "off" } });
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
 
     await fireEvent.click(screen.getByRole("button", { name: strings.settings.button }));
     await screen.findByRole("textbox", { name: strings.settings.timeout });
@@ -123,7 +144,7 @@ describe("SettingsDialog", () => {
     await fireEvent.input(timeout(), { target: { value: "3600000" } });
     await save();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 3600000, verify_tls: true, proxy: { mode: "off" } });
+    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 3600000, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
   });
 
   it.each(["host:8080", "", "http://", "ftp://host:21"])(
@@ -156,6 +177,7 @@ describe("SettingsDialog", () => {
       timeout_ms: 30000,
       verify_tls: false,
       proxy: { mode: "manual", url: "http://127.0.0.1:8888" },
+      motion: "normal",
     });
     expect(screen.getByText("Настройки сохранены")).toBeTruthy();
   });
@@ -165,13 +187,14 @@ describe("SettingsDialog", () => {
       timeout_ms: 0,
       verify_tls: true,
       proxy: { mode: "manual", url: "https://proxy.example.test" },
+      motion: "normal",
     });
 
     await fireEvent.click(proxy(strings.settings.proxySystem));
     await save();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" } });
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal" });
     expect(saveSettings.mock.calls[0][0].proxy).not.toHaveProperty("url");
   });
 
@@ -199,6 +222,78 @@ describe("SettingsDialog", () => {
     expect(saveSettings).toHaveBeenCalledTimes(1);
     expect(timeout().value).toBe("100");
     expect(screen.queryByText(strings.settings.saved)).toBeNull();
+  });
+
+  it("offers the three motion levels, the normal one in a new database, and explains the rich one", async () => {
+    await openSettings();
+
+    expect(strings.settings.motion).toBe("Анимации");
+    expect(within(motionChoice()).getAllByRole("tab").map((option) => option.textContent?.trim())).toEqual([
+      "Выключены",
+      "Обычные",
+      "Расширенные",
+    ]);
+    expect(chosenMotion()).toBe("Обычные");
+    expect(within(dialog()).getByText("Расширенные — эффекты для мощных компьютеров")).toBeTruthy();
+  });
+
+  it.each([
+    ["off", "Выключены"],
+    ["rich", "Расширенные"],
+  ] as const)("opens with the saved motion level %j", async (level, name) => {
+    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: level });
+
+    expect(chosenMotion()).toBe(name);
+  });
+
+  it("shows a level it does not know, or settings without one, as the normal level", async () => {
+    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "extreme" as MotionLevel });
+    expect(chosenMotion()).toBe("Обычные");
+  });
+
+  it("saves the chosen motion level and applies it to the window at once", async () => {
+    const { saveSettings } = await openSettings();
+    expect(document.documentElement.dataset.motion).toBe("normal");
+
+    await fireEvent.click(motionOption(strings.settings.motionLevels.rich));
+    // Nothing changes before Save.
+    expect(document.documentElement.dataset.motion).toBe("normal");
+    expect(motion.level).toBe("normal");
+    await save();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "rich" });
+    expect(motion.level).toBe("rich");
+    expect(document.documentElement.dataset.motion).toBe("rich");
+
+    // The dialog opens with what was saved, and switching the motion off works the same way.
+    await fireEvent.click(screen.getByRole("button", { name: strings.settings.button }));
+    await screen.findByRole("textbox", { name: strings.settings.timeout });
+    expect(chosenMotion()).toBe("Расширенные");
+    await fireEvent.click(motionOption(strings.settings.motionLevels.off));
+    await save();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "off" });
+    expect(document.documentElement.dataset.motion).toBe("off");
+  });
+
+  it("leaves the motion level of the window alone when the dialog is cancelled or the save is refused", async () => {
+    const { saveSettings } = await openSettings();
+
+    await fireEvent.click(motionOption(strings.settings.motionLevels.rich));
+    await fireEvent.click(within(dialog()).getByRole("button", { name: strings.settings.cancel }));
+    expect(saveSettings).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.motion).toBe("normal");
+
+    await fireEvent.click(screen.getByRole("button", { name: strings.settings.button }));
+    await screen.findByRole("textbox", { name: strings.settings.timeout });
+    expect(chosenMotion()).toBe("Обычные");
+    saveSettings.mockRejectedValueOnce("storage is locked");
+    await fireEvent.click(motionOption(strings.settings.motionLevels.rich));
+    await save();
+    await within(dialog()).findByRole("alert");
+    expect(motion.level).toBe("normal");
+    expect(document.documentElement.dataset.motion).toBe("normal");
   });
 
   it("closes on Escape and on Cancel without saving", async () => {

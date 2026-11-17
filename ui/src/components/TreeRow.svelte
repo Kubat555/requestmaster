@@ -26,6 +26,10 @@
     renaming: boolean;
     /** Whether the row can be dragged to another place of the tree. */
     draggable: boolean;
+    /** Whether the row is the one being dragged: at the rich motion level it looks lifted. */
+    dragging: boolean;
+    /** Whether the row has just appeared in the tree: at the rich motion level it fades in. */
+    fresh: boolean;
     /** Where the node being dragged would go if dropped on this row; `null` — the row is not the target. */
     drop: DropZone | null;
     /** The user activated the row: a click, or Enter. */
@@ -52,6 +56,8 @@
     dirty,
     renaming,
     draggable,
+    dragging,
+    fresh,
     drop,
     onactivate,
     ontoggle,
@@ -101,8 +107,10 @@
 </script>
 
 <div
-  class="row"
+  class="row hover-row"
   class:selected
+  class:dragging
+  class:fresh
   class:drop-before={drop === "before"}
   class:drop-inside={drop === "inside"}
   class:drop-after={drop === "after"}
@@ -127,8 +135,8 @@
   {:else}
     <!-- The arrow is for the pointer only: the keyboard expands and collapses with the arrow keys. -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <span class="arrow" aria-hidden="true" onclick={onArrowClick}>
-      <Icon name={expanded ? "chevron-down" : "chevron-right"} />
+    <span class="arrow" class:open={expanded} aria-hidden="true" onclick={onArrowClick}>
+      <Icon name="chevron-right" />
     </span>
   {/if}
   {#if renaming}
@@ -172,11 +180,6 @@
     white-space: nowrap;
   }
 
-  /* Hover and selection switch at once, without a transition. */
-  .row:hover {
-    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
-  }
-
   .row.selected {
     background: var(--surface-2);
   }
@@ -195,6 +198,27 @@
     box-shadow: inset 0 0 0 1px var(--accent);
   }
 
+  /* The rich motion level: a row that has just appeared fades in at its place — its height and its place are
+     as always, so the tree measures nothing anew — and the row being dragged looks lifted off the tree. It
+     shrinks a little rather than grows, so that it never sticks out of the tree. */
+  :global(:root[data-motion="rich"]) .row.fresh {
+    animation: row-fresh var(--dur-3) var(--ease);
+  }
+
+  @keyframes row-fresh {
+    from {
+      opacity: 0;
+      transform: translateX(-6px);
+    }
+  }
+
+  :global(:root[data-motion="rich"]) .row.dragging {
+    z-index: 1;
+    background: var(--surface-2);
+    box-shadow: var(--shadow-lift);
+    transform: scale(0.98);
+  }
+
   .arrow {
     flex: none;
     display: flex;
@@ -203,6 +227,15 @@
     width: 16px;
     height: 100%;
     color: var(--text-muted);
+  }
+
+  /* One arrow, pointing right; it turns down when the children are shown. */
+  .arrow > :global(.icon) {
+    transition: transform var(--dur-2) var(--ease);
+  }
+
+  .arrow.open > :global(.icon) {
+    transform: rotate(90deg);
   }
 
   .method {

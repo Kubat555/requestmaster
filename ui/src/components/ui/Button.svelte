@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import type { HTMLButtonAttributes } from "svelte/elements";
   import Icon from "./Icon.svelte";
+  import Spinner from "./Spinner.svelte";
   import type { IconName } from "../../lib/icons";
 
   interface Props extends HTMLButtonAttributes {
@@ -13,7 +14,7 @@
     icon?: IconName;
     /**
      * The command of the button is running: the button cannot be pressed, says so to screen readers, and shows
-     * a turning mark in the place of its icon.
+     * a turning ring in the place of its icon.
      */
     busy?: boolean;
     children?: Snippet;
@@ -31,7 +32,7 @@
   aria-busy={busy ? "true" : undefined}
 >
   {#if busy}
-    <span class="spinner"><Icon name="spinner" /></span>
+    <Spinner />
   {:else if icon}
     <Icon name={icon} />
   {/if}
@@ -53,6 +54,16 @@
     color: var(--text);
     white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color var(--dur-2) var(--ease),
+      border-color var(--dur-2) var(--ease),
+      color var(--dur-2) var(--ease),
+      transform var(--dur-1) var(--ease);
+  }
+
+  /* A press is felt: the button gives way a little. A disabled one does not answer. */
+  .btn:active:enabled {
+    transform: scale(var(--press-scale));
   }
 
   .btn.sm {
@@ -93,26 +104,6 @@
     color: var(--text-muted);
     font-weight: 400;
     cursor: default;
-  }
-
-  /* The mark of a running command turns around its centre. */
-  .spinner {
-    flex: none;
-    display: flex;
-    animation: btn-spin 0.8s linear infinite;
-  }
-
-  @keyframes btn-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* Without motion the mark stands still: the disabled button already says that the command runs. */
-  @media (prefers-reduced-motion: reduce) {
-    .spinner {
-      animation: none;
-    }
   }
 
   .btn.ghost:disabled {
