@@ -36,27 +36,6 @@ function childrenOf(rows: TreeRow[], parentId: string | null): TreeRow[] {
   return rows.filter((row) => row.parent_id === parentId).sort((a, b) => a.sort_order - b.sort_order);
 }
 
-/** Ids of everything under the node at any depth, without `id` itself. */
-export function descendantIds(rows: TreeRow[], id: string): Set<string> {
-  // The children of every node, found in one pass over the rows.
-  const children = new Map<string, string[]>();
-  for (const row of rows) {
-    if (row.parent_id === null) continue;
-    const siblings = children.get(row.parent_id);
-    if (siblings) siblings.push(row.id);
-    else children.set(row.parent_id, [row.id]);
-  }
-  const found = new Set<string>();
-  const pending = [...(children.get(id) ?? [])];
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    // A node met twice would mean a cycle in the rows; it is not walked again.
-    if (found.has(next)) continue;
-    found.add(next);
-    pending.push(...(children.get(next) ?? []));
-  }
-  return found;
-}
-
 /** Whether `id` is the node `ancestorId` or lies under it. */
 function isInside(byId: Map<string, TreeRow>, id: string, ancestorId: string): boolean {
   const seen = new Set<string>();

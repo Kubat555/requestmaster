@@ -1,9 +1,10 @@
 <script lang="ts">
   import AuthEditor from "./AuthEditor.svelte";
+  import DescriptionField from "./DescriptionField.svelte";
   import ScriptsEditor from "./ScriptsEditor.svelte";
   import { strings } from "../lib/strings";
   import type { Tab } from "../lib/tabs.svelte";
-  import type { FolderDraft } from "../lib/types";
+  import { filledScripts, type FolderDraft } from "../lib/types";
 
   interface Props {
     /** The tab of the folder; the editors change its draft. */
@@ -32,7 +33,7 @@
   /** Number next to the name of a section: scripts that are not empty; 0 — no number. */
   const counts = $derived<Record<Section, number>>({
     auth: 0,
-    scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+    scripts: filledScripts(tab.draft.scripts),
     description: 0,
   });
 
@@ -72,8 +73,7 @@
     </div>
   {/if}
   <div class="panel scroll" role="tabpanel" id="{id}-panel-description" aria-labelledby="{id}-tab-description" hidden={section !== "description"}>
-    <!-- The source text as it is kept: Markdown is not rendered. -->
-    <textarea class="description" aria-label={strings.collection.description} spellcheck="false" bind:value={tab.draft.description}></textarea>
+    <DescriptionField bind:value={tab.draft.description} />
   </div>
 </div>
 
@@ -93,15 +93,5 @@
   .scroll {
     padding: calc(var(--space) * 2);
     overflow: auto;
-  }
-  .description {
-    display: block;
-    width: 100%;
-    height: 100%;
-    padding: calc(var(--space) * 2);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    resize: none;
   }
 </style>

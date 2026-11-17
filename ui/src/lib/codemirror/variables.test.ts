@@ -26,13 +26,13 @@ function lookup(name: string): ScopeVariable | null {
 /** What the source offers for the text with the caret at `pos`. */
 function complete(text: string, pos: number) {
   const state = EditorState.create({ doc: text });
-  return variableCompletions(() => VARIABLES)(new CompletionContext(state, pos, false));
+  return variableCompletions(VARIABLES)(new CompletionContext(state, pos, false));
 }
 
 /** Chooses the option `label` offered at `pos` of the text; gives the text and the caret after it. */
 function choose(text: string, pos: number, label: string): { text: string; caret: number } {
   let state = EditorState.create({ doc: text });
-  const result = variableCompletions(() => VARIABLES)(new CompletionContext(state, pos, false))!;
+  const result = variableCompletions(VARIABLES)(new CompletionContext(state, pos, false))!;
   const option = result.options.find((item) => item.label === label)!;
   const view = {
     get state() {
@@ -85,7 +85,7 @@ describe("variableCompletions", () => {
   it("shows a mask instead of the value of a secret variable", () => {
     const secret: ScopeVariable[] = [variable("token", { value: SECRET_VALUE, secret: true })];
     const state = EditorState.create({ doc: "{{to" });
-    const result = variableCompletions(() => secret)(new CompletionContext(state, 4, false))!;
+    const result = variableCompletions(secret)(new CompletionContext(state, 4, false))!;
 
     expect(result.options).toHaveLength(1);
     expect(result.options[0].detail).toContain(strings.variables.secretMask);
@@ -122,7 +122,7 @@ describe("variableSupport", () => {
   }
 
   it("marks the tokens of the text and marks them anew when the text changes", () => {
-    const state = EditorState.create({ doc: "{{id}} {{nope}}", extensions: variableSupport(() => VARIABLES) });
+    const state = EditorState.create({ doc: "{{id}} {{nope}}", extensions: variableSupport(VARIABLES) });
 
     expect(drawn(state)).toEqual([
       { from: 0, to: 6, class: "cm-var cm-var-collection" },
@@ -138,7 +138,7 @@ describe("variableSupport", () => {
   });
 
   it("gives the autocompletion one and the same source every time it asks", () => {
-    const state = EditorState.create({ doc: "{{to", extensions: variableSupport(() => VARIABLES) });
+    const state = EditorState.create({ doc: "{{to", extensions: variableSupport(VARIABLES) });
 
     const sources = state.languageDataAt("autocomplete", 4);
 

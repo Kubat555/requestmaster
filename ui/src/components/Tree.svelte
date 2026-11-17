@@ -18,7 +18,7 @@
     type VisibleRow,
   } from "../lib/tree";
   import { TreeActions } from "../lib/treeActions.svelte";
-  import { descendantIds, dropPlace, dropZone, keyboardPlace, NODE_DRAG_TYPE, type DropZone, type Place } from "../lib/treeDrop";
+  import { dropPlace, dropZone, keyboardPlace, NODE_DRAG_TYPE, type DropZone, type Place } from "../lib/treeDrop";
   import type { NodeKind } from "../lib/types";
   import type { Workspace } from "../lib/workspace.svelte";
 
@@ -53,11 +53,8 @@
   let menu = $state.raw<{ node: TreeNode; anchor: Anchor } | null>(null);
   /** The node of the menu shown last; stays after the menu is closed. */
   let menuNode: TreeNode | null = null;
-  /**
-   * The node being dragged with the mouse; `null` — none. What lies under it is found once, when the drag
-   * starts: the question "is this row inside the dragged node" is asked on every move of the pointer.
-   */
-  let dragging = $state.raw<{ id: string; kind: NodeKind; descendants: Set<string> } | null>(null);
+  /** The node being dragged with the mouse; `null` — none. */
+  let dragging = $state.raw<{ id: string; kind: NodeKind } | null>(null);
   /** The row a drop would go to and where relative to it; `null` — the pointer is over no place for the node. */
   let dropTarget = $state.raw<{ id: string; zone: DropZone } | null>(null);
 
@@ -244,7 +241,7 @@
     event.dataTransfer.setData(NODE_DRAG_TYPE, id);
     event.dataTransfer.effectAllowed = "move";
     menu = null;
-    dragging = { id, kind: rows[index].node.kind, descendants: descendantIds(workspace.rows, id) };
+    dragging = { id, kind: rows[index].node.kind };
   }
 
   /**
@@ -258,7 +255,6 @@
     const id = row?.dataset.id;
     const index = id === undefined ? undefined : indexById.get(id);
     if (!row || id === undefined || index === undefined) return null;
-    if (id === dragging.id || dragging.descendants.has(id)) return null;
     // The zone is counted from the top of the row, wherever inside the row the pointer is.
     const zone = dropZone(event.clientY - row.getBoundingClientRect().top, rows[index].node.kind, dragging.kind);
     if (zone === null) return null;

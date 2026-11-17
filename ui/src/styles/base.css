@@ -80,6 +80,16 @@ textarea {
   color: var(--text);
 }
 
+/* Text for a screen reader only: it takes no place and is not seen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Number of rows next to the name of a section. */
 .section-tabs .count {
   margin-left: var(--space);

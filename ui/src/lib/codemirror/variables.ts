@@ -44,12 +44,12 @@ function insertName(view: EditorView, completion: Completion, from: number, to: 
 }
 
 /** Completion source: options after `{{`; `null` elsewhere. */
-export function variableCompletions(read: () => ScopeVariable[]): (context: CompletionContext) => CompletionResult | null {
+export function variableCompletions(variables: ScopeVariable[]): (context: CompletionContext) => CompletionResult | null {
   return (context) => {
     const line = context.state.doc.lineAt(context.pos);
     const typed = completionAt(line.text, context.pos - line.from);
     if (!typed) return null;
-    const items = suggest(read(), typed.prefix);
+    const items = suggest(variables, typed.prefix);
     if (items.length === 0) return null;
     return {
       from: line.from + typed.from,
@@ -110,15 +110,13 @@ const styles = EditorView.baseTheme({
   ".cm-var-hint-value": { marginTop: "var(--space)", maxHeight: "120px", overflow: "hidden", whiteSpace: "pre-wrap" },
 });
 
-/** The extensions of an editor with `variables`; `read` gives the current variables. */
-export function variableSupport(read: () => ScopeVariable[]): Extension {
-  function lookup(name: string): ScopeVariable | null {
-    return read().find((variable) => variable.name === name) ?? null;
-  }
+/** The extensions of an editor with `variables`: the variables a `{{name}}` of its text can resolve to. */
+export function variableSupport(variables: ScopeVariable[]): Extension {
+  const byName = new Map(variables.map((variable) => [variable.name, variable]));
+  const lookup = (name: string): ScopeVariable | null => byName.get(name) ?? null;
 
   function marksOf(state: EditorState): DecorationSet {
-    const byName = new Map(read().map((variable) => [variable.name, variable]));
-    const marks = variableMarks(state.doc.toString(), (name) => byName.get(name) ?? null);
+    const marks = variableMarks(state.doc.toString(), lookup);
     return Decoration.set(marks.map((mark) => Decoration.mark({ class: mark.class }).range(mark.from, mark.to)));
   }
 
@@ -139,7 +137,7 @@ export function variableSupport(read: () => ScopeVariable[]): Extension {
   });
 
   // One source for the whole life of the extension: the autocompletion tells its sources apart by identity.
-  const data = [{ autocomplete: variableCompletions(read) }];
+  const data = [{ autocomplete: variableCompletions(variables) }];
 
   return [marks, hint, styles, EditorState.languageData.of(() => data)];
 }

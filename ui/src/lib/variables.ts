@@ -25,22 +25,18 @@ function isBrace(char: string | undefined): boolean {
  */
 export function findTokens(text: string): VarToken[] {
   const tokens: VarToken[] = [];
-  let index = 0;
-  while (index + 1 < text.length) {
-    if (text[index] !== "{" || text[index + 1] !== "{") {
-      index += 1;
-      continue;
-    }
+  let index = text.indexOf("{{");
+  while (index !== -1) {
     const nameStart = index + 2;
     let nameEnd = nameStart;
     while (nameEnd < text.length && !isBrace(text[nameEnd])) nameEnd += 1;
     if (text[nameEnd] !== "}" || text[nameEnd + 1] !== "}") {
       // Not a token at this place; an inner `{{` may still start one.
-      index += 1;
+      index = text.indexOf("{{", index + 1);
       continue;
     }
     tokens.push({ from: index, to: nameEnd + 2, name: text.slice(nameStart, nameEnd) });
-    index = nameEnd + 2;
+    index = text.indexOf("{{", nameEnd + 2);
   }
   return tokens;
 }

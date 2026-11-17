@@ -132,10 +132,10 @@
 </script>
 
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { onMount } from "svelte";
   import type { EditorView } from "codemirror";
   import type { Compartment, Extension } from "@codemirror/state";
-  import type { VariableScope } from "../lib/variableScope.svelte";
+  import { useVariableScope } from "../lib/variableScope.svelte";
 
   interface Props {
     /** Text of the editor. A change made by the user is reported with `onchange`, not written here. */
@@ -148,7 +148,7 @@
     label?: string;
     /**
      * The `{{variables}}` of the text are coloured by their scopes, told about under the pointer and offered while
-     * one is typed. Needs the variables of an editor around it (the context `"variables"`).
+     * one is typed. Needs the variables of an editor around it (`provideVariableScope`).
      */
     variables?: boolean;
     /** Called with the whole text after every change made by the user. */
@@ -158,7 +158,7 @@
   let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
 
   /** The variables of the editor around this one. */
-  const scope = getContext<VariableScope | undefined>("variables");
+  const scope = useVariableScope();
 
   let host: HTMLDivElement;
   /** The editor once CodeMirror is loaded, with what is needed to reconfigure it. */
@@ -198,8 +198,7 @@
    */
   function variableSupport(cm: Awaited<ReturnType<typeof load>>): Extension {
     if (!variables || !scope?.loaded) return [];
-    const current = scope.variables;
-    return cm.variableSupport(() => current);
+    return cm.variableSupport(scope.variables);
   }
 
   onMount(() => {

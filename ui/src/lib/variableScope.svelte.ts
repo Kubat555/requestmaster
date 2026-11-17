@@ -1,6 +1,7 @@
 // The variables a `{{name}}` can resolve to in the editor of one node, as the core tells them, and the signal
 // that makes every editor read them again.
 
+import { getContext, setContext } from "svelte";
 import type { Api } from "./api";
 import { toasts } from "./toasts.svelte";
 import type { ScopeVariable } from "./types";
@@ -18,8 +19,8 @@ export function bumpVariables(): void {
 }
 
 /**
- * The variables in the scope of the node `nodeId`. The editor of the node puts it into the context under the key
- * `"variables"` and calls {@link refresh} while its tab is shown and the scope is {@link stale}.
+ * The variables in the scope of the node `nodeId`. The editor of the node gives it to the fields inside it
+ * ({@link provideVariableScope}) and calls {@link refresh} while its tab is shown and the scope is {@link stale}.
  */
 export class VariableScope {
   readonly nodeId: string;
@@ -69,4 +70,17 @@ export class VariableScope {
     this.variables = variables;
     this.loaded = true;
   }
+}
+
+/** The key of the context the scope of an editor is kept under. */
+const CONTEXT_KEY = "variables";
+
+/** Gives the scope to the fields inside the component that calls this while it is being created; returns it. */
+export function provideVariableScope(scope: VariableScope): VariableScope {
+  return setContext(CONTEXT_KEY, scope);
+}
+
+/** The scope of the editor around the component that calls this while it is being created; `undefined` — none. */
+export function useVariableScope(): VariableScope | undefined {
+  return getContext<VariableScope | undefined>(CONTEXT_KEY);
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, setContext, untrack } from "svelte";
+  import { getContext, untrack } from "svelte";
   import AuthEditor from "./AuthEditor.svelte";
   import BodyEditor from "./BodyEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
@@ -10,8 +10,8 @@
   import { canSend } from "../lib/sending.svelte";
   import { strings } from "../lib/strings";
   import { tabs, type Tab } from "../lib/tabs.svelte";
-  import type { ParamRow, RequestDraft } from "../lib/types";
-  import { VariableScope } from "../lib/variableScope.svelte";
+  import { filledScripts, type ParamRow, type RequestDraft } from "../lib/types";
+  import { provideVariableScope, VariableScope } from "../lib/variableScope.svelte";
   import { requestTokenNames } from "../lib/variables";
 
   interface Props {
@@ -24,7 +24,7 @@
   const api = getContext<Api>("api");
 
   /** The variables `{{name}}` resolves to in this request; the fields below mark their tokens by it. */
-  const scope = setContext("variables", new VariableScope(untrack(() => tab.nodeId)));
+  const scope = provideVariableScope(new VariableScope(untrack(() => tab.nodeId)));
 
   // Read while the tab is shown, and again after something has changed variables; a hidden tab reads when shown.
   $effect(() => {
@@ -63,7 +63,7 @@
     headers: enabled(tab.draft.headers),
     body: 0,
     auth: 0,
-    scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+    scripts: filledScripts(tab.draft.scripts),
     settings: Object.values(tab.draft.settings).filter((setting) => setting !== null).length,
   });
 

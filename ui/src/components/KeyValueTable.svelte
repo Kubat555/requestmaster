@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import IconButton from "./ui/IconButton.svelte";
   import VarInput from "./VarInput.svelte";
+  import { focusRowField } from "../lib/rowFocus";
   import { strings } from "../lib/strings";
 
   interface Props {
@@ -39,9 +40,7 @@
     input.value = "";
     rows.push(row);
     await tick();
-    const added = body.rows[rows.length - 1]?.querySelector<HTMLInputElement>(`input[data-field="${field}"]`);
-    added?.focus();
-    added?.setSelectionRange(added.value.length, added.value.length);
+    focusRowField(body, rows.length - 1, field);
   }
 
   function remove(index: number) {
@@ -206,14 +205,5 @@
   .off input[type="password"],
   .off :global(.var-input) {
     color: var(--text-muted);
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 </style>

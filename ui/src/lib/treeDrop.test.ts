@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMove, descendantIds, dropPlace, dropZone, keyboardPlace, NODE_DRAG_TYPE } from "./treeDrop";
+import { applyMove, dropPlace, dropZone, keyboardPlace, NODE_DRAG_TYPE } from "./treeDrop";
 import type { TreeRow } from "./types";
 
 function row(id: string, parentId: string | null, kind: TreeRow["kind"], sortOrder: number): TreeRow {
@@ -65,16 +65,6 @@ describe("dropZone", () => {
     expect(dropZone(15, "folder", "collection")).toBeNull();
     expect(dropZone(3, "request", "collection")).toBeNull();
     expect(dropZone(25, "request", "collection")).toBeNull();
-  });
-});
-
-describe("descendantIds", () => {
-  it("lists everything under the node at any depth, without the node", () => {
-    expect([...descendantIds(ROWS, "C1")].sort()).toEqual(["F1", "F2", "R1", "R2", "R3"]);
-    expect([...descendantIds(ROWS, "F1")].sort()).toEqual(["R1", "R2"]);
-    expect(descendantIds(ROWS, "F2").size).toBe(0);
-    expect(descendantIds(ROWS, "R1").size).toBe(0);
-    expect(descendantIds(ROWS, "no-such-node").size).toBe(0);
   });
 });
 

@@ -4,8 +4,9 @@
   import IconButton from "./ui/IconButton.svelte";
   import VarInput from "./VarInput.svelte";
   import type { Api } from "../lib/api";
+  import { pickFiles } from "../lib/exporting";
+  import { focusRowField } from "../lib/rowFocus";
   import { strings } from "../lib/strings";
-  import { toasts } from "../lib/toasts.svelte";
   import type { FormPartRow } from "../lib/types";
 
   interface Props {
@@ -40,9 +41,7 @@
       postman_extra: {},
     });
     await tick();
-    const added = body.rows[parts.length - 1]?.querySelector<HTMLInputElement>(`input[data-field="${field}"]`);
-    added?.focus();
-    added?.setSelectionRange(added.value.length, added.value.length);
+    focusRowField(body, parts.length - 1, field);
   }
 
   /** The other kind starts empty; everything else of the part stays. */
@@ -56,13 +55,7 @@
    * that was closed changes nothing. Only a path that came from that window is confirmed.
    */
   async function choose(part: FormPartRow) {
-    let paths: string[];
-    try {
-      paths = await api.pickFiles(true);
-    } catch (error) {
-      toasts.error(String(error));
-      return;
-    }
+    const paths = await pickFiles(api, true);
     // The part may have become a text one while the window was open.
     if (paths.length > 0 && "files" in part.value) part.value.files = paths.map((path) => ({ path, confirmed: true }));
   }
@@ -264,14 +257,5 @@
 
   .unconfirmed {
     color: var(--danger);
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 </style>

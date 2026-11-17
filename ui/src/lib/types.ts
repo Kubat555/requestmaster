@@ -218,6 +218,11 @@ function scriptsDraft(scripts: Scripts | undefined): ScriptsDraft {
   return { pre_request: scripts?.pre_request ?? "", test: scripts?.test ?? "" };
 }
 
+/** How many of the scripts are not empty; a text of spaces only is empty. */
+export function filledScripts(scripts: ScriptsDraft): number {
+  return Object.values(scripts).filter((script) => script.trim() !== "").length;
+}
+
 function settingsDraft(settings: RequestSettings | undefined): RequestSettingsDraft {
   return {
     follow_redirects: settings?.follow_redirects ?? null,

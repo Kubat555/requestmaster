@@ -55,6 +55,12 @@ pub struct SendInput {
     pub settings: AppSettings,
 }
 
+/// The environment `id`; an unknown id is `StoreError::NotFound`.
+fn environment_by_id(store: &Store, id: &str) -> Result<Environment, StoreError> {
+    let found = store.environments()?.into_iter().find(|environment| environment.id == id);
+    found.ok_or_else(|| StoreError::NotFound(id.to_string()))
+}
+
 /// Reads the request (or uses `draft` instead of the stored content), its ancestors, globals and the environment.
 /// A node that is not a request, or an unknown environment id, yields `StoreError::NotFound`.
 pub fn load_send_input(
@@ -68,16 +74,7 @@ pub fn load_send_input(
     let NodeContent::Request(stored) = node.content else {
         return Err(StoreError::NotFound(request_id.to_string()));
     };
-    let environment = match environment_id {
-        Some(id) => Some(
-            store
-                .environments()?
-                .into_iter()
-                .find(|environment| environment.id == id)
-                .ok_or_else(|| StoreError::NotFound(id.to_string()))?,
-        ),
-        None => None,
-    };
+    let environment = environment_id.map(|id| environment_by_id(store, id)).transpose()?;
     Ok(SendInput {
         request_name: node.name,
         request: draft.unwrap_or(stored),

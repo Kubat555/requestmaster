@@ -2,8 +2,8 @@
   import { getContext } from "svelte";
   import Button from "./ui/Button.svelte";
   import type { Api } from "../lib/api";
+  import { pickFiles } from "../lib/exporting";
   import { strings } from "../lib/strings";
-  import { toasts } from "../lib/toasts.svelte";
   import type { FileRow } from "../lib/types";
 
   interface Props {
@@ -20,13 +20,7 @@
    * from that window is confirmed.
    */
   async function choose() {
-    let paths: string[];
-    try {
-      paths = await api.pickFiles(false);
-    } catch (error) {
-      toasts.error(String(error));
-      return;
-    }
+    const paths = await pickFiles(api, false);
     if (paths.length > 0) file = { path: paths[0], confirmed: true };
   }
 </script>

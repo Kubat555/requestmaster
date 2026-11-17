@@ -5,7 +5,7 @@ use rqm_model::{NodeContent, Variable};
 use rqm_store::{Store, StoreError};
 use rqm_vars::{Resolver, Scope, ScopeKind, DYNAMIC_NAMES};
 
-use crate::SendInput;
+use crate::{environment_by_id, SendInput};
 
 /// Stands in for the value of every secret variable when [`variables_in_scope`] looks for the names whose
 /// value depends on a secret. The NUL characters keep it apart from anything a user types.
@@ -46,10 +46,7 @@ impl ScopeSources {
             }
         };
         let environment = match environment_id {
-            Some(id) => {
-                let chosen = store.environments()?.into_iter().find(|environment| environment.id == id);
-                chosen.ok_or_else(|| StoreError::NotFound(id.to_string()))?.variables
-            }
+            Some(id) => environment_by_id(store, id)?.variables,
             None => Vec::new(),
         };
         Ok(ScopeSources { globals: store.globals()?.variables, collection, environment })

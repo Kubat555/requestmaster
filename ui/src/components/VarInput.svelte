@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { getContext } from "svelte";
   import type { HTMLInputAttributes } from "svelte/elements";
   import VarSuggest, { optionId } from "./VarSuggest.svelte";
   import VarTooltip from "./VarTooltip.svelte";
   import type { ScopeVariable } from "../lib/types";
-  import type { VariableScope } from "../lib/variableScope.svelte";
+  import { useVariableScope } from "../lib/variableScope.svelte";
   import { applyCompletion, completionAt, findTokens, suggest, type VarToken } from "../lib/variables";
 
   type Props = Omit<HTMLInputAttributes, "value"> & {
@@ -15,7 +14,7 @@
   let { value = $bindable(), oninput, onkeydown, onblur, onmousemove, onmouseleave, ...rest }: Props = $props();
 
   /** The variables of the editor around the field; without one the field is a plain one. */
-  const scope = getContext<VariableScope | undefined>("variables");
+  const scope = useVariableScope();
   const id = $props.id();
 
   let input = $state<HTMLInputElement>();
