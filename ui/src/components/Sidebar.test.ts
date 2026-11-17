@@ -116,6 +116,16 @@ describe("Sidebar", () => {
     expect(treeItemNames()).toEqual(["Imported API", "POST Login"]);
   });
 
+  it("calls an imported environment without a name Untitled in the report", async () => {
+    const { api, fileInput } = await renderSidebar();
+    answerImport(api, [result({ file_name: "blank.postman_environment.json", kind: "environment", name: "" })]);
+
+    await fireEvent.change(fileInput, { target: { files: [jsonFile("blank.postman_environment.json", "{}")] } });
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText("Окружение: Без названия")).toBeTruthy();
+  });
+
   it("asks what to do with conflicting globals and applies the file's values on request", async () => {
     const { api, fileInput } = await renderSidebar();
     const conflicting = result({ file_name: "globals.json", kind: "globals", conflicts: ["token", "host"] });

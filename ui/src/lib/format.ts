@@ -1,5 +1,5 @@
-// Display helpers for sizes, durations, moments and status codes. Numbers use a decimal comma: the interface is
-// Russian.
+// Display helpers for sizes, durations, moments, status codes and names, and the arithmetic of the tab bar.
+// Numbers use a decimal comma: the interface is Russian.
 
 import { strings } from "./strings";
 
@@ -77,4 +77,22 @@ export function methodClass(method: string): string {
 /** The method as it is shown: its first {@link METHOD_MAX} characters. */
 export function methodLabel(method: string): string {
   return method.slice(0, METHOD_MAX);
+}
+
+/** New `scrollLeft` of the tab bar for a wheel turn; `null` — the bar does not scroll (nothing to prevent). */
+export function wheelScrollLeft(
+  deltaX: number,
+  deltaY: number,
+  bar: { scrollLeft: number; scrollWidth: number; clientWidth: number },
+): number | null {
+  // A horizontal gesture (a touchpad, a tilted wheel) already moves the bar by itself.
+  if (deltaX !== 0) return null;
+  const last = Math.max(0, bar.scrollWidth - bar.clientWidth);
+  const next = Math.min(last, Math.max(0, bar.scrollLeft + deltaY));
+  return next === bar.scrollLeft ? null : next;
+}
+
+/** The name to show and to save: `strings.environment.untitled` for a blank one. */
+export function environmentName(name: string): string {
+  return name.trim() === "" ? strings.environment.untitled : name;
 }

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { dayLabel, formatBytes, formatClock, formatMs, methodClass, methodLabel, statusClass } from "./format";
+import {
+  dayLabel,
+  environmentName,
+  formatBytes,
+  formatClock,
+  formatMs,
+  methodClass,
+  methodLabel,
+  statusClass,
+  wheelScrollLeft,
+} from "./format";
 
 describe("formatBytes", () => {
   it("shows bytes, kilobytes and megabytes with a decimal comma", () => {
@@ -75,5 +85,35 @@ describe("dayLabel", () => {
     expect(dayLabel(new Date(2026, 10, 1, 12, 0).toISOString(), now)).toBe("01.11.2026");
     expect(dayLabel(new Date(2026, 10, 11, 23, 59, 59).toISOString(), now)).toBe("11.11.2026");
     expect(dayLabel(new Date(2025, 11, 31, 8, 0).toISOString(), now)).toBe("31.12.2025");
+  });
+});
+
+describe("wheelScrollLeft", () => {
+  it("turns a vertical turn of the wheel into a horizontal move of the bar", () => {
+    expect(wheelScrollLeft(0, 100, { scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toBe(100);
+    expect(wheelScrollLeft(0, -100, { scrollLeft: 250, scrollWidth: 900, clientWidth: 300 })).toBe(150);
+  });
+
+  it("stops at the edges and tells when the bar did not move", () => {
+    expect(wheelScrollLeft(0, 100, { scrollLeft: 550, scrollWidth: 900, clientWidth: 300 })).toBe(600);
+    expect(wheelScrollLeft(0, 100, { scrollLeft: 600, scrollWidth: 900, clientWidth: 300 })).toBeNull();
+    expect(wheelScrollLeft(0, -100, { scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toBeNull();
+  });
+
+  it("leaves a horizontal gesture to the bar itself", () => {
+    expect(wheelScrollLeft(40, 0, { scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toBeNull();
+    expect(wheelScrollLeft(40, 100, { scrollLeft: 0, scrollWidth: 900, clientWidth: 300 })).toBeNull();
+  });
+
+  it("does nothing for a bar whose tabs all fit", () => {
+    expect(wheelScrollLeft(0, 100, { scrollLeft: 0, scrollWidth: 300, clientWidth: 300 })).toBeNull();
+  });
+});
+
+describe("environmentName", () => {
+  it("names a blank environment and keeps any other name", () => {
+    expect(environmentName("")).toBe("Без названия");
+    expect(environmentName("  ")).toBe("Без названия");
+    expect(environmentName("Dev")).toBe("Dev");
   });
 });

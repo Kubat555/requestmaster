@@ -23,7 +23,7 @@
   import { canSend } from "./lib/sending.svelte";
   import { session, SIDEBAR_MAX, SIDEBAR_MIN } from "./lib/session.svelte";
   import { strings } from "./lib/strings";
-  import { tabs, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
+  import { tabPanelId, tabs, tabTitleId, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
   import { toasts } from "./lib/toasts.svelte";
   import type { CollectionDraft, FolderDraft, RequestDraft } from "./lib/types";
   import { workspace } from "./lib/workspace.svelte";
@@ -209,7 +209,14 @@
         <!-- Every open tab keeps its editor; the ones that are not shown are only hidden, so switching is
              instant and nothing of their state is lost. -->
         {#each tabs.list as tab (tab.id)}
-          <div class="tab-panel" data-tab-panel hidden={tabs.active !== tab}>
+          <div
+            class="tab-panel"
+            data-tab-panel
+            role="tabpanel"
+            id={tabPanelId(tab.id)}
+            aria-labelledby={tabTitleId(tab.id)}
+            hidden={tabs.active !== tab}
+          >
             {#if tab.kind === "request"}
               <RequestEditor tab={tab as Tab<RequestDraft>} />
             {:else if tab.kind === "collection"}

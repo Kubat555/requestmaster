@@ -877,3 +877,66 @@ describe("import of global variables with their tab open", () => {
     expect(values()[0].value).toBe("globex");
   });
 });
+
+describe("environment without a name", () => {
+  /** "Dev" and an environment imported with an empty name. */
+  const BLANK: FakeSeed = {
+    environments: [
+      { id: "env-dev", name: "Dev" },
+      { id: "env-blank", name: "" },
+    ],
+    activeEnvironment: null,
+    variables: { "env-blank": [{ key: "host", value: "blank.example.test" }] },
+  };
+
+  it("is called Untitled in the list and in the switcher", async () => {
+    await openEnvironments(BLANK);
+
+    expect(TEXT.untitled).toBe("Без названия");
+    expect(rowNames()).toEqual([TEXT.globals, "Без названия", "Dev"]);
+    await fireEvent.click(switcher());
+    const menu = await screen.findByRole("menu");
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Без названия" }));
+    await waitFor(() => expect(switcher().textContent).toContain("Без названия"));
+  });
+
+  it("saves an edit under the name Untitled, and the tab closes", async () => {
+    const api = await openEnvironments(BLANK);
+    const save = vi.spyOn(api, "saveEnvironment");
+    await openEditor("Без названия");
+    expect(tab("Без названия")).not.toBeNull();
+    useFakeTimers();
+
+    await type(values()[0], "changed.example.test");
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0].slice(0, 2)).toEqual(["env-blank", "Без названия"]);
+    // The storage took it: a blank name would have been refused.
+    expect(toasts.items).toHaveLength(0);
+    expect(screen.queryByText(TEXT.unsaved)).toBeNull();
+    expect(await api.getEnvironment("env-blank")).toMatchObject({ name: "Без названия" });
+    expect((await api.getEnvironment("env-blank")).variables[0].value).toBe("changed.example.test");
+
+    await type(values()[0], "closing.example.test");
+    await fireEvent.click(screen.getByRole("button", { name: `${strings.tabs.close}: Без названия` }));
+    await waitFor(() => expect(tabs.list).toHaveLength(0));
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(toasts.items).toHaveLength(0);
+  });
+
+  it("lets the window close with a pending edit", async () => {
+    const api = await openEnvironments(BLANK);
+    const save = vi.spyOn(api, "saveEnvironment");
+    await openEditor("Без названия");
+    useFakeTimers();
+    await type(values()[0], "quitting.example.test");
+
+    expect(await api.requestClose()).toBe(true);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0].slice(0, 2)).toEqual(["env-blank", "Без названия"]);
+    expect(toasts.items).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

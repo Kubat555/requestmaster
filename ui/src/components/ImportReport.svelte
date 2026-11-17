@@ -1,6 +1,7 @@
 <script lang="ts">
   import Dialog from "./Dialog.svelte";
   import Button from "./ui/Button.svelte";
+  import { environmentName } from "../lib/format";
   import { strings } from "../lib/strings";
   import type { ImportResult, ReportItem } from "../lib/types";
 
@@ -27,7 +28,9 @@
   function outcome(result: ImportResult): string {
     if (result.kind === "error") return result.error ?? "";
     const kind = strings.import[result.kind];
-    return result.name === null ? kind : `${kind}: ${result.name}`;
+    if (result.name === null) return kind;
+    // An environment without a name is listed under the name the window shows it by.
+    return `${kind}: ${result.kind === "environment" ? environmentName(result.name) : result.name}`;
   }
 </script>
 

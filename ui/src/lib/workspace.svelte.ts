@@ -2,11 +2,17 @@
 
 import { SvelteSet } from "svelte/reactivity";
 import type { Api } from "./api";
+import { environmentName } from "./format";
 import { strings } from "./strings";
 import { toasts } from "./toasts.svelte";
 import { applyMove, type Place } from "./treeDrop";
 import type { EnvSummary, NodeKind, TreeRow } from "./types";
 import { bumpVariables } from "./variableScope.svelte";
+
+/** The environments as the window shows them: one that has a blank name in the storage gets a name. */
+function named(environments: EnvSummary[]): EnvSummary[] {
+  return environments.map((environment) => ({ ...environment, name: environmentName(environment.name) }));
+}
 
 /** The state of one window. The application uses {@link workspace}; a test creates its own. */
 export class Workspace {
@@ -48,7 +54,7 @@ export class Workspace {
         api.activeEnvironment(),
       ]);
       this.rows = rows;
-      this.environments = environments;
+      this.environments = named(environments);
       this.activeEnvironmentId = activeEnvironmentId;
       bumpVariables();
     } catch (error) {
@@ -75,7 +81,7 @@ export class Workspace {
   async reloadEnvironments(api: Api): Promise<void> {
     try {
       const [environments, activeEnvironmentId] = await Promise.all([api.environments(), api.activeEnvironment()]);
-      this.environments = environments;
+      this.environments = named(environments);
       this.activeEnvironmentId = activeEnvironmentId;
       // Called after an environment was created, renamed or deleted, and after an import.
       bumpVariables();

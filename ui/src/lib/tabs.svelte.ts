@@ -3,6 +3,7 @@
 // of a history entry only shows it.
 
 import type { Api } from "./api";
+import { environmentName } from "./format";
 import { Sending } from "./sending.svelte";
 import { strings } from "./strings";
 import { toasts } from "./toasts.svelte";
@@ -24,6 +25,16 @@ import {
 } from "./types";
 import { bumpVariables } from "./variableScope.svelte";
 import { workspace } from "./workspace.svelte";
+
+/** DOM id of the title of the tab in the tab bar: its panel is labelled by it. */
+export function tabTitleId(tabId: string): string {
+  return `tab-title-${tabId}`;
+}
+
+/** DOM id of the panel with the editor of the tab: its title says it controls it. */
+export function tabPanelId(tabId: string): string {
+  return `tab-panel-${tabId}`;
+}
 
 /** What a tab shows. */
 export type TabKind = "request" | "collection" | "folder" | "environment" | "history";
@@ -162,8 +173,9 @@ export class EnvironmentTab implements TabLike {
   constructor(environment: EnvironmentDto) {
     this.id = environmentTabId(environment.id);
     this.environmentId = environment.id;
-    // The set of global variables has no name of its own to show.
-    this.name = $state(environment.id === GLOBALS_ID ? strings.environment.globals : environment.name);
+    // The set of global variables has no name of its own to show; a blank name of an environment is replaced,
+    // and the next save writes the replacement down.
+    this.name = $state(environment.id === GLOBALS_ID ? strings.environment.globals : environmentName(environment.name));
     this.variables = $state(structuredClone(environment.variables));
     this.failed = $state(false);
   }

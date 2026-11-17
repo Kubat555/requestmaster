@@ -77,6 +77,8 @@ export const strings = {
     add: "Создать окружение",
     /** The name a new environment gets. */
     newName: "Новое окружение",
+    /** Shown and saved instead of a blank name, e.g. of an environment imported without one. */
+    untitled: "Без названия",
     menu: "Действия",
     activate: "Сделать активным",
     deactivate: "Снять выбор",

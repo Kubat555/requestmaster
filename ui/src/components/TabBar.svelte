@@ -1,9 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
   import IconButton from "./ui/IconButton.svelte";
-  import { methodClass, methodLabel } from "../lib/format";
+  import { methodClass, methodLabel, wheelScrollLeft } from "../lib/format";
   import { strings } from "../lib/strings";
-  import type { AnyTab, Tabs } from "../lib/tabs.svelte";
+  import { tabPanelId, tabTitleId, type AnyTab, type Tabs } from "../lib/tabs.svelte";
   import type { RequestDraft } from "../lib/types";
 
   interface Props {
@@ -15,6 +15,28 @@
   let { tabs, onclose }: Props = $props();
 
   let bar: HTMLDivElement;
+  /**
+   * Id of the tab whose title got the focus from a press of the pointer: its focus ring is not drawn. The
+   * webview shows the ring after a click on a tab (its own guess about the keyboard), so the bar remembers.
+   */
+  let pointerFocusedId = $state<string | null>(null);
+
+  // The shown tab is brought into view when another tab is shown and when tabs are added or removed.
+  $effect(() => {
+    const activeId = tabs.activeId;
+    if (activeId === null || tabs.list.length === 0) return;
+    // Without `behavior`: the scrolling is not animated.
+    document.getElementById(tabTitleId(activeId))?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+
+  /** The wheel moves the bar sideways: there is nothing to scroll down to. */
+  function onWheel(event: WheelEvent) {
+    const left = wheelScrollLeft(event.deltaX, event.deltaY, bar);
+    if (left === null) return;
+    // Only when the bar has moved: at its edge the turn goes on to whatever is under the bar.
+    event.preventDefault();
+    bar.scrollLeft = left;
+  }
 
   /** Method of a request tab as its draft has it; `null` for any other tab. */
   function methodOf(tab: AnyTab): string | null {
@@ -23,6 +45,8 @@
 
   /** The arrows show the neighbouring tab and move the focus to it. */
   async function onKeydown(event: KeyboardEvent, index: number) {
+    // From here on the focus is moved by the keyboard: its ring is drawn again.
+    if (event.key.startsWith("Arrow") || event.key === "Tab") pointerFocusedId = null;
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     const next = tabs.list[index + step];
     if (step === 0 || !next) return;
@@ -44,7 +68,7 @@
   }
 </script>
 
-<div bind:this={bar} class="tab-bar" role="tablist" aria-label={strings.tabs.label}>
+<div bind:this={bar} class="tab-bar" role="tablist" aria-label={strings.tabs.label} onwheel={onWheel}>
   {#each tabs.list as tab, index (tab.id)}
     {@const active = tabs.active === tab}
     {@const method = methodOf(tab)}
@@ -53,13 +77,20 @@
       <button
         type="button"
         class="title"
+        class:by-pointer={pointerFocusedId === tab.id}
         role="tab"
+        id={tabTitleId(tab.id)}
+        aria-controls={tabPanelId(tab.id)}
         aria-selected={active}
         tabindex={active ? 0 : -1}
         title={tab.name}
         onclick={() => tabs.activate(tab.id)}
         onauxclick={(event) => onAuxClick(event, tab)}
         onmousedown={onMouseDown}
+        onpointerdown={() => (pointerFocusedId = tab.id)}
+        onblur={() => {
+          if (pointerFocusedId === tab.id) pointerFocusedId = null;
+        }}
         onkeydown={(event) => onKeydown(event, index)}
       >
         {#if method !== null}
@@ -117,6 +148,11 @@
     border: none;
     color: inherit;
     cursor: pointer;
+  }
+
+  /* The focus came from the pointer: the ring is for the keyboard. */
+  .title.by-pointer:focus-visible {
+    outline: none;
   }
 
   .name {
