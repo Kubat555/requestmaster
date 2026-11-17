@@ -12,6 +12,8 @@ export interface HotkeyActions {
   focusUrl(): void;
   /** Ctrl+Enter: send the request of the shown tab. */
   send(): void;
+  /** Ctrl+F pressed outside a code editor: search in the body of the response of the shown tab. */
+  find(): void;
 }
 
 /**
@@ -35,6 +37,8 @@ export function installHotkeys(actions: HotkeyActions): () => void {
     l: actions.focusUrl,
     // Caught here, or the code editor would first put an empty line into the body.
     enter: actions.send,
+    // Cancelled even when there is nothing to search in, or the webview would show its own search bar.
+    f: actions.find,
   };
 
   function handler(event: KeyboardEvent) {
@@ -44,6 +48,8 @@ export function installHotkeys(actions: HotkeyActions): () => void {
     // AltGr arrives as Ctrl+Alt and types a character, so Alt rules a combination out.
     const action = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey ? byKey[letter(event)] : undefined;
     if (!reload && !action) return;
+    // Inside a code editor Ctrl+F is its own: it opens the search panel of that editor.
+    if (action === actions.find && event.target instanceof Element && event.target.closest(".cm-editor") !== null) return;
 
     event.preventDefault();
     event.stopPropagation();

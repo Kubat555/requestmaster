@@ -1,4 +1,6 @@
 <script lang="ts" module>
+  import { strings } from "../lib/strings";
+
   /** Everything of CodeMirror the editor uses. Loaded once, when the first editor is shown. */
   let loading: ReturnType<typeof load> | undefined;
   /** The JavaScript language: a chunk of its own, loaded once, by the first editor that shows JavaScript. */
@@ -12,6 +14,7 @@
       { HighlightStyle, syntaxHighlighting },
       { tags },
       { variableSupport },
+      { openSearchPanel },
     ] = await Promise.all([
       import("codemirror"),
       import("@codemirror/state"),
@@ -19,6 +22,7 @@
       import("@codemirror/language"),
       import("@lezer/highlight"),
       import("../lib/codemirror/variables"),
+      import("@codemirror/search"),
     ]);
 
     // Colours come from tokens.css. The built-in highlighting is made for a light background.
@@ -41,6 +45,41 @@
           color: "var(--text)",
         },
         ".cm-foldPlaceholder": { backgroundColor: "var(--surface-2)", color: "var(--text-muted)", border: "none" },
+        // The search panel: its fields and buttons look like the ones of the window. The selectors outweigh
+        // the ones of the library.
+        "& .cm-panel.cm-search": { padding: "var(--space) calc(var(--space) * 2)", fontFamily: "var(--font-ui)" },
+        "& .cm-panel.cm-search label": { fontSize: "var(--font-size)", color: "var(--text-muted)" },
+        "& .cm-panel.cm-search input[type=checkbox]": { accentColor: "var(--accent)" },
+        "& .cm-textfield": {
+          height: "var(--control-height-sm)",
+          padding: "0 calc(var(--space) * 2)",
+          backgroundColor: "var(--bg)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius)",
+          color: "var(--text)",
+          fontSize: "var(--font-size)",
+        },
+        "& .cm-button": {
+          height: "var(--control-height-sm)",
+          padding: "0 calc(var(--space) * 2)",
+          backgroundColor: "var(--surface)",
+          backgroundImage: "none",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius)",
+          color: "var(--text)",
+          fontSize: "var(--font-size)",
+          cursor: "pointer",
+        },
+        "& .cm-button:hover": { borderColor: "var(--text-muted)" },
+        "& .cm-button:active": { backgroundImage: "none", backgroundColor: "var(--surface-2)" },
+        "& .cm-panel.cm-search [name=close]": { color: "var(--text-muted)", cursor: "pointer" },
+        "& .cm-panel.cm-search [name=close]:hover": { color: "var(--text)" },
+        "& .cm-textfield:focus-visible, & .cm-button:focus-visible, & .cm-panel.cm-search [name=close]:focus-visible": {
+          outline: "2px solid var(--accent)",
+          outlineOffset: "-1px",
+        },
+        "& .cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--status-redirect) 35%, transparent)" },
+        "& .cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 55%, transparent)" },
       },
       { dark: true },
     );
@@ -55,7 +94,23 @@
       ]),
     );
 
-    return { EditorView, EditorState, Compartment, basicSetup, json, theme, highlight, variableSupport };
+    // The texts of the search panel, by the phrases of the library.
+    const text = strings.search;
+    const phrases = EditorState.phrases.of({
+      Find: text.find,
+      next: text.next,
+      previous: text.previous,
+      all: text.all,
+      "match case": text.matchCase,
+      regexp: text.regexp,
+      "by word": text.byWord,
+      close: text.close,
+      Replace: text.replaceWith,
+      replace: text.replace,
+      "replace all": text.replaceAll,
+    });
+
+    return { EditorView, EditorState, Compartment, basicSetup, json, theme, highlight, phrases, variableSupport, openSearchPanel };
   }
 </script>
 
@@ -99,6 +154,14 @@
   }>();
   /** Text of the document in the editor: tells a change made by the user from one that came with `value`. */
   let shown = "";
+  /** The search panel was asked for before CodeMirror was loaded; it opens with the editor. */
+  let searchAsked = false;
+
+  /** Opens the search panel of the editor and puts the focus into its field. */
+  export function openSearch(): void {
+    if (editor) editor.cm.openSearchPanel(editor.view);
+    else searchAsked = true;
+  }
   /** The JavaScript language once it is loaded; until then JavaScript is shown without highlighting. */
   let javascript = $state.raw<typeof import("@codemirror/lang-javascript")>();
 
@@ -140,6 +203,7 @@
             cm.basicSetup,
             cm.theme,
             cm.highlight,
+            cm.phrases,
             languageSlot.of(highlighting(cm)),
             readonlySlot.of(cm.EditorState.readOnly.of(readonly)),
             variablesSlot.of(variableSupport(cm)),
@@ -155,6 +219,8 @@
         }),
       });
       editor = { view, languageSlot, readonlySlot, variablesSlot, cm };
+      if (searchAsked) cm.openSearchPanel(view);
+      searchAsked = false;
     });
 
     return () => {

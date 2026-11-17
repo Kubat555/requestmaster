@@ -305,6 +305,7 @@ export const strings = {
     copy: "Копировать",
     copied: "Скопировано",
     copyFailed: "Не удалось скопировать: буфер обмена недоступен",
+    save: "Сохранить в файл",
     noBody: "Ответ без тела",
     truncated: (total: string) => `Показаны первые 256 КБ из ${total}`,
     decodeError: "Не удалось распаковать ответ: показано как получено",
@@ -342,6 +343,20 @@ export const strings = {
       body_pruned: (methods: string[]) => `Тело не отправлено: метод ${methods.join(", ")} его не передаёт`,
       unsupported_auth: (types: string[]) => `Авторизация ${types.join(", ")} не поддерживается, запрос отправлен без неё`,
     },
+  },
+  /** The search panel of a code editor; the replace part is there only when the text can be changed. */
+  search: {
+    find: "Найти",
+    next: "следующее",
+    previous: "предыдущее",
+    all: "все",
+    matchCase: "с учётом регистра",
+    regexp: "регулярное выражение",
+    byWord: "слово целиком",
+    close: "закрыть",
+    replaceWith: "Заменить",
+    replace: "заменить",
+    replaceAll: "заменить все",
   },
   layout: {
     /** The button in the row of the tabs and its menu. */

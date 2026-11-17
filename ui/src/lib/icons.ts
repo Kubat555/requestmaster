@@ -16,6 +16,8 @@ export const icons = {
   plus: ["M8 3v10", "M3 8h10"],
   send: ["M14 2L7.5 8.5", "M14 2L9.5 14l-2-5.5L2 6.5z"],
   copy: [SHEET, SHEET_BEHIND],
+  // A diskette: the label above, the shutter below.
+  save: ["M3.5 2.5h7L13.5 5.5v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z", "M5 2.5V6h5V2.5", "M5 13.5v-4h6v4"],
   close: ["M4 4l8 8", "M12 4l-8 8"],
   import: ["M8 2v8", "M5 7l3 3 3-3", TRAY],
   export: ["M8 10V2", "M5 5l3-3 3 3", TRAY],

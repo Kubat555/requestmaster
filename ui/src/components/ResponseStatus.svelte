@@ -8,9 +8,11 @@
     response: ResponseDto;
     /** The user asked to copy the body; the owner knows the view it is shown in. */
     oncopy: () => void;
+    /** The user asked to save the body to a file. */
+    onsave: () => void;
   }
 
-  let { response, oncopy }: Props = $props();
+  let { response, oncopy, onsave }: Props = $props();
 
   const id = $props.id();
   /** Whether the list of the followed redirects is shown. */
@@ -34,10 +36,11 @@
         {strings.response.redirects(response.redirects.length)}
       </button>
     {/if}
-    <!-- A response without a body has nothing to copy. -->
+    <!-- A response without a body has nothing to copy or to save. -->
     {#if response.body.total > 0}
-      <span class="copy">
+      <span class="actions">
         <IconButton icon="copy" size="sm" label={strings.response.copy} onclick={oncopy} />
+        <IconButton icon="save" size="sm" label={strings.response.save} onclick={onsave} />
       </span>
     {/if}
   </div>
@@ -93,7 +96,9 @@
   }
 
   /* At the right edge of the line. */
-  .copy {
+  .actions {
+    display: flex;
+    gap: var(--space);
     margin-left: auto;
   }
 

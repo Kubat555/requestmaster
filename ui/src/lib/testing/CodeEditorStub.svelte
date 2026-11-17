@@ -11,12 +11,19 @@
   }
 
   let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
+
+  let searchOpen = $state(false);
+
+  export function openSearch(): void {
+    searchOpen = true;
+  }
 </script>
 
 <textarea
   aria-label={label}
   data-language={language}
   data-variables={variables ? "true" : "false"}
+  data-search-open={searchOpen ? "true" : undefined}
   {readonly}
   {value}
   oninput={(event) => onchange?.(event.currentTarget.value)}

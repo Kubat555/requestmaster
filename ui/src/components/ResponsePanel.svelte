@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext } from "svelte";
+  import { getContext, tick } from "svelte";
   import CookiesView from "./CookiesView.svelte";
   import HeadersView from "./HeadersView.svelte";
   import ResponseBody from "./ResponseBody.svelte";
@@ -7,6 +7,7 @@
   import SendWarnings from "./SendWarnings.svelte";
   import EmptyState from "./ui/EmptyState.svelte";
   import type { Api } from "../lib/api";
+  import { exportToFile } from "../lib/exporting";
   import type { Sending } from "../lib/sending.svelte";
   import { strings } from "../lib/strings";
   import { toasts } from "../lib/toasts.svelte";
@@ -14,9 +15,11 @@
   interface Props {
     /** The send state of the tab whose response is shown. */
     sending: Sending;
+    /** A new value shows the body of the response and opens the search in it. */
+    findSignal?: number;
   }
 
-  let { sending }: Props = $props();
+  let { sending, findSignal }: Props = $props();
 
   const api = getContext<Api>("api");
 
@@ -71,6 +74,33 @@
     }
   }
 
+  /** Writes the body, as received and unpacked, to a file the user chooses, and tells where the file is. */
+  function saveBody() {
+    if (!response) return;
+    const bodyId = response.body.id;
+    void exportToFile(() => api.saveResponseBody(bodyId));
+  }
+
+  /** The view of the body on the screen. */
+  let bodyView = $state<ResponseBody>();
+  /** The value of `findSignal` that was answered last. */
+  let answeredFind: number | undefined;
+
+  $effect(() => {
+    if (findSignal === undefined || findSignal === answeredFind) return;
+    answeredFind = findSignal;
+    void openSearch();
+  });
+
+  /** Shows the body and opens the search in it; a response without a body has nothing to search in. */
+  async function openSearch() {
+    if (!response || response.body.total === 0) return;
+    section = "body";
+    // The search field takes the focus, and it cannot while the body is still hidden.
+    await tick();
+    bodyView?.openSearch();
+  }
+
   /** Number of rows next to the name of a section; 0 — no number. */
   const counts = $derived<Record<Section, number>>({
     body: 0,
@@ -102,7 +132,7 @@
         {/if}
       </div>
     {:else if response}
-      <ResponseStatus {response} oncopy={copyBody} />
+      <ResponseStatus {response} oncopy={copyBody} onsave={saveBody} />
 
       <div class="section-tabs" role="tablist" aria-label={strings.response.sections}>
         {#each SECTIONS as name (name)}
@@ -125,7 +155,7 @@
       <!-- The body stays while another section is shown, so that it is not fetched again. -->
       <div class="panel" role="tabpanel" id="{id}-panel-body" aria-labelledby="{id}-tab-body" hidden={section !== "body"}>
         {#key response.body.id}
-          <ResponseBody body={response.body} decodeError={response.decode_error} bind:pretty />
+          <ResponseBody bind:this={bodyView} body={response.body} decodeError={response.decode_error} bind:pretty onsave={saveBody} />
         {/key}
       </div>
       {#if section === "headers"}

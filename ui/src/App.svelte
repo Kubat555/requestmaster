@@ -124,6 +124,18 @@
     if (canSend(tab)) void tab.sending.send(api, tab);
   }
 
+  /** The request tab whose response is searched in and the number of the ask: a new number opens the search. */
+  let finding = $state.raw<{ tabId: string; count: number }>();
+
+  /** Ctrl+F outside a code editor: the search in the body of the response of the shown request tab, if it has one. */
+  function find() {
+    const tab = tabs.active;
+    if (tab?.kind !== "request") return;
+    const body = (tab as Tab<RequestDraft>).sending.result?.response?.body;
+    if (!body || body.total === 0) return;
+    finding = { tabId: tab.id, count: (finding?.count ?? 0) + 1 };
+  }
+
   onMount(() => {
     workspace.onOpen = (id) => void tabs.open(api, id);
     // The tabs are restored over the tree that is already read; from then on the changes are written down.
@@ -135,6 +147,7 @@
       },
       focusUrl,
       send: sendActive,
+      find,
     });
     const removeContextMenuGuard = installContextMenuGuard();
     let unmounted = false;
@@ -233,7 +246,7 @@
         {#each tabs.list as tab (tab.id)}
           {#if tab.kind === "request"}
             <div class="tab-panel" hidden={tabs.active !== tab}>
-              <ResponsePanel sending={tab.sending} />
+              <ResponsePanel sending={tab.sending} findSignal={finding?.tabId === tab.id ? finding.count : undefined} />
             </div>
           {/if}
         {/each}

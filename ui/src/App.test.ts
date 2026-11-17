@@ -5,8 +5,11 @@ import { layout } from "./lib/layout.svelte";
 import { session } from "./lib/session.svelte";
 import { strings } from "./lib/strings";
 import { tabs } from "./lib/tabs.svelte";
-import { createFakeApi } from "./lib/testing/fakeApi";
+import { createFakeApi, type StoredHistoryEntry } from "./lib/testing/fakeApi";
 import { toasts } from "./lib/toasts.svelte";
+import type { SendResult } from "./lib/types";
+
+vi.mock("./components/CodeEditor.svelte", async () => ({ default: (await import("./lib/testing/CodeEditorStub.svelte")).default }));
 
 function renderApp() {
   const api = createFakeApi();
@@ -294,6 +297,150 @@ describe("App", () => {
     const line = content.appendChild(document.createElement("div"));
     expect(await contextMenuPrevented(line)).toBe(false);
     content.remove();
+  });
+
+  describe("Ctrl+F", () => {
+    const CTRL_F = { key: "f", code: "KeyF", ctrlKey: true };
+
+    /** A `200 OK` response whose body is stored under `b1`. */
+    const ANSWER: SendResult = {
+      response: {
+        status: 200,
+        status_text: "OK",
+        http_version: "HTTP/1.1",
+        headers: [["content-type", "application/json"]],
+        cookies: [],
+        redirects: [],
+        ttfb_ms: 40,
+        total_ms: 123.4,
+        wire_size: 7,
+        decoded_size: 7,
+        decode_error: null,
+        sent: { method: "GET", url: "https://api.example.test/users", headers: [] },
+        body: { id: "b1", total: 7, truncated: false, json: true },
+      },
+      error: null,
+      warnings: [],
+    };
+
+    /** Presses the combination on the element and returns the event. */
+    async function pressCtrlF(target: Element = document.body): Promise<Event> {
+      const event = createEvent.keyDown(target, CTRL_F);
+      await fireEvent(target, event);
+      return event;
+    }
+
+    /** The editors whose search panel is open. */
+    const searching = () => document.querySelectorAll("[data-search-open]");
+
+    async function settle() {
+      for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    }
+
+    const response = () => within(screen.getByRole("region", { name: strings.response.label }));
+
+    /** Draws the window with a request tab open; with `answer` the request is sent and its response is shown. */
+    async function renderWithRequest(answer: boolean) {
+      const api = createFakeApi({ onSend: async () => ANSWER, bodies: { b1: new TextEncoder().encode('{"a":1}') } });
+      render(App, { context: new Map([["api", api]]) });
+      await tabs.open(api, "req-list-users");
+      await screen.findByRole("tab", { name: /List users/ });
+      if (answer) {
+        await fireEvent.click(screen.getByRole("button", { name: strings.editor.send }));
+        await waitFor(() =>
+          expect(response().getByRole<HTMLTextAreaElement>("textbox", { name: strings.response.bodyText }).value).toBe('{"a":1}'),
+        );
+      }
+      return api;
+    }
+
+    it("opens the search in the body of the response of the shown request tab", async () => {
+      await renderWithRequest(true);
+      await fireEvent.click(response().getByRole("tab", { name: /Headers/ }));
+
+      const event = await pressCtrlF();
+
+      expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(searching()).toHaveLength(1));
+      expect(response().getByRole("textbox", { name: strings.response.bodyText }).hasAttribute("data-search-open")).toBe(true);
+      expect(response().getByRole("tab", { name: /Body/ }).getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("is left to the code editor when pressed inside one", async () => {
+      await renderWithRequest(true);
+      const editor = document.body.appendChild(document.createElement("div"));
+      editor.className = "cm-editor";
+      const line = editor.appendChild(document.createElement("div"));
+
+      const event = await pressCtrlF(line);
+      await settle();
+      editor.remove();
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(searching()).toHaveLength(0);
+    });
+
+    it("is cancelled and changes nothing when the request has no response", async () => {
+      await renderWithRequest(false);
+
+      const event = await pressCtrlF();
+      await settle();
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(searching()).toHaveLength(0);
+      expect(screen.getByText(strings.response.empty)).toBeTruthy();
+    });
+
+    it("is cancelled without any tab", async () => {
+      renderApp();
+      await restored();
+
+      expect((await pressCtrlF()).defaultPrevented).toBe(true);
+    });
+
+    it("does nothing while a dialog is open", async () => {
+      await renderWithRequest(true);
+      await fireEvent.click(screen.getByRole("button", { name: strings.settings.button }));
+      await screen.findByRole("dialog");
+
+      const event = await pressCtrlF();
+      await settle();
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(searching()).toHaveLength(0);
+    });
+  });
+
+  it("offers no save to a file in a tab of the history", async () => {
+    const entry: StoredHistoryEntry = {
+      id: 1,
+      sent_at: new Date().toISOString(),
+      node_id: "req-list-users",
+      name: "List users",
+      method: "GET",
+      url: "https://api.example.test/users",
+      status: 200,
+      error_kind: null,
+      total_ms: 12,
+      size: 7,
+      request_headers: [],
+      request_body: null,
+      request_body_truncated: false,
+      response_headers: [["content-type", "application/json"]],
+      response_body: '{"a":1}',
+      response_body_truncated: false,
+      response_body_binary: false,
+      error_message: null,
+      warnings: [],
+    };
+    const api = createFakeApi({ history: [entry] });
+    render(App, { context: new Map([["api", api]]) });
+
+    await tabs.openHistory(api, 1);
+    await screen.findByRole("tab", { name: strings.history.tabName("List users") });
+    await screen.findByText("200", { exact: false });
+
+    expect(screen.queryByRole("button", { name: strings.response.save })).toBeNull();
   });
 
   it("lets the window close at once when no tab has unsaved edits", async () => {

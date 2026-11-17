@@ -1,7 +1,9 @@
 import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
+import ResponsePanel from "./ResponsePanel.svelte";
 import { formatBytes, formatMs } from "../lib/format";
+import { Sending } from "../lib/sending.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
 import { toasts } from "../lib/toasts.svelte";
@@ -617,6 +619,135 @@ describe("ResponsePanel", () => {
       await panel().findByText("204 No Content");
 
       expect(panel().queryByRole("button", { name: strings.response.copy })).toBeNull();
+    });
+  });
+
+  describe("saving the body to a file", () => {
+    const PATH = "C:\\out\\response.json";
+
+    function saveButtons(): HTMLElement[] {
+      return panel().queryAllByRole("button", { name: strings.response.save });
+    }
+
+    /** Lets the commands that were started end and their results be handled. */
+    async function settle() {
+      for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    }
+
+    it("has an icon button next to Copy that saves the body by its id and says where the file is", async () => {
+      const api = await openRequest({ onSend: async () => answered() });
+      const save = vi.spyOn(api, "saveResponseBody").mockResolvedValue(PATH);
+      await clickSend();
+      await panel().findByText("200 OK");
+
+      expect(saveButtons()).toHaveLength(1);
+      const [button] = saveButtons();
+      expect(button.title).toBe(strings.response.save);
+      expect(button.textContent!.trim()).toBe("");
+      expect(button.querySelector("svg")).not.toBeNull();
+
+      await fireEvent.click(button);
+
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+      expect(save).toHaveBeenCalledWith("b1");
+      expect((await screen.findByRole("status")).textContent).toContain(`Сохранено: ${PATH}`);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says nothing when the window that asks where to save was closed", async () => {
+      const api = await openRequest({ onSend: async () => answered() });
+      const save = vi.spyOn(api, "saveResponseBody").mockResolvedValue(null);
+      await clickSend();
+      await panel().findByText("200 OK");
+
+      await fireEvent.click(saveButtons()[0]);
+      await waitFor(() => expect(save).toHaveBeenCalledWith("b1"));
+      await settle();
+
+      expect(toasts.items).toEqual([]);
+    });
+
+    it("shows the message of the command when the file cannot be written", async () => {
+      const api = await openRequest({ onSend: async () => answered() });
+      vi.spyOn(api, "saveResponseBody").mockRejectedValue("access denied: C:\\out");
+      await clickSend();
+      await panel().findByText("200 OK");
+
+      await fireEvent.click(saveButtons()[0]);
+
+      expect((await screen.findByRole("alert")).textContent).toContain("access denied: C:\\out");
+      expect(toasts.items.some((toast) => toast.text.startsWith("Сохранено"))).toBe(false);
+    });
+
+    it("offers nothing to save for a response without a body", async () => {
+      const empty = { id: "b1", total: 0, truncated: false, json: false };
+      await openRequest({ onSend: async () => answered({ status: 204, status_text: "No Content", decoded_size: 0, body: empty }) });
+      await clickSend();
+      await panel().findByText("204 No Content");
+
+      expect(saveButtons()).toHaveLength(0);
+    });
+
+    it("has a text button in the note of a truncated body as well", async () => {
+      const total = 5 * 1024 * 1024;
+      const api = await openRequest({
+        onSend: async () => answered({ decoded_size: total, body: { id: "b1", total, truncated: true, json: false } }),
+        bodies: { b1: utf8.encode("beginning") },
+      });
+      const save = vi.spyOn(api, "saveResponseBody").mockResolvedValue(PATH);
+      await clickSend();
+      const note = await panel().findByText(strings.response.truncated(formatBytes(total)));
+
+      expect(saveButtons()).toHaveLength(2);
+      const inNote = within(note.closest(".strip") as HTMLElement).getByRole("button", { name: strings.response.save });
+      expect(inNote.textContent!.trim()).toBe(strings.response.save);
+
+      await fireEvent.click(inNote);
+
+      await waitFor(() => expect(save).toHaveBeenCalledWith("b1"));
+      expect((await screen.findByRole("status")).textContent).toContain(`Сохранено: ${PATH}`);
+    });
+
+    it("has no button in the body of a response that is shown whole", async () => {
+      await openRequest({ onSend: async () => answered() });
+      await clickSend();
+      await waitFor(() => expect(bodyText().value).toBe('{"a":1}'));
+
+      expect(saveButtons()).toHaveLength(1);
+    });
+  });
+
+  describe("search in the body", () => {
+    it("a new value of findSignal shows Body instead of Headers and opens the search in its editor", async () => {
+      const api = createFakeApi({ bodies: { b1: utf8.encode('{"a":1}') } });
+      const sending = new Sending();
+      sending.result = answered();
+      const { rerender } = render(ResponsePanel, { props: { sending }, context: new Map([["api", api]]) });
+      const editor = () => document.querySelector<HTMLTextAreaElement>("textarea")!;
+      await waitFor(() => expect(editor()?.value).toBe('{"a":1}'));
+      await fireEvent.click(screen.getByRole("tab", { name: /Headers/ }));
+      expect(screen.getByRole("tab", { name: /Headers/ }).getAttribute("aria-selected")).toBe("true");
+      expect(editor().hasAttribute("data-search-open")).toBe(false);
+
+      await rerender({ findSignal: 1 });
+
+      await waitFor(() => expect(editor().hasAttribute("data-search-open")).toBe(true));
+      expect(screen.getByRole("tab", { name: /Body/ }).getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByRole("tab", { name: /Headers/ }).getAttribute("aria-selected")).toBe("false");
+      expect(editor().closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(false);
+    });
+
+    it("does nothing for a response without a body", async () => {
+      const api = createFakeApi();
+      const sending = new Sending();
+      sending.result = answered({ status: 204, decoded_size: 0, body: { id: "b1", total: 0, truncated: false, json: false } });
+      const { rerender } = render(ResponsePanel, { props: { sending }, context: new Map([["api", api]]) });
+      await fireEvent.click(screen.getByRole("tab", { name: /Headers/ }));
+
+      await rerender({ findSignal: 1 });
+      for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+
+      expect(screen.getByRole("tab", { name: /Headers/ }).getAttribute("aria-selected")).toBe("true");
     });
   });
 

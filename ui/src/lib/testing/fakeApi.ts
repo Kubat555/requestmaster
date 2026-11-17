@@ -325,6 +325,10 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     async copyResponseBody(bodyId) {
       return new TextDecoder().decode(await api.responseBody(bodyId, false));
     },
+    async saveResponseBody(bodyId) {
+      if (!api.bodies.has(bodyId)) throw `response body not found: ${bodyId}`;
+      return "C:\\Exports\\response.txt";
+    },
     async releaseBody(bodyId) {
       api.released.push(bodyId);
       api.bodies.delete(bodyId);

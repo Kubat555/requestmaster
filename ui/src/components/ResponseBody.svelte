@@ -6,6 +6,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import CodeEditor from "./CodeEditor.svelte";
+  import Button from "./ui/Button.svelte";
   import type { Api } from "../lib/api";
   import { formatBytes } from "../lib/format";
   import { strings } from "../lib/strings";
@@ -19,14 +20,32 @@
     decodeError: string | null;
     /** The view: re-indented by the core, or as received. Only a JSON body has the first one. */
     pretty: boolean;
+    /** The user asked to save the body to a file. */
+    onsave: () => void;
   }
 
-  let { body, decodeError, pretty = $bindable() }: Props = $props();
+  let { body, decodeError, pretty = $bindable(), onsave }: Props = $props();
 
   const api = getContext<Api>("api");
 
   /** The text on the screen and the view it was read in; `null` until the body is read for the first time. */
   let shown = $state.raw<{ text: string; pretty: boolean } | null>(null);
+
+  /** The editor with the text, once the body is read. */
+  let editor = $state<CodeEditor>();
+  /** The search was asked for before the body was read; it opens with the editor. */
+  let searchAsked = $state(false);
+
+  /** Opens the search panel of the editor with the text; a response without a body has none. */
+  export function openSearch(): void {
+    searchAsked = true;
+  }
+
+  $effect(() => {
+    if (!searchAsked || !editor) return;
+    searchAsked = false;
+    editor.openSearch();
+  });
 
   $effect(() => {
     if (body.total === 0) return;
@@ -58,7 +77,10 @@
       <button type="button" aria-pressed={!pretty} onclick={() => (pretty = false)}>{strings.response.raw}</button>
     </div>
     {#if body.truncated}
-      <p class="strip">{strings.response.truncated(formatBytes(body.total))}</p>
+      <div class="strip truncated">
+        <span>{strings.response.truncated(formatBytes(body.total))}</span>
+        <Button size="sm" onclick={onsave}>{strings.response.save}</Button>
+      </div>
     {/if}
     {#if decodeError !== null}
       <p class="strip">{strings.response.decodeError}</p>
@@ -66,7 +88,7 @@
     <!-- The text appears at once, without an animation. -->
     {#if shown}
       <div class="code">
-        <CodeEditor value={shown.text} language={shown.pretty ? "json" : "text"} readonly label={strings.response.bodyText} />
+        <CodeEditor bind:this={editor} value={shown.text} language={shown.pretty ? "json" : "text"} readonly label={strings.response.bodyText} />
       </div>
     {/if}
   </div>
@@ -132,6 +154,14 @@
     background: var(--surface-2);
     border-left: 3px solid var(--status-client);
     border-radius: var(--radius);
+  }
+
+  .truncated {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--space) * 2);
   }
 
   .code {

@@ -90,6 +90,11 @@ export interface Api {
   responseBody(bodyId: string, pretty: boolean): Promise<Uint8Array>;
   /** Text of a response body for the clipboard: what `responseBody` gives, with bytes that are not UTF-8 replaced. */
   copyResponseBody(bodyId: string, pretty: boolean): Promise<string>;
+  /**
+   * Writes a response body, as received and unpacked, to a file the user chooses. Resolves to the path of the
+   * file, or to `null` when the user closed the window that asks where to save.
+   */
+  saveResponseBody(bodyId: string): Promise<string | null>;
   /** Deletes the stored body; an unknown id is not an error. */
   releaseBody(bodyId: string): Promise<void>;
   /**
@@ -160,6 +165,7 @@ export const tauriApi: Api = {
   responseBody: async (bodyId, pretty) =>
     new Uint8Array(await invoke<ArrayBuffer>("response_body", { body_id: bodyId, pretty })),
   copyResponseBody: (bodyId, pretty) => invoke<string>("copy_response_body", { body_id: bodyId, pretty }),
+  saveResponseBody: (bodyId) => invoke<string | null>("save_response_body", { body_id: bodyId }),
   releaseBody: (bodyId) => invoke<void>("release_body", { body_id: bodyId }),
   pickFiles: (multiple) => invoke<string[]>("pick_files", { multiple }),
   formatJson: (text) => invoke<string>("format_json", { text }),
