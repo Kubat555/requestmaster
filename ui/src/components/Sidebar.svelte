@@ -17,6 +17,7 @@
   import { toasts } from "../lib/toasts.svelte";
   import { NODE_DRAG_TYPE } from "../lib/treeDrop";
   import { GLOBALS_ID, type GlobalsPolicy, type ImportResult } from "../lib/types";
+  import { bumpVariables } from "../lib/variableScope.svelte";
   import type { Workspace } from "../lib/workspace.svelte";
 
   interface Props {
@@ -99,6 +100,8 @@
     if (policy === null) return { ...result, kind: "error", conflicts: [], error: strings.import.globalsCancelled };
     try {
       await api.importGlobals(text, policy);
+      // The global variables have changed after the tree was read again: the open requests read theirs anew.
+      bumpVariables();
       return { ...result, conflicts: [] };
     } catch (error) {
       return { ...result, kind: "error", conflicts: [], error: String(error) };

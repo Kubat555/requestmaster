@@ -21,7 +21,7 @@ export function variableMarks(
 
 /** The scope in words and the value, as the list of a one-line field shows them next to the name. */
 function detailOf(variable: ScopeVariable): string {
-  const described = describeVariable(variable.name, variable);
+  const described = describeVariable(variable);
   return `${described.scope} · ${described.value}`;
 }
 
@@ -62,7 +62,7 @@ export function variableCompletions(read: () => ScopeVariable[]): (context: Comp
 
 /** The hint about a token: the same texts as `VarTooltip.svelte`. */
 function hintOf(name: string, variable: ScopeVariable | null): HTMLElement {
-  const described = describeVariable(name, variable);
+  const described = describeVariable(variable);
   const hint = document.createElement("div");
   hint.className = "cm-var-hint";
   const head = hint.appendChild(document.createElement("div"));

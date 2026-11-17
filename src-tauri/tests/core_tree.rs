@@ -320,6 +320,39 @@ fn variables_in_scope_uses_the_active_environment() {
     assert_eq!(scope_entry(&core, &request, "host")["scope"], "collection");
 }
 
+/// The values are worked out after the store is released: while a long calculation runs, the other commands
+/// of the window are not kept waiting for it.
+#[test]
+fn variables_in_scope_does_not_keep_the_store_while_it_calculates() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    let (core, _dir) = core();
+    let collection = core.create_node(None, NodeKind::Collection, "Heavy").unwrap();
+    let request = core.create_node(Some(&collection), NodeKind::Request, "R").unwrap();
+    // Every variable repeats a long value several times: reading them is quick, substituting is not.
+    let mut variables = vec![json!({ "key": "big", "value": "x".repeat(200_000) })];
+    variables.extend((0..300).map(|index| json!({ "key": format!("v{index}"), "value": "{{big}}".repeat(4) })));
+    core.save_node_content(&collection, json!({ "variables": variables })).unwrap();
+
+    let started = Instant::now();
+    assert_eq!(core.variables_in_scope(&request).unwrap().len(), 301 + 5);
+    let alone = started.elapsed();
+    assert!(alone > Duration::from_millis(100), "the calculation is too quick to tell anything: {alone:?}");
+
+    let done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            core.variables_in_scope(&request).unwrap();
+            done.store(true, Ordering::SeqCst);
+        });
+        // By now the other thread has read the variables and is substituting.
+        std::thread::sleep(alone / 4);
+        core.tree().unwrap();
+        assert!(!done.load(Ordering::SeqCst), "tree() waited for the end of the calculation");
+    });
+}
+
 #[test]
 fn variables_in_scope_of_an_unknown_node_is_an_error() {
     let (core, _dir) = core();

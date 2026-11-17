@@ -5,6 +5,7 @@ import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
 import type { ImportResult, RequestDraft, TreeRow } from "../lib/types";
+import { VariableScope } from "../lib/variableScope.svelte";
 import { Workspace } from "../lib/workspace.svelte";
 
 /** Loads the workspace from a fake api, as the window does at start, and renders the sidebar over it. */
@@ -149,6 +150,38 @@ describe("Sidebar", () => {
     expect(importGlobals).toHaveBeenCalledTimes(1);
     expect(importGlobals).toHaveBeenCalledWith(text, "take_incoming");
     expect(screen.queryByRole("dialog", { name: strings.import.conflictsTitle })).toBeNull();
+  });
+
+  it("makes the open editors read their variables again after the globals of a file were applied", async () => {
+    const { api, fileInput } = await renderSidebar();
+    answerImport(api, [result({ file_name: "globals.json", kind: "globals", conflicts: ["token"] })]);
+    // The variables of an open request; the tab of the global variables is not open.
+    const scope = new VariableScope("req");
+
+    await fireEvent.change(fileInput, { target: { files: [jsonFile("globals.json", "{}")] } });
+    const question = await screen.findByRole("dialog", { name: strings.import.conflictsTitle });
+    // Read after the tree was read again, while the question is on the screen.
+    await scope.refresh(api);
+    expect(scope.stale).toBe(false);
+
+    await fireEvent.click(within(question).getByRole("button", { name: strings.import.takeIncoming }));
+    await screen.findByRole("dialog", { name: strings.import.reportTitle });
+
+    expect(scope.stale).toBe(true);
+  });
+
+  it("does not make them read again when the question about the globals is cancelled", async () => {
+    const { api, fileInput } = await renderSidebar();
+    answerImport(api, [result({ file_name: "globals.json", kind: "globals", conflicts: ["token"] })]);
+    const scope = new VariableScope("req");
+
+    await fireEvent.change(fileInput, { target: { files: [jsonFile("globals.json", "{}")] } });
+    const question = await screen.findByRole("dialog", { name: strings.import.conflictsTitle });
+    await scope.refresh(api);
+    await fireEvent.click(within(question).getByRole("button", { name: strings.import.cancel }));
+    await screen.findByRole("dialog", { name: strings.import.reportTitle });
+
+    expect(scope.stale).toBe(false);
   });
 
   it("does not apply conflicting globals when the question is cancelled", async () => {

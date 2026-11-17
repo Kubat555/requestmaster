@@ -11,9 +11,13 @@ impl AppCore {
     /// the active environment: one entry per name, sorted by name, then the dynamic names. Values of secret
     /// variables, and values that refer to them, are not returned. An unknown node is an error.
     pub fn variables_in_scope(&self, node_id: &str) -> Result<Vec<ScopeVariable>, String> {
-        let store = self.store()?;
-        let environment_id = active_environment_in(&store)?;
-        let sources = ScopeSources::load(&store, node_id, environment_id.as_deref()).map_err(message)?;
+        // The store is held only while the variables are read: substituting them may take long, and the other
+        // commands of the window must not wait for it.
+        let sources = {
+            let store = self.store()?;
+            let environment_id = active_environment_in(&store)?;
+            ScopeSources::load(&store, node_id, environment_id.as_deref()).map_err(message)?
+        };
         Ok(rqm_runner::variables_in_scope(&sources).into_iter().map(ScopeVariable::from).collect())
     }
 }

@@ -16,7 +16,7 @@
 
   let { id, name, variable, left, top }: Props = $props();
 
-  const described = $derived(describeVariable(name, variable));
+  const described = $derived(describeVariable(variable));
 </script>
 
 <!-- What a `{{name}}` under the pointer stands for: the scope is said in words, the colour only repeats it. -->

@@ -12,8 +12,7 @@ impl AppCore {
             return Ok(());
         };
         // One write for the whole batch, so that a reader of the file never sees half a line.
-        let lines: String = samples.iter().map(|sample| format!("{}	{}
-", sample.name, sample.ms)).collect();
+        let lines: String = samples.iter().map(|sample| format!("{}\t{}\n", sample.name, sample.ms)).collect();
         std::fs::OpenOptions::new()
             .create(true)
             .append(true)

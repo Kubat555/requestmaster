@@ -60,7 +60,7 @@
   style:max-height="{MAX_HEIGHT}px"
 >
   {#each items as item, index (item.name)}
-    {@const described = describeVariable(item.name, item)}
+    {@const described = describeVariable(item)}
     <div
       class="option"
       class:active={index === active}

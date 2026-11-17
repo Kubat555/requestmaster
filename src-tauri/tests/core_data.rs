@@ -454,11 +454,7 @@ fn report_timings_appends_lines() {
     core.report_timings(vec![sample("click:tab", 64.0), sample("click:tab:proc", 30.0), sample("keydown:url", 24.0)])
         .unwrap();
     let text = std::fs::read_to_string(dir.path().join("timings.tsv")).unwrap();
-    assert_eq!(text, "ready	812.5
-click:tab	64
-click:tab:proc	30
-keydown:url	24
-");
+    assert_eq!(text, "ready\t812.5\nclick:tab\t64\nclick:tab:proc\t30\nkeydown:url\t24\n");
     assert_eq!(text.lines().count(), 4);
 }
 

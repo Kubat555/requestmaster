@@ -153,7 +153,7 @@ export function requestTokenNames(draft: RequestDraft): string[] {
  * What the hint and the list of the autocompletion say about a variable: its scope in words and its value.
  * A secret value is never shown: a mask stands for it. `null` — there is no such variable.
  */
-export function describeVariable(name: string, variable: ScopeVariable | null): { scope: string; value: string } {
+export function describeVariable(variable: ScopeVariable | null): { scope: string; value: string } {
   const text = strings.variables;
   if (variable === null) return { scope: text.notFound, value: "" };
   const scope = text.scopes[variable.scope];

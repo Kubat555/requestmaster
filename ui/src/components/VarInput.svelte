@@ -57,6 +57,9 @@
    */
   let offer = $state.raw<{ items: ScopeVariable[]; active: number; left: number; top: number; bottom: number } | null>(null);
 
+  /** The keys that move the caret of a field without changing its text. */
+  const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+
   /** Space between a token and the hint under it, px. */
   const HINT_GAP = 4;
 
@@ -78,6 +81,24 @@
     for (const name of events) field.addEventListener(name, syncScroll);
     return () => {
       for (const name of events) field.removeEventListener(name, syncScroll);
+    };
+  });
+
+  // The caret may move without the text changing — the arrows, Home and End, a click, a selection. An open list
+  // is then about another place: it is worked out again for the name at the caret, or closed.
+  $effect(() => {
+    const field = input;
+    if (!field) return;
+    const follow = (event: Event) => {
+      if (!offer) return;
+      // The keys of the list itself do not move the caret; Escape has just closed the list.
+      if (event instanceof KeyboardEvent && !CARET_KEYS.has(event.key)) return;
+      openOffer();
+    };
+    const events = ["keyup", "mouseup", "select"];
+    for (const name of events) field.addEventListener(name, follow);
+    return () => {
+      for (const name of events) field.removeEventListener(name, follow);
     };
   });
 
@@ -161,7 +182,11 @@
   /** The field lies over the layer and gets the pointer; the token under it is found by the places of the tokens. */
   const onMouseMove: NonNullable<Props["onmousemove"]> = (event) => {
     onmousemove?.(event);
-    if (!layer || offer) return;
+    // Until the variables are read nothing can be said about a name: no hint, as there is no list.
+    if (!layer || offer || !scope?.loaded) {
+      hovered = null;
+      return;
+    }
     for (const span of layer.querySelectorAll<HTMLElement>("span.var")) {
       const box = span.getBoundingClientRect();
       if (event.clientX >= box.left && event.clientX < box.right && event.clientY >= box.top && event.clientY < box.bottom) {
@@ -196,7 +221,7 @@
       bind:this={input}
       type="text"
       class="layered"
-      aria-describedby={hovered ? `${id}-hint` : rest["aria-describedby"]}
+      aria-describedby={hovered && scope.loaded ? `${id}-hint` : rest["aria-describedby"]}
       aria-controls={offer ? `${id}-list` : rest["aria-controls"]}
       aria-activedescendant={offer ? optionId(`${id}-list`, offer.active) : undefined}
       bind:value
@@ -206,7 +231,7 @@
       onmousemove={onMouseMove}
       onmouseleave={onMouseLeave}
     />
-    {#if hovered}
+    {#if hovered && scope.loaded}
       <VarTooltip id="{id}-hint" name={hovered.name} variable={scope.lookup(hovered.name)} left={hovered.left} top={hovered.top} />
     {/if}
     {#if offer}

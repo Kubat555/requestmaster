@@ -283,6 +283,50 @@ describe("the hint of a variable", () => {
     expect(screen.getByRole("tooltip").textContent).toContain("Динамическая");
     expect(screen.getByRole("tooltip").textContent).toContain("значение создаётся при отправке");
   });
+
+  it("has no hint until the variables are read: nothing is called not found meanwhile", async () => {
+    const answer = deferred<ScopeVariable[]>();
+    await openRequest(REQUEST, (api) => {
+      api.variablesInScope = () => answer.promise;
+    });
+
+    await hover(urlInput(), "{{host}}");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(urlInput().hasAttribute("aria-describedby")).toBe(false);
+
+    answer.resolve([scopeVariable("host", "environment", "dev.example.test")]);
+    await tokenHasClass(urlInput, "{{host}}", "var-environment");
+    await hover(urlInput(), "{{host}}");
+    expect(screen.getByRole("tooltip").textContent).toContain("dev.example.test");
+  });
+
+  it("has no hint after the variables could not be read", async () => {
+    await openRequest(REQUEST, (api) => {
+      api.variablesInScope = () => Promise.reject("scope failed");
+    });
+    await screen.findByRole("alert");
+
+    await hover(urlInput(), "{{nope}}");
+
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("takes the hint away when the variables shown in it are gone", async () => {
+    let fail = false;
+    await openRequest(REQUEST, (api) => {
+      const read = api.variablesInScope.bind(api);
+      api.variablesInScope = (nodeId) => (fail ? Promise.reject("scope failed") : read(nodeId));
+    });
+    await tokenHasClass(urlInput, "{{host}}", "var-environment");
+    await hover(urlInput(), "{{host}}");
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+
+    fail = true;
+    bumpVariables();
+
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
 });
 
 describe("autocompletion of a variable", () => {
@@ -399,6 +443,61 @@ describe("autocompletion of a variable", () => {
     expect(mouseDown.defaultPrevented).toBe(true);
     expect(input.value).toBe("{{tenant}}");
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("offers for the name at the caret after the caret was moved with a key, and Enter puts it in there", async () => {
+    const { draft } = await openRequest({ method: "GET", url: "" });
+    const input = urlInput();
+    input.focus();
+    await type(input, "{{ho}} {{te");
+    const names = () => within(screen.getByRole("listbox")).getAllByRole("option").map((option) => option.textContent);
+    expect(names()).toEqual([expect.stringContaining("tenant")]);
+
+    // The caret goes into the first token: as the arrows move it.
+    input.setSelectionRange(4, 4);
+    await fireEvent.keyUp(input, { key: "ArrowRight" });
+
+    expect(names()).toEqual([expect.stringContaining("host")]);
+    await fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("{{host}} {{te");
+    expect(draft().url).toBe("{{host}} {{te");
+  });
+
+  it("follows the caret moved with the mouse or by a selection, and closes where there is no name", async () => {
+    await openRequest({ method: "GET", url: "" });
+    const input = urlInput();
+    input.focus();
+    await type(input, "{{ho}} {{te");
+    const names = () => within(screen.getByRole("listbox")).getAllByRole("option").map((option) => option.textContent);
+
+    input.setSelectionRange(4, 4);
+    await fireEvent.mouseUp(input);
+    expect(names()).toEqual([expect.stringContaining("host")]);
+
+    input.setSelectionRange(11, 11);
+    await fireEvent.select(input);
+    expect(names()).toEqual([expect.stringContaining("tenant")]);
+
+    // Between the two tokens there is nothing to complete.
+    input.setSelectionRange(7, 7);
+    await fireEvent.keyUp(input, { key: "Home" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // A closed list is not opened by a move of the caret.
+    input.setSelectionRange(11, 11);
+    await fireEvent.keyUp(input, { key: "End" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("keeps the chosen item when a key of the list is released", async () => {
+    await openRequest({ method: "GET", url: "" });
+    const input = urlInput();
+    await type(input, "{{t");
+    await fireEvent.keyUp(input, { key: "t" });
+    await fireEvent.keyDown(input, { key: "ArrowDown" });
+    await fireEvent.keyUp(input, { key: "ArrowDown" });
+
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
   });
 
   it("has no list when nothing matches, after a closed token and when the field loses the focus", async () => {

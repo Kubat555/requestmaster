@@ -200,24 +200,24 @@ describe("requestTokenNames", () => {
 
 describe("describeVariable", () => {
   it("says the scope in words and the value", () => {
-    expect(describeVariable("a", variable("a", { scope: "global", value: "1" }))).toEqual({ scope: "Глобальная", value: "1" });
-    expect(describeVariable("a", variable("a", { scope: "collection", value: "2" }))).toEqual({ scope: "Коллекция", value: "2" });
-    expect(describeVariable("a", variable("a", { scope: "environment", value: "3" }))).toEqual({ scope: "Окружение", value: "3" });
+    expect(describeVariable(variable("a", { scope: "global", value: "1" }))).toEqual({ scope: "Глобальная", value: "1" });
+    expect(describeVariable(variable("a", { scope: "collection", value: "2" }))).toEqual({ scope: "Коллекция", value: "2" });
+    expect(describeVariable(variable("a", { scope: "environment", value: "3" }))).toEqual({ scope: "Окружение", value: "3" });
   });
 
   it("masks a secret value", () => {
-    expect(describeVariable("a", variable("a", { value: null, secret: true }))).toEqual({ scope: "Окружение", value: "••••••" });
+    expect(describeVariable(variable("a", { value: null, secret: true }))).toEqual({ scope: "Окружение", value: "••••••" });
     // Whatever came with a secret variable is not shown.
-    expect(describeVariable("a", variable("a", { value: "leak", secret: true })).value).toBe("••••••");
+    expect(describeVariable(variable("a", { value: "leak", secret: true })).value).toBe("••••••");
   });
 
   it("explains a dynamic value, an empty one and a variable that is not found", () => {
-    expect(describeVariable("$guid", variable("$guid", { scope: "dynamic", value: null }))).toEqual({
+    expect(describeVariable(variable("$guid", { scope: "dynamic", value: null }))).toEqual({
       scope: "Динамическая",
       value: "значение создаётся при отправке",
     });
-    expect(describeVariable("a", variable("a", { value: "" })).value).toBe("пустое значение");
-    expect(describeVariable("nope", null)).toEqual({ scope: "Переменная не найдена", value: "" });
+    expect(describeVariable(variable("a", { value: "" })).value).toBe("пустое значение");
+    expect(describeVariable(null)).toEqual({ scope: "Переменная не найдена", value: "" });
     expect(strings.variables.unresolved(2)).toBe("Не найдено переменных: 2");
   });
 });
