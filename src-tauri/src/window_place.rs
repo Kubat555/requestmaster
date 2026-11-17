@@ -101,16 +101,24 @@ pub fn inner_size(stored_outer: (u32, u32), current_outer: (u32, u32), current_i
 ///
 /// The rectangle is taken only from a window that is neither maximized nor minimized, so a maximized window
 /// keeps the rectangle it returns to, and a minimized window changes nothing at all.
+///
+/// On Windows a window being maximized reports itself twice: first moved, already with the maximized
+/// rectangle but not yet marked as maximized, and only then resized, with the mark. The first report looks
+/// like a normal window, so the tracker also keeps the place it had before the last change of the normal
+/// rectangle and returns to it when the second report shows that the change was the maximizing.
 #[derive(Debug, Default)]
 pub struct PlaceTracker {
     /// The last known place; `None` until a normal window was seen and nothing was stored before.
     place: Option<WindowPlace>,
+    /// The place before the normal rectangle changed last; `None` when there was none or it was already
+    /// returned to.
+    previous: Option<WindowPlace>,
 }
 
 impl PlaceTracker {
     /// A tracker that starts with the place the window was opened at; `None` — nothing is known yet.
     pub fn new(place: Option<WindowPlace>) -> Self {
-        PlaceTracker { place }
+        PlaceTracker { place, previous: None }
     }
 
     /// Takes the state of the window after it was moved or resized.
@@ -118,19 +126,26 @@ impl PlaceTracker {
         if window.minimized {
             return;
         }
-        if window.maximized {
-            if let Some(place) = &mut self.place {
-                place.maximized = true;
-            }
-            return;
-        }
-        self.place = Some(WindowPlace {
+        let seen = WindowPlace {
             x: window.x,
             y: window.y,
             width: window.width,
             height: window.height,
             maximized: false,
-        });
+        };
+        if window.maximized {
+            if self.place == Some(seen) {
+                // The maximized rectangle was just taken for a normal one: go back to the place before it.
+                self.place = self.previous.take();
+            }
+            if let Some(place) = &mut self.place {
+                place.maximized = true;
+            }
+            return;
+        }
+        if self.place != Some(seen) {
+            self.previous = self.place.replace(seen);
+        }
     }
 
     /// The place to store; `None` while no normal rectangle is known.

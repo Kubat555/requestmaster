@@ -156,6 +156,46 @@ fn a_maximized_window_keeps_its_previous_normal_place() {
     assert_eq!(tracker.place(), Some(place(320, 60, 1000, 700)));
 }
 
+/// The real order of the events on Windows: `Moved` comes first, already with the maximized rectangle but
+/// still without the flag, and only `Resized` carries the flag.
+#[test]
+fn maximizing_reported_first_as_a_normal_move_keeps_the_previous_normal_place() {
+    let mut tracker = PlaceTracker::new(None);
+    tracker.observe(normal(300, 40, 1018, 747));
+    // The window is drawn twice at the same place, as a move and a resize of one drag report it.
+    tracker.observe(normal(300, 40, 1018, 747));
+    tracker.observe(normal(-9, -9, 1938, 1158));
+    tracker.observe(WindowSnapshot { maximized: true, ..normal(-9, -9, 1938, 1158) });
+    assert_eq!(tracker.place(), Some(WindowPlace { maximized: true, ..place(300, 40, 1018, 747) }));
+
+    // Un-maximizing: the move still carries the old flag and the restored rectangle, then the resize.
+    tracker.observe(WindowSnapshot { maximized: true, ..normal(300, 40, 1018, 747) });
+    assert_eq!(tracker.place(), Some(WindowPlace { maximized: true, ..place(300, 40, 1018, 747) }));
+    tracker.observe(normal(300, 40, 1018, 747));
+    assert_eq!(tracker.place(), Some(place(300, 40, 1018, 747)));
+}
+
+#[test]
+fn restoring_a_minimized_window_to_maximized_keeps_the_previous_normal_place() {
+    let mut tracker = PlaceTracker::new(None);
+    tracker.observe(normal(300, 40, 1018, 747));
+    tracker.observe(normal(-9, -9, 1938, 1158));
+    tracker.observe(WindowSnapshot { maximized: true, ..normal(-9, -9, 1938, 1158) });
+    tracker.observe(WindowSnapshot { minimized: true, ..normal(-32000, -32000, 160, 28) });
+    // Restored: again the move without the flag first.
+    tracker.observe(normal(-9, -9, 1938, 1158));
+    tracker.observe(WindowSnapshot { maximized: true, ..normal(-9, -9, 1938, 1158) });
+    assert_eq!(tracker.place(), Some(WindowPlace { maximized: true, ..place(300, 40, 1018, 747) }));
+}
+
+#[test]
+fn maximizing_reported_first_as_a_normal_move_without_a_known_place_gives_nothing() {
+    let mut tracker = PlaceTracker::new(None);
+    tracker.observe(normal(-9, -9, 1938, 1158));
+    tracker.observe(WindowSnapshot { maximized: true, ..normal(-9, -9, 1938, 1158) });
+    assert_eq!(tracker.place(), None);
+}
+
 #[test]
 fn a_minimized_window_changes_nothing() {
     let mut tracker = PlaceTracker::new(None);
