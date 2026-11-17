@@ -5,14 +5,21 @@
   let loadingJavascript: Promise<typeof import("@codemirror/lang-javascript")> | undefined;
 
   async function load() {
-    const [{ EditorView, basicSetup }, { Compartment, EditorState }, { json }, { HighlightStyle, syntaxHighlighting }, { tags }] =
-      await Promise.all([
-        import("codemirror"),
-        import("@codemirror/state"),
-        import("@codemirror/lang-json"),
-        import("@codemirror/language"),
-        import("@lezer/highlight"),
-      ]);
+    const [
+      { EditorView, basicSetup },
+      { Compartment, EditorState },
+      { json },
+      { HighlightStyle, syntaxHighlighting },
+      { tags },
+      { variableSupport },
+    ] = await Promise.all([
+      import("codemirror"),
+      import("@codemirror/state"),
+      import("@codemirror/lang-json"),
+      import("@codemirror/language"),
+      import("@lezer/highlight"),
+      import("../lib/codemirror/variables"),
+    ]);
 
     // Colours come from tokens.css. The built-in highlighting is made for a light background.
     const theme = EditorView.theme(
@@ -28,6 +35,11 @@
         "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
           { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
         ".cm-panels, .cm-tooltip": { backgroundColor: "var(--surface-2)", color: "var(--text)", border: "1px solid var(--border)" },
+        // The chosen line of the list of the autocompletion; the selector outweighs the one of the library.
+        "&.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
+          backgroundColor: "var(--surface)",
+          color: "var(--text)",
+        },
         ".cm-foldPlaceholder": { backgroundColor: "var(--surface-2)", color: "var(--text-muted)", border: "none" },
       },
       { dark: true },
@@ -43,14 +55,15 @@
       ]),
     );
 
-    return { EditorView, EditorState, Compartment, basicSetup, json, theme, highlight };
+    return { EditorView, EditorState, Compartment, basicSetup, json, theme, highlight, variableSupport };
   }
 </script>
 
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { getContext, onMount } from "svelte";
   import type { EditorView } from "codemirror";
-  import type { Compartment } from "@codemirror/state";
+  import type { Compartment, Extension } from "@codemirror/state";
+  import type { VariableScope } from "../lib/variableScope.svelte";
 
   interface Props {
     /** Text of the editor. A change made by the user is reported with `onchange`, not written here. */
@@ -61,11 +74,19 @@
     readonly?: boolean;
     /** Accessible name of the text field. */
     label?: string;
+    /**
+     * The `{{variables}}` of the text are coloured by their scopes, told about under the pointer and offered while
+     * one is typed. Needs the variables of an editor around it (the context `"variables"`).
+     */
+    variables?: boolean;
     /** Called with the whole text after every change made by the user. */
     onchange?: (value: string) => void;
   }
 
-  let { value, language = "text", readonly = false, label, onchange }: Props = $props();
+  let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
+
+  /** The variables of the editor around this one. */
+  const scope = getContext<VariableScope | undefined>("variables");
 
   let host: HTMLDivElement;
   /** The editor once CodeMirror is loaded, with what is needed to reconfigure it. */
@@ -73,6 +94,7 @@
     view: EditorView;
     languageSlot: Compartment;
     readonlySlot: Compartment;
+    variablesSlot: Compartment;
     cm: Awaited<ReturnType<typeof load>>;
   }>();
   /** Text of the document in the editor: tells a change made by the user from one that came with `value`. */
@@ -90,6 +112,16 @@
     return [];
   }
 
+  /**
+   * The extension for the `{{variables}}`, with the variables as they are now. Nothing until they are read:
+   * as in a one-line field, a name is then neither of a scope nor "not found".
+   */
+  function variableSupport(cm: Awaited<ReturnType<typeof load>>): Extension {
+    if (!variables || !scope?.loaded) return [];
+    const current = scope.variables;
+    return cm.variableSupport(() => current);
+  }
+
   onMount(() => {
     let unmounted = false;
     let view: EditorView | undefined;
@@ -98,6 +130,7 @@
       if (unmounted) return;
       const languageSlot = new cm.Compartment();
       const readonlySlot = new cm.Compartment();
+      const variablesSlot = new cm.Compartment();
       shown = value;
       view = new cm.EditorView({
         parent: host,
@@ -109,6 +142,7 @@
             cm.highlight,
             languageSlot.of(highlighting(cm)),
             readonlySlot.of(cm.EditorState.readOnly.of(readonly)),
+            variablesSlot.of(variableSupport(cm)),
             cm.EditorView.contentAttributes.of(label ? { "aria-label": label } : {}),
             cm.EditorView.updateListener.of((update) => {
               if (!update.docChanged) return;
@@ -120,7 +154,7 @@
           ],
         }),
       });
-      editor = { view, languageSlot, readonlySlot, cm };
+      editor = { view, languageSlot, readonlySlot, variablesSlot, cm };
     });
 
     return () => {
@@ -158,6 +192,13 @@
         readonlySlot.reconfigure(cm.EditorState.readOnly.of(readonly)),
       ],
     });
+  });
+
+  // The variables were read again or switched: the tokens are marked anew, the editor and its text stay.
+  $effect(() => {
+    if (!editor) return;
+    const { view, variablesSlot, cm } = editor;
+    view.dispatch({ effects: variablesSlot.reconfigure(variableSupport(cm)) });
   });
 </script>
 

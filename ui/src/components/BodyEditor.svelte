@@ -111,6 +111,7 @@
         value={raw.data.text}
         language={raw.data.language === "json" || raw.data.language === "javascript" ? raw.data.language : "text"}
         label={strings.body.text}
+        variables
         onchange={(text) => (raw.data.text = text)}
       />
     </div>

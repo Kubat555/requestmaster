@@ -624,6 +624,13 @@ describe("variables in the tables of a request", () => {
     expect(tokenOf(cell(row(), strings.table.key), "{{host}}").classList.contains("var-environment")).toBe(true);
   });
 
+  it("switches the variables on in the editor of a raw body", async () => {
+    await openRequest({ method: "POST", url: "u", body: { mode: "raw", data: { text: '{"id": {{host}}}', language: "json" } } });
+    await showSection(/^Body/);
+
+    expect(screen.getByRole("textbox", { name: strings.body.text }).dataset.variables).toBe("true");
+  });
+
   it("still adds a row typed into the empty one, with the focus in the new field", async () => {
     const { draft } = await openRequest(WIRED);
     const rows = tableRows(strings.editor.query);

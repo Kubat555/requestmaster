@@ -459,7 +459,11 @@ describe("a history entry", () => {
     expect(body().dataset.language).toBe("json");
     expect(format.mock.calls).toEqual([['{"a":1}'], ['{"users":[1,2]}']]);
     const request = within(view.getByRole("region", { name: TEXT.request }));
-    expect(request.getByRole<HTMLTextAreaElement>("textbox", { name: TEXT.requestBody }).value).toBe('{\n  "a": 1\n}');
+    const requestBody = request.getByRole<HTMLTextAreaElement>("textbox", { name: TEXT.requestBody });
+    expect(requestBody.value).toBe('{\n  "a": 1\n}');
+    // What was sent and what came back are shown as they were: the variables are neither marked nor offered.
+    expect(requestBody.dataset.variables).toBe("false");
+    expect(body().dataset.variables).toBe("false");
 
     await fireEvent.click(raw);
 

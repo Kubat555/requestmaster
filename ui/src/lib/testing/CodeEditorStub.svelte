@@ -6,15 +6,17 @@
     language?: "json" | "javascript" | "text";
     readonly?: boolean;
     label?: string;
+    variables?: boolean;
     onchange?: (value: string) => void;
   }
 
-  let { value, language = "text", readonly = false, label, onchange }: Props = $props();
+  let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
 </script>
 
 <textarea
   aria-label={label}
   data-language={language}
+  data-variables={variables ? "true" : "false"}
   {readonly}
   {value}
   oninput={(event) => onchange?.(event.currentTarget.value)}

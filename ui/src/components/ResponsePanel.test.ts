@@ -208,6 +208,8 @@ describe("ResponsePanel", () => {
     expect(responseBody.mock.calls).toEqual([["b1", true]]);
     expect(bodyText().readOnly).toBe(true);
     expect(bodyText().dataset.language).toBe("json");
+    // A `{{name}}` in a response is a plain text, not a variable.
+    expect(bodyText().dataset.variables).toBe("false");
     const pretty = panel().getByRole<HTMLButtonElement>("button", { name: strings.response.pretty });
     const raw = panel().getByRole<HTMLButtonElement>("button", { name: strings.response.raw });
     expect(pretty.disabled).toBe(false);

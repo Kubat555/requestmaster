@@ -666,6 +666,8 @@ describe("RequestEditor: Scripts and Settings", () => {
     await showSection(/^Scripts/);
 
     expect(scriptEditor().dataset.language).toBe("javascript");
+    // A script has no `{{variables}}`: the editor neither marks nor offers them.
+    expect(scriptEditor().dataset.variables).toBe("false");
     expect(screen.getByText(strings.scripts.note)).toBeTruthy();
     expect(strings.scripts.note).toBe("Скрипты пока не выполняются: выполнение появится на следующем этапе");
   });
