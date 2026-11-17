@@ -118,6 +118,8 @@ export interface CollectionContent {
   auth?: Auth | null;
   variables?: Variable[];
   scripts?: Scripts;
+  /** The source text of the description (Markdown is not rendered); absent = there is none. */
+  description?: string;
 }
 
 /** Content of a folder node. */
@@ -125,6 +127,8 @@ export interface FolderContent {
   /** Absent or `null` = inherit from the parent. */
   auth?: Auth | null;
   scripts?: Scripts;
+  /** The source text of the description (Markdown is not rendered); absent = there is none. */
+  description?: string;
 }
 
 /** Content of a node of any kind. */
@@ -192,6 +196,8 @@ export interface CollectionDraft extends CollectionContent {
   auth: Auth | null;
   variables: VariableRow[];
   scripts: ScriptsDraft;
+  /** Empty = there is none. */
+  description: string;
 }
 
 /** Content of a folder after {@link normalizeContent}. */
@@ -199,6 +205,8 @@ export interface FolderDraft extends FolderContent {
   /** `null` = inherit from the parent. */
   auth: Auth | null;
   scripts: ScriptsDraft;
+  /** Empty = there is none. */
+  description: string;
 }
 
 function paramRow(param: Param): ParamRow {
@@ -250,7 +258,7 @@ function draftBody(body: Body | undefined): DraftBody {
 /**
  * Writes out every default the core leaves out of the JSON of a node: `enabled: true`, `secret: false`,
  * empty lists, the body "none", `auth: null`, an empty `postman_extra` of a row, empty scripts, `null` for a
- * setting that is not set, `content_type: null` of a form part, `confirmed: false` of a file. Without it a value put back by the user (a checkbox switched off and on) would
+ * setting that is not set, `content_type: null` of a form part, `confirmed: false` of a file, an empty description of a collection and of a folder. Without it a value put back by the user (a checkbox switched off and on) would
  * differ from the stored content. The core reads the result as it is. Nothing else is touched; the input is
  * not changed.
  */
@@ -285,11 +293,17 @@ export function normalizeContent(kind: NodeKind, content: NodeContent): RequestD
           postman_extra: variable.postman_extra ?? {},
         })),
         scripts: scriptsDraft(collection.scripts),
+        description: collection.description ?? "",
       };
     }
     case "folder": {
       const folder = content as FolderContent;
-      return { ...folder, auth: folder.auth ?? null, scripts: scriptsDraft(folder.scripts) };
+      return {
+        ...folder,
+        auth: folder.auth ?? null,
+        scripts: scriptsDraft(folder.scripts),
+        description: folder.description ?? "",
+      };
     }
   }
 }

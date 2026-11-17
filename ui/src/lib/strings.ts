@@ -285,6 +285,8 @@ export const strings = {
     auth: "Auth",
     scripts: "Scripts",
     name: "Имя",
+    /** The section of the description, in the editors of a collection and of a folder. */
+    description: "Описание",
   },
   folder: {
     sections: "Разделы папки",

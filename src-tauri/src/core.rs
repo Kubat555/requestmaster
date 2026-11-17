@@ -16,6 +16,10 @@ use crate::send::SendState;
 /// Key of `app_state` holding the id of the active environment as JSON: a string, or `null` when none is chosen.
 pub const ACTIVE_ENVIRONMENT_KEY: &str = "active_environment";
 
+/// Key of the content of a collection and of a folder, as the window gets and sends it, that holds the
+/// description. The description itself lives in the top-level `postman_extra` of the node.
+const DESCRIPTION_KEY: &str = "description";
+
 /// How many history entries are kept when [`CoreConfig::history_keep`] does not say.
 const DEFAULT_HISTORY_KEEP: usize = 500;
 
@@ -67,23 +71,44 @@ impl AppCore {
         Ok(rows.into_iter().map(TreeRow::from).collect())
     }
 
-    /// The node with its content; the top-level `postman_extra` is cut out (see [`NodeDto::content`]).
+    /// The node with its content; the top-level `postman_extra` is cut out (see [`NodeDto::content`]). The
+    /// description of a collection and of a folder is read from it first and, when it is not empty, put into
+    /// the content under the key `description`.
     pub fn get_node(&self, id: &str) -> Result<NodeDto, String> {
         let mut node = self.store()?.node(id).map_err(message)?;
+        let description = rqm_postman::description_of(node.kind, top_extra(&mut node.content));
         top_extra(&mut node.content).clear();
-        let content = serde_json::from_str(&node.content.to_json()).map_err(message)?;
+        let mut content: serde_json::Value = serde_json::from_str(&node.content.to_json()).map_err(message)?;
+        if let (false, Some(fields)) = (description.is_empty(), content.as_object_mut()) {
+            fields.insert(DESCRIPTION_KEY.to_string(), description.into());
+        }
         Ok(NodeDto { id: node.id, parent_id: node.parent_id, kind: node.kind, name: node.name, content })
     }
 
     /// Replaces the content of the node with `content` (the shape [`AppCore::get_node`] returns). The kind is
-    /// taken from the store; the top-level `postman_extra` of the stored node is kept. Content that does not
-    /// read as this kind is an error and changes nothing.
-    pub fn save_node_content(&self, id: &str, content: serde_json::Value) -> Result<(), String> {
+    /// taken from the store; the top-level `postman_extra` of the stored node is kept. The key `description`
+    /// of a collection and of a folder is written into that `postman_extra`; without the key the description
+    /// stays as it is, and an empty text clears it. Content that does not read as this kind, or a description
+    /// that is not a text, is an error and changes nothing.
+    pub fn save_node_content(&self, id: &str, mut content: serde_json::Value) -> Result<(), String> {
         let mut store = self.store()?;
         let mut stored = store.node(id).map_err(message)?;
+        let description = match stored.kind {
+            NodeKind::Collection | NodeKind::Folder => {
+                content.as_object_mut().and_then(|fields| fields.remove(DESCRIPTION_KEY))
+            }
+            NodeKind::Request => None,
+        };
         let mut updated = NodeContent::from_json(stored.kind, &content.to_string())
             .map_err(|error| format!("invalid content: {error}"))?;
         *top_extra(&mut updated) = std::mem::take(top_extra(&mut stored.content));
+        match description {
+            None => {}
+            Some(serde_json::Value::String(text)) => {
+                rqm_postman::set_description(stored.kind, top_extra(&mut updated), &text);
+            }
+            Some(_) => return Err("invalid content: the description must be a string".to_string()),
+        }
         store.update_content(id, &updated).map_err(message)
     }
 

@@ -146,9 +146,9 @@ describe("normalizeContent", () => {
   });
 
   it("writes out the defaults of a folder and keeps what is set", () => {
-    expect(normalizeContent("folder", {})).toEqual({ auth: null, scripts: { pre_request: "", test: "" } });
+    expect(normalizeContent("folder", {})).toEqual({ auth: null, scripts: { pre_request: "", test: "" }, description: "" });
     const folder = normalizeContent("folder", { auth: { type: "no_auth" }, scripts: { test: "t();" } });
-    expect(folder).toEqual({ auth: { type: "no_auth" }, scripts: { pre_request: "", test: "t();" } });
+    expect(folder).toEqual({ auth: { type: "no_auth" }, scripts: { pre_request: "", test: "t();" }, description: "" });
     expect(normalizeContent("folder", folder)).toEqual(folder);
   });
 
@@ -157,6 +157,7 @@ describe("normalizeContent", () => {
       auth: null,
       variables: [{ key: "host", value: "h", secret: false, enabled: true, postman_extra: {} }],
       scripts: { pre_request: "", test: "" },
+      description: "",
     });
   });
 });
@@ -177,7 +178,7 @@ describe("Tabs", () => {
     await tabs.open(api, "col");
     const collection = tabs.active as Tab<CollectionDraft>;
     expect(collection.kind).toBe("collection");
-    expect(collection.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" } });
+    expect(collection.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" }, description: "" });
   });
 
   it("does not open a second tab for the same node, only activates it", async () => {
@@ -212,7 +213,7 @@ describe("Tabs", () => {
     expect(folder.kind).toBe("folder");
     expect(folder.nodeId).toBe("fold");
     expect(folder.name).toBe("Folder");
-    expect(folder.draft).toEqual({ auth: null, scripts: { pre_request: "", test: "" } });
+    expect(folder.draft).toEqual({ auth: null, scripts: { pre_request: "", test: "" }, description: "" });
     expect(folder.draft).toEqual(folder.saved);
     expect(folder.dirty).toBe(false);
   });
@@ -572,7 +573,7 @@ describe("Tabs.restore", () => {
     expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "col", "req-c"]);
     const tab = tabs.list[1] as Tab<CollectionDraft>;
     expect(tab.dirty).toBe(false);
-    expect(tab.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" } });
+    expect(tab.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" }, description: "" });
     expect(toasts.items).toEqual([]);
     expect(api.draftCalls).toContainEqual(["col", null]);
     expect(tabs.activeId).toBe("req-c");

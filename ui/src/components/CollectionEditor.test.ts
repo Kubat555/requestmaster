@@ -59,6 +59,7 @@ describe("CollectionEditor", () => {
         { key: "password", value: "hunter2", secret: true, enabled: true, postman_extra: {} },
       ],
       scripts: { pre_request: "", test: "" },
+      description: "",
     });
   });
 
@@ -134,12 +135,17 @@ describe("CollectionEditor", () => {
     expect(saveNodeContent.mock.calls[0][1]).toMatchObject({ auth: { type: "no_auth" } });
   });
 
-  it("has the sections Variables, Auth and Scripts", async () => {
+  it("has the sections Variables, Auth, Scripts and the description", async () => {
     await openCollection();
 
     const sections = within(screen.getByRole("tablist", { name: strings.collection.sections })).getAllByRole("tab");
 
-    expect(sections.map((section) => section.textContent!.trim().replace(/\s*\d+$/, ""))).toEqual(["Variables", "Auth", "Scripts"]);
+    expect(sections.map((section) => section.textContent!.trim().replace(/\s*\d+$/, ""))).toEqual([
+      "Variables",
+      "Auth",
+      "Scripts",
+      "Описание",
+    ]);
     expect(strings.collection.scripts).toBe("Scripts");
   });
 
@@ -174,6 +180,50 @@ describe("CollectionEditor", () => {
       auth: null,
       variables: [],
       scripts: { pre_request: "before();", test: "after();" },
+      description: "",
     });
+  });
+
+  it("edits the description as plain text: marks the tab, takes the text back on revert, saves it with Ctrl+S", async () => {
+    const { saveNodeContent, draft } = await openCollection({ description: "About **the collection**\nsecond line" });
+    expect(strings.collection.description).toBe("Описание");
+    expect(screen.queryByRole("textbox", { name: strings.collection.description })).toBeNull();
+
+    await fireEvent.click(screen.getByRole("tab", { name: strings.collection.description }));
+    const field = screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.collection.description });
+    // The source text: Markdown is not rendered.
+    expect(field.tagName).toBe("TEXTAREA");
+    expect(field.value).toBe("About **the collection**\nsecond line");
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+
+    await fireEvent.input(field, { target: { value: "Thrown away" } });
+    expect(draft().description).toBe("Thrown away");
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+
+    (tabs.active as Tab<CollectionDraft>).revert();
+    await waitFor(() => expect(field.value).toBe("About **the collection**\nsecond line"));
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+
+    await fireEvent.input(field, { target: { value: "New text" } });
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+    await pressCtrlS();
+    await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
+
+    expect(saveNodeContent).toHaveBeenCalledTimes(1);
+    expect(saveNodeContent).toHaveBeenCalledWith("col", {
+      auth: null,
+      variables: [],
+      scripts: { pre_request: "", test: "" },
+      description: "New text",
+    });
+  });
+
+  it("opens a collection without a description with an empty one, not marked", async () => {
+    const { draft } = await openCollection({});
+
+    expect(draft().description).toBe("");
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+    await fireEvent.click(screen.getByRole("tab", { name: strings.collection.description }));
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.collection.description }).value).toBe("");
   });
 });

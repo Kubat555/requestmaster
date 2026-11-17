@@ -21,7 +21,7 @@ use crate::import::{
 type Obj = Map<String, Value>;
 
 /// `info.schema` written for a collection created in the application.
-const SCHEMA_V21: &str = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json";
+pub(crate) const SCHEMA_V21: &str = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json";
 
 /// Keys of a Postman `url` object that are generated from the model.
 const URL_KEYS: [&str; 8] = ["raw", "protocol", "host", "port", "path", "query", "variable", "hash"];

@@ -44,7 +44,8 @@ pub struct NodeDto {
     pub kind: NodeKind,
     /// Name shown in the tree.
     pub name: String,
-    /// JSON of `NodeContent::to_json` without the top-level `postman_extra` key.
+    /// JSON of `NodeContent::to_json` without the top-level `postman_extra` key; a collection and a folder
+    /// with a description also have it under the key `description`.
     pub content: serde_json::Value,
 }
 

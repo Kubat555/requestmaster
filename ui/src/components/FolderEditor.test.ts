@@ -42,12 +42,12 @@ afterEach(() => {
 });
 
 describe("FolderEditor", () => {
-  it("has the sections Auth and Scripts and shows Auth first", async () => {
+  it("has the sections Auth, Scripts and the description and shows Auth first", async () => {
     const { tab } = await openFolder();
 
     expect(tab.kind).toBe("folder");
     const sections = within(screen.getByRole("tablist", { name: strings.folder.sections })).getAllByRole("tab");
-    expect(sections.map((section) => section.textContent!.trim())).toEqual(["Auth", "Scripts"]);
+    expect(sections.map((section) => section.textContent!.trim())).toEqual(["Auth", "Scripts", "Описание"]);
     expect(sections[0].getAttribute("aria-selected")).toBe("true");
     expect(strings.folder.auth).toBe("Auth");
     expect(strings.folder.scripts).toBe("Scripts");
@@ -87,7 +87,11 @@ describe("FolderEditor", () => {
     await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
 
     expect(saveNodeContent).toHaveBeenCalledTimes(1);
-    expect(saveNodeContent).toHaveBeenCalledWith("fold", { auth: { type: "no_auth" }, scripts: { pre_request: "", test: "" } });
+    expect(saveNodeContent).toHaveBeenCalledWith("fold", {
+      auth: { type: "no_auth" },
+      scripts: { pre_request: "", test: "" },
+      description: "",
+    });
     expect(tab.dirty).toBe(false);
   });
 
@@ -114,6 +118,7 @@ describe("FolderEditor", () => {
     expect(saveNodeContent).toHaveBeenCalledWith("fold", {
       auth: null,
       scripts: { pre_request: "pm.variables.set('a', 1);", test: "after();" },
+      description: "",
     });
   });
 
@@ -121,7 +126,47 @@ describe("FolderEditor", () => {
     const { tab, draft } = await openFolder({ auth: { type: "bearer", token: "t" }, scripts: { pre_request: "a();\r\n" } });
 
     expect(authType().value).toBe("bearer");
-    expect(draft()).toEqual({ auth: { type: "bearer", token: "t" }, scripts: { pre_request: "a();\r\n", test: "" } });
+    expect(draft()).toEqual({
+      auth: { type: "bearer", token: "t" },
+      scripts: { pre_request: "a();\r\n", test: "" },
+      description: "",
+    });
+    expect(tab.dirty).toBe(false);
+  });
+
+  it("edits the description as plain text: marks the tab, takes the text back on revert, saves it with Ctrl+S", async () => {
+    const { saveNodeContent, tab, draft } = await openFolder({ description: "About **the folder**" });
+    expect(screen.queryByRole("textbox", { name: strings.collection.description })).toBeNull();
+
+    await fireEvent.click(screen.getByRole("tab", { name: strings.collection.description }));
+    const field = screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.collection.description });
+    // The source text: Markdown is not rendered.
+    expect(field.tagName).toBe("TEXTAREA");
+    expect(field.value).toBe("About **the folder**");
+    expect(tab.dirty).toBe(false);
+
+    await fireEvent.input(field, { target: { value: "Thrown away" } });
+    expect(draft().description).toBe("Thrown away");
+    expect(tab.dirty).toBe(true);
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+
+    tab.revert();
+    await waitFor(() => expect(field.value).toBe("About **the folder**"));
+    expect(tab.dirty).toBe(false);
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+
+    await fireEvent.input(field, { target: { value: "" } });
+    expect(tab.dirty).toBe(true);
+    await pressCtrlS();
+    await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
+
+    // An emptied description is sent as an empty text: that is what clears it.
+    expect(saveNodeContent).toHaveBeenCalledTimes(1);
+    expect(saveNodeContent).toHaveBeenCalledWith("fold", {
+      auth: null,
+      scripts: { pre_request: "", test: "" },
+      description: "",
+    });
     expect(tab.dirty).toBe(false);
   });
 });

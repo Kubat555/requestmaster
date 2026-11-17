@@ -545,3 +545,160 @@ fn collection_created_here_exports_as_a_postman_collection() {
     assert_eq!(exported["item"][0]["name"], "Ping");
     assert_eq!(exported["item"][0]["request"]["method"], "GET");
 }
+
+/// A collection with descriptions in the three forms Postman writes, and keys the application does not know.
+fn described_collection() -> Value {
+    json!({
+        "info": {
+            "_postman_id": "synthetic-collection-id",
+            "name": "Described",
+            "description": "About the collection",
+            "schema": SCHEMA_V21,
+            "_exporter_id": "synthetic-exporter"
+        },
+        "item": [
+            { "name": "Plain", "description": "About the folder", "item": [] },
+            { "name": "Object", "description": { "content": "In an object", "type": "text/markdown" }, "item": [] },
+            { "name": "Null", "description": null, "item": [] }
+        ]
+    })
+}
+
+fn exported(core: &AppCore, collection: &str) -> Value {
+    serde_json::from_str(&core.export_collection_text(collection).unwrap().1).unwrap()
+}
+
+#[test]
+fn description_round_trips_through_the_window() {
+    let (core, _dir) = core();
+    let source = described_collection();
+    import(&core, &source);
+    let collection = id_by_name(&core, "Described");
+
+    // get: the description is in the content, the source object is not
+    let mut content = core.get_node(&collection).unwrap().content;
+    assert_eq!(content["description"], "About the collection");
+    assert!(content.get("postman_extra").is_none());
+    let mut plain = core.get_node(&id_by_name(&core, "Plain")).unwrap().content;
+    assert_eq!(plain["description"], "About the folder");
+    assert!(plain.get("postman_extra").is_none());
+    let mut object = core.get_node(&id_by_name(&core, "Object")).unwrap().content;
+    assert_eq!(object["description"], "In an object");
+    // no description: no key
+    assert!(core.get_node(&id_by_name(&core, "Null")).unwrap().content.get("description").is_none());
+
+    // saved as read: nothing changes in the export
+    core.save_node_content(&collection, content.clone()).unwrap();
+    core.save_node_content(&id_by_name(&core, "Plain"), plain.clone()).unwrap();
+    core.save_node_content(&id_by_name(&core, "Object"), object.clone()).unwrap();
+    assert_eq!(rqm_postman::semantic_diff(&source, &exported(&core, &collection)), Vec::<String>::new());
+
+    // edit -> save -> get
+    content["description"] = json!("New text\nsecond line");
+    core.save_node_content(&collection, content).unwrap();
+    plain["description"] = json!("New folder text");
+    core.save_node_content(&id_by_name(&core, "Plain"), plain).unwrap();
+    object["description"] = json!("New in an object");
+    core.save_node_content(&id_by_name(&core, "Object"), object).unwrap();
+    assert_eq!(core.get_node(&collection).unwrap().content["description"], "New text\nsecond line");
+    assert_eq!(core.get_node(&id_by_name(&core, "Plain")).unwrap().content["description"], "New folder text");
+    assert_eq!(core.get_node(&id_by_name(&core, "Object")).unwrap().content["description"], "New in an object");
+
+    // the export has the new descriptions, and the other keys of `info` are in place
+    let out = exported(&core, &collection);
+    assert_eq!(
+        out["info"],
+        json!({
+            "_postman_id": "synthetic-collection-id",
+            "name": "Described",
+            "description": "New text\nsecond line",
+            "schema": SCHEMA_V21,
+            "_exporter_id": "synthetic-exporter"
+        })
+    );
+    assert_eq!(out["item"][0]["description"], "New folder text");
+    assert_eq!(out["item"][1]["description"], json!({ "content": "New in an object", "type": "text/markdown" }));
+    assert_eq!(rqm_postman::semantic_diff(&source, &out).len(), 3, "only the three descriptions differ");
+}
+
+#[test]
+fn description_of_a_collection_created_here_exports_with_the_schema() {
+    let (core, _dir) = core();
+    let collection = core.create_node(None, NodeKind::Collection, "Fresh").unwrap();
+    let folder = core.create_node(Some(&collection), NodeKind::Folder, "Group").unwrap();
+    assert!(core.get_node(&collection).unwrap().content.get("description").is_none());
+
+    let mut content = core.get_node(&collection).unwrap().content;
+    content["description"] = json!("Made here");
+    core.save_node_content(&collection, content).unwrap();
+    let mut content = core.get_node(&folder).unwrap().content;
+    content["description"] = json!("A group");
+    core.save_node_content(&folder, content).unwrap();
+    assert_eq!(core.get_node(&collection).unwrap().content["description"], "Made here");
+
+    let out = exported(&core, &collection);
+    assert_eq!(out["info"]["name"], "Fresh");
+    assert_eq!(out["info"]["schema"], SCHEMA_V21);
+    assert_eq!(out["info"]["description"], "Made here");
+    let postman_id = out["info"]["_postman_id"].as_str().unwrap().to_string();
+    assert!(!postman_id.is_empty());
+    assert_eq!(out["item"][0]["description"], "A group");
+    assert!(matches!(rqm_postman::detect(&out), Ok(rqm_postman::Detected::Collection)));
+    // the id was made once, with the description
+    assert_eq!(exported(&core, &collection)["info"]["_postman_id"], postman_id.as_str());
+}
+
+#[test]
+fn content_without_the_description_key_keeps_the_stored_description() {
+    let (core, _dir) = core();
+    let source = described_collection();
+    import(&core, &source);
+    let collection = id_by_name(&core, "Described");
+
+    for name in ["Described", "Plain", "Object", "Null"] {
+        let id = id_by_name(&core, name);
+        let mut content = core.get_node(&id).unwrap().content;
+        content.as_object_mut().unwrap().remove("description");
+        content["scripts"] = json!({ "test": "after();" });
+        core.save_node_content(&id, content).unwrap();
+    }
+
+    assert_eq!(core.get_node(&collection).unwrap().content["description"], "About the collection");
+    assert_eq!(core.get_node(&id_by_name(&core, "Plain")).unwrap().content["description"], "About the folder");
+    let out = exported(&core, &collection);
+    assert_eq!(out["info"], source["info"]);
+    for index in 0..3 {
+        assert_eq!(out["item"][index]["description"], source["item"][index]["description"]);
+    }
+    assert!(out["item"][2].as_object().unwrap().contains_key("description"), "the explicit null stays");
+}
+
+#[test]
+fn empty_description_from_the_window_clears_it() {
+    let (core, _dir) = core();
+    let source = described_collection();
+    import(&core, &source);
+    let collection = id_by_name(&core, "Described");
+
+    for name in ["Described", "Plain", "Object", "Null"] {
+        let id = id_by_name(&core, name);
+        let mut content = core.get_node(&id).unwrap().content;
+        content["description"] = json!("");
+        core.save_node_content(&id, content).unwrap();
+        assert!(core.get_node(&id).unwrap().content.get("description").is_none(), "{name}");
+    }
+
+    let out = exported(&core, &collection);
+    assert_eq!(out["info"]["description"], "");
+    assert_eq!(out["info"]["_exporter_id"], "synthetic-exporter");
+    assert_eq!(out["item"][0]["description"], "");
+    assert_eq!(out["item"][1]["description"], json!({ "content": "", "type": "text/markdown" }));
+    // nothing was there to clear: the explicit null is not rewritten
+    assert_eq!(out["item"][2]["description"], Value::Null);
+
+    // a description that is not a text is refused and changes nothing
+    let mut content = core.get_node(&collection).unwrap().content;
+    content["description"] = json!(5);
+    assert!(core.save_node_content(&collection, content).is_err());
+    assert_eq!(exported(&core, &collection), out);
+}

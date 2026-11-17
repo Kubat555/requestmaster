@@ -143,3 +143,27 @@ fn item<'a>(v: &'a serde_json::Value, path: &[&str]) -> &'a serde_json::Value {
     let keep: Vec<_> = merge_globals(&cur, &inc, MergePolicy::KeepCurrent).into_iter().map(|x| (x.key, x.value)).collect();
     assert_eq!(keep, vec![("a".into(), "1".into()), ("b".into(), "2".into()), ("c".into(), "3".into())]);
 }
+#[test] fn descriptions_of_a_collection_and_folders_round_trip_exactly() {
+    let src = serde_json::json!({
+        "info": { "_postman_id": "synthetic-id", "name": "C", "description": "About the collection",
+                  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+        "item": [
+            { "name": "Plain", "description": "About the folder", "item": [] },
+            { "name": "Object", "description": { "content": "In an object", "type": "text/markdown" }, "item": [] },
+            { "name": "Null", "description": null, "item": [] }
+        ]
+    });
+    let nodes = import_collection(&src).unwrap().nodes;
+    let read = |name: &str| {
+        let node = nodes.iter().find(|n| n.name == name).unwrap();
+        let extra = match &node.content {
+            NodeContent::Collection(c) => &c.postman_extra,
+            NodeContent::Folder(f) => &f.postman_extra,
+            NodeContent::Request(r) => &r.postman_extra,
+        };
+        description_of(node.kind, extra)
+    };
+    assert_eq!((read("C"), read("Plain"), read("Object"), read("Null")),
+        ("About the collection".to_string(), "About the folder".to_string(), "In an object".to_string(), String::new()));
+    assert_eq!(semantic_diff(&src, &export_collection(&nodes).unwrap()), Vec::<String>::new());
+}

@@ -13,8 +13,8 @@
 
   let { tab }: Props = $props();
 
-  type Section = "variables" | "auth" | "scripts";
-  const SECTIONS: Section[] = ["variables", "auth", "scripts"];
+  type Section = "variables" | "auth" | "scripts" | "description";
+  const SECTIONS: Section[] = ["variables", "auth", "scripts", "description"];
 
   const id = $props.id();
   let section = $state<Section>("variables");
@@ -29,6 +29,7 @@
     variables: tab.draft.variables.filter((variable) => variable.enabled).length,
     auth: 0,
     scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+    description: 0,
   });
 
   function show(next: Section) {
@@ -78,6 +79,10 @@
       <ScriptsEditor bind:scripts={tab.draft.scripts} />
     </div>
   {/if}
+  <div class="panel scroll" role="tabpanel" id="{id}-panel-description" aria-labelledby="{id}-tab-description" hidden={section !== "description"}>
+    <!-- The source text as it is kept: Markdown is not rendered. -->
+    <textarea class="description" aria-label={strings.collection.description} spellcheck="false" bind:value={tab.draft.description}></textarea>
+  </div>
 </div>
 
 <style>
@@ -96,5 +101,15 @@
   .scroll {
     padding: calc(var(--space) * 2);
     overflow: auto;
+  }
+  .description {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: calc(var(--space) * 2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    resize: none;
   }
 </style>

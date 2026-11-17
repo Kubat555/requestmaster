@@ -12,8 +12,14 @@
 
   let { tab }: Props = $props();
 
-  type Section = "auth" | "scripts";
-  const SECTIONS: Section[] = ["auth", "scripts"];
+  type Section = "auth" | "scripts" | "description";
+  const SECTIONS: Section[] = ["auth", "scripts", "description"];
+  /** Names of the sections; the description is called the same as in a collection. */
+  const LABELS: Record<Section, string> = {
+    auth: strings.folder.auth,
+    scripts: strings.folder.scripts,
+    description: strings.collection.description,
+  };
 
   const id = $props.id();
   let section = $state<Section>("auth");
@@ -27,6 +33,7 @@
   const counts = $derived<Record<Section, number>>({
     auth: 0,
     scripts: Object.values(tab.draft.scripts).filter((script) => script.trim() !== "").length,
+    description: 0,
   });
 
   function show(next: Section) {
@@ -35,7 +42,7 @@
   }
 </script>
 
-<!-- What a folder gives to the requests inside it: the authorization and the scripts. It has no variables. -->
+<!-- What a folder gives to the requests inside it: the authorization and the scripts; and its description. It has no variables. -->
 <div class="folder-editor">
   <div class="section-tabs" role="tablist" aria-label={strings.folder.sections}>
     {#each SECTIONS as name (name)}
@@ -47,7 +54,7 @@
         aria-controls="{id}-panel-{name}"
         onclick={() => show(name)}
       >
-        {strings.folder[name]}
+        {LABELS[name]}
         {#if counts[name] > 0}
           <span class="count">{counts[name]}</span>
         {/if}
@@ -64,6 +71,10 @@
       <ScriptsEditor bind:scripts={tab.draft.scripts} />
     </div>
   {/if}
+  <div class="panel scroll" role="tabpanel" id="{id}-panel-description" aria-labelledby="{id}-tab-description" hidden={section !== "description"}>
+    <!-- The source text as it is kept: Markdown is not rendered. -->
+    <textarea class="description" aria-label={strings.collection.description} spellcheck="false" bind:value={tab.draft.description}></textarea>
+  </div>
 </div>
 
 <style>
@@ -82,5 +93,15 @@
   .scroll {
     padding: calc(var(--space) * 2);
     overflow: auto;
+  }
+  .description {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: calc(var(--space) * 2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    resize: none;
   }
 </style>
