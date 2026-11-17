@@ -8,6 +8,8 @@
   --danger: #f07178;
   /* The code editor. `--code-line` (line numbers) is a little lighter than in the mock-up, for contrast. */
   --code-key: #7cb7ff; --code-string: #4cc38a; --code-number: #e5a93b; --code-atom: #b59cf7; --code-line: #626b7a;
+  /* Indent guides of the code editor: a quiet line between `--surface-2` and `--border`. */
+  --indent-guide: #272d37;
   /* Scope of a `{{variable}}` in a field; one that is not found is drawn with `--danger`. */
   --var-global: #e5a93b; --var-collection: #a98bf5; --var-environment: #4cc38a; --var-dynamic: #6aa6f8;
   /* No font is shipped with the application: the first installed one of the list is used. */

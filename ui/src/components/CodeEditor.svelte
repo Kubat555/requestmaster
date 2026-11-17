@@ -8,21 +8,23 @@
 
   async function load() {
     const [
-      { EditorView, basicSetup },
+      { EditorView },
       { Compartment, EditorState },
       { json },
       { HighlightStyle, syntaxHighlighting },
       { tags },
       { variableSupport },
       { openSearchPanel },
+      { baseSetup, indentation, tabIndentation },
     ] = await Promise.all([
-      import("codemirror"),
+      import("@codemirror/view"),
       import("@codemirror/state"),
       import("@codemirror/lang-json"),
       import("@codemirror/language"),
       import("@lezer/highlight"),
       import("../lib/codemirror/variables"),
       import("@codemirror/search"),
+      import("../lib/codemirror/setup"),
     ]);
 
     // Colours come from tokens.css. The built-in highlighting is made for a light background.
@@ -45,6 +47,9 @@
           color: "var(--text)",
         },
         ".cm-foldPlaceholder": { backgroundColor: "var(--surface-2)", color: "var(--text-muted)", border: "none" },
+        // The chevron of a block that can be folded: in the middle of the height of its line.
+        ".cm-fold-marker": { display: "flex", alignItems: "center", height: "100%", color: "var(--text-muted)" },
+        ".cm-fold-marker:hover": { color: "var(--text)" },
         // The search panel: its fields and buttons look like the ones of the window. The selectors outweigh
         // the ones of the library.
         "& .cm-panel.cm-search": { padding: "var(--space) calc(var(--space) * 2)", fontFamily: "var(--font-ui)" },
@@ -119,7 +124,9 @@
       EditorView,
       EditorState,
       Compartment,
-      basicSetup,
+      baseSetup,
+      indentation,
+      tabIndentation,
       json,
       theme,
       highlight,
@@ -133,8 +140,9 @@
 
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { EditorView } from "codemirror";
+  import type { EditorView } from "@codemirror/view";
   import type { Compartment, Extension } from "@codemirror/state";
+  import { detectIndentUnit } from "../lib/codemirror/indent";
   import { useVariableScope } from "../lib/variableScope.svelte";
 
   interface Props {
@@ -167,10 +175,16 @@
     languageSlot: Compartment;
     readonlySlot: Compartment;
     variablesSlot: Compartment;
+    indentSlot: Compartment;
     cm: Awaited<ReturnType<typeof load>>;
   }>();
   /** Text of the document in the editor: tells a change made by the user from one that came with `value`. */
   let shown = "";
+  /**
+   * One level of indentation of the text, found in the text when it is shown and every time it comes from
+   * outside: Enter, Tab and the indent guides follow the text, whatever it is indented with.
+   */
+  let indentUnit = detectIndentUnit("");
   /** The search panel was asked for before CodeMirror was loaded; it opens with the editor. */
   let searchAsked = false;
 
@@ -184,12 +198,25 @@
 
   /**
    * The extension that highlights the text as `language`. JavaScript is the bare language, not `javascript()`:
-   * that one also brings completion sources and snippets, and a snippet takes Tab away from leaving the editor.
+   * that one also brings completion sources and snippets, which the script editor does not offer.
    */
   function highlighting(cm: Awaited<ReturnType<typeof load>>) {
     if (language === "json") return cm.json();
     if (language === "javascript" && javascript) return javascript.javascriptLanguage;
     return [];
+  }
+
+  /**
+   * Whether the text can be changed. Tab indents only where it can: in a text that is read only (a response)
+   * Tab moves the focus on, as in the rest of the window.
+   */
+  function editing(cm: Awaited<ReturnType<typeof load>>): Extension {
+    return [cm.EditorState.readOnly.of(readonly), readonly ? [] : cm.tabIndentation];
+  }
+
+  /** The indentation unit of the text; the indent guides are for the languages with blocks, not for plain text. */
+  function indentation(cm: Awaited<ReturnType<typeof load>>): Extension {
+    return cm.indentation(indentUnit, language !== "text");
   }
 
   /**
@@ -210,20 +237,23 @@
       const languageSlot = new cm.Compartment();
       const readonlySlot = new cm.Compartment();
       const variablesSlot = new cm.Compartment();
+      const indentSlot = new cm.Compartment();
       shown = value;
+      indentUnit = detectIndentUnit(shown);
       view = new cm.EditorView({
         parent: host,
         state: cm.EditorState.create({
           doc: shown,
           extensions: [
-            cm.basicSetup,
+            cm.baseSetup,
             cm.theme,
             cm.highlight,
             cm.phrases,
             cm.nonce,
             languageSlot.of(highlighting(cm)),
-            readonlySlot.of(cm.EditorState.readOnly.of(readonly)),
+            readonlySlot.of(editing(cm)),
             variablesSlot.of(variableSupport(cm)),
+            indentSlot.of(indentation(cm)),
             cm.EditorView.contentAttributes.of(label ? { "aria-label": label } : {}),
             cm.EditorView.updateListener.of((update) => {
               if (!update.docChanged) return;
@@ -235,7 +265,7 @@
           ],
         }),
       });
-      editor = { view, languageSlot, readonlySlot, variablesSlot, cm };
+      editor = { view, languageSlot, readonlySlot, variablesSlot, indentSlot, cm };
       if (searchAsked) cm.openSearchPanel(view);
       searchAsked = false;
     });
@@ -246,12 +276,18 @@
     };
   });
 
-  // A text that came from outside (another content, a revert) replaces the document.
+  // A text that came from outside (another content, a revert, Beautify) replaces the document; its indentation
+  // unit is found anew.
   $effect(() => {
     const text = value;
     if (!editor || text === shown) return;
+    const { view, indentSlot, cm } = editor;
     shown = text;
-    editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: text } });
+    indentUnit = detectIndentUnit(text);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text },
+      effects: indentSlot.reconfigure(indentation(cm)),
+    });
   });
 
   // JavaScript is fetched when an editor first needs it; the effect below then switches the highlighting on.
@@ -268,11 +304,12 @@
 
   $effect(() => {
     if (!editor) return;
-    const { view, languageSlot, readonlySlot, cm } = editor;
+    const { view, languageSlot, readonlySlot, indentSlot, cm } = editor;
     view.dispatch({
       effects: [
         languageSlot.reconfigure(highlighting(cm)),
-        readonlySlot.reconfigure(cm.EditorState.readOnly.of(readonly)),
+        readonlySlot.reconfigure(editing(cm)),
+        indentSlot.reconfigure(indentation(cm)),
       ],
     });
   });
