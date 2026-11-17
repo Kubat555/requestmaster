@@ -251,10 +251,14 @@ export class Workspace {
       return null;
     }
     await this.reloadTree(api);
-    for (const removedId of removed) this.expanded.delete(removedId);
-    if (this.selectedId !== null && removed.includes(this.selectedId)) this.selectedId = null;
-    if (this.focusedId !== null && removed.includes(this.focusedId)) this.focusedId = null;
-    if (this.renamingId !== null && removed.includes(this.renamingId)) this.renamingId = null;
+    const gone = new Set(removed);
+    // Only what is expanded is looked at: a deleted folder may hold thousands of nodes that never were.
+    for (const expandedId of [...this.expanded]) {
+      if (gone.has(expandedId)) this.expanded.delete(expandedId);
+    }
+    if (this.selectedId !== null && gone.has(this.selectedId)) this.selectedId = null;
+    if (this.focusedId !== null && gone.has(this.focusedId)) this.focusedId = null;
+    if (this.renamingId !== null && gone.has(this.renamingId)) this.renamingId = null;
     return removed;
   }
 

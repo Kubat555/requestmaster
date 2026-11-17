@@ -11,15 +11,28 @@
     size?: "md" | "sm";
     /** Decorative icon before the text. */
     icon?: IconName;
+    /**
+     * The command of the button is running: the button cannot be pressed, says so to screen readers, and shows
+     * a turning mark in the place of its icon.
+     */
+    busy?: boolean;
     children?: Snippet;
   }
 
-  let { variant = "default", size = "md", icon, children, class: className, ...rest }: Props = $props();
+  let { variant = "default", size = "md", icon, busy = false, disabled, children, class: className, ...rest }: Props = $props();
 </script>
 
 <!-- A button with text. Any other attribute goes to the `<button>` itself. -->
-<button type="button" {...rest} class={["btn", variant, size === "sm" && "sm", className]}>
-  {#if icon}
+<button
+  type="button"
+  {...rest}
+  class={["btn", variant, size === "sm" && "sm", className]}
+  disabled={busy || disabled}
+  aria-busy={busy ? "true" : undefined}
+>
+  {#if busy}
+    <span class="spinner"><Icon name="spinner" /></span>
+  {:else if icon}
     <Icon name={icon} />
   {/if}
   {@render children?.()}
@@ -80,6 +93,26 @@
     color: var(--text-muted);
     font-weight: 400;
     cursor: default;
+  }
+
+  /* The mark of a running command turns around its centre. */
+  .spinner {
+    flex: none;
+    display: flex;
+    animation: btn-spin 0.8s linear infinite;
+  }
+
+  @keyframes btn-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Without motion the mark stands still: the disabled button already says that the command runs. */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
   }
 
   .btn.ghost:disabled {

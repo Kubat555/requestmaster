@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Tabs, type Tab } from "./tabs.svelte";
+import { Tabs, tabsToClose, type Tab, type TabMenuAction } from "./tabs.svelte";
 import { createFakeApi } from "./testing/fakeApi";
 import { toasts } from "./toasts.svelte";
 import {
@@ -356,6 +356,64 @@ describe("Tabs", () => {
 
     tabs.close(a.id);
     expect(tabs.active).toBe(b);
+  });
+});
+
+describe("tabsToClose", () => {
+  /** Four tabs; `b` and `d` have unsaved edits. */
+  const list = [
+    { id: "a", dirty: false },
+    { id: "b", dirty: true },
+    { id: "c", dirty: false },
+    { id: "d", dirty: true },
+  ];
+  const ids = (tabId: string, action: TabMenuAction, of = list) => tabsToClose(of, tabId, action).map((tab) => tab.id);
+
+  it("closes the tab of the menu alone", () => {
+    expect(ids("b", "close")).toEqual(["b"]);
+  });
+
+  it("closes every other tab, in the order of the bar", () => {
+    expect(ids("b", "close_others")).toEqual(["a", "c", "d"]);
+    expect(ids("a", "close_others", [list[0]])).toEqual([]);
+  });
+
+  it("closes the tabs on the right of the tab of the menu", () => {
+    expect(ids("b", "close_right")).toEqual(["c", "d"]);
+    expect(ids("a", "close_right")).toEqual(["b", "c", "d"]);
+    expect(ids("d", "close_right")).toEqual([]);
+  });
+
+  it("closes the tabs without unsaved edits, the tab of the menu among them", () => {
+    expect(ids("a", "close_saved")).toEqual(["a", "c"]);
+    expect(ids("b", "close_saved")).toEqual(["a", "c"]);
+    expect(ids("b", "close_saved", [list[1], list[3]])).toEqual([]);
+  });
+
+  it("closes all tabs", () => {
+    expect(ids("c", "close_all")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("closes nothing for a tab that is not open, and returns the tabs themselves", () => {
+    for (const action of ["close", "close_others", "close_right", "close_saved", "close_all"] as const) {
+      expect(ids("gone", action)).toEqual([]);
+    }
+    expect(tabsToClose(list, "b", "close")[0]).toBe(list[1]);
+  });
+});
+
+describe("Tabs.closeNodes", () => {
+  it("closes the tabs of the deleted nodes and leaves the others, tabs that are not of a node included", async () => {
+    const api = createFakeApi({ nodes: nodes() });
+    const tabs = new Tabs();
+    await tabs.open(api, "req-a");
+    await tabs.open(api, "req-b");
+    await tabs.open(api, "col");
+    await tabs.openEnvironment(api, "globals");
+
+    tabs.closeNodes(["req-a", "col", "not-open"]);
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-b", "env:globals"]);
   });
 });
 

@@ -30,13 +30,14 @@
 
 <!-- The questions of the tree: about a deletion, and about exporting a collection with unsaved edits. -->
 {#if actions.deleting}
-  <Dialog title={strings.tree.deleteTitle(actions.deleting.name)} onclose={() => (actions.deleting = null)}>
+  <!-- While the deletion runs the question cannot be dismissed: both buttons wait, and Escape does nothing. -->
+  <Dialog title={strings.tree.deleteTitle(actions.deleting.name)} onclose={() => actions.cancelDelete()}>
     {#if actions.deleting.kind !== "request"}
       <p class="contents">{strings.tree.deleteContents(deletingRequests)}</p>
     {/if}
     <div class="dialog-actions">
-      <Button class="danger" onclick={ondelete}>{strings.tree.delete}</Button>
-      <Button data-initial-focus onclick={() => (actions.deleting = null)}>{strings.tree.cancel}</Button>
+      <Button class="danger" busy={actions.deletingBusy} onclick={ondelete}>{strings.tree.delete}</Button>
+      <Button data-initial-focus disabled={actions.deletingBusy} onclick={() => actions.cancelDelete()}>{strings.tree.cancel}</Button>
     </div>
   </Dialog>
 {/if}
@@ -58,7 +59,7 @@
   }
 
   /* The button that destroys. The class goes to the `<button>` of `Button`, hence `:global`. */
-  .dialog-actions :global(.danger) {
+  .dialog-actions :global(.danger:not(:disabled)) {
     border-color: var(--danger);
     color: var(--danger);
   }

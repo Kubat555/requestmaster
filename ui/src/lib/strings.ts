@@ -143,6 +143,20 @@ export const strings = {
     save: "Сохранить",
     discard: "Не сохранять",
     cancel: "Отмена",
+    /** Name of the menu of a tab. */
+    menu: "Действия с вкладкой",
+    /** The items of the menu of a tab. */
+    menuItems: {
+      close: "Закрыть",
+      close_others: "Закрыть другие",
+      close_right: "Закрыть справа",
+      close_saved: "Закрыть сохранённые",
+      close_all: "Закрыть все",
+    },
+    /** Asked when an item of the menu would close tabs with unsaved edits. */
+    closeManyTitle: "Закрыть вкладки без сохранения?",
+    closeManyText: (count: number) => `Несохранённые изменения пропадут. Вкладок с изменениями: ${count}`,
+    closeManyConfirm: "Закрыть без сохранения",
   },
   editor: {
     label: "Редактор запроса",
@@ -395,6 +409,56 @@ export const strings = {
     save: "Сохранить",
     cancel: "Отмена",
     saved: "Настройки сохранены",
+  },
+  /** The list of the key combinations. */
+  shortcuts: {
+    /** The button in the row of the tabs. */
+    button: "Сочетания клавиш",
+    title: "Сочетания клавиш",
+    close: "Закрыть",
+    /** Stands between two presses that follow one another. */
+    then: "затем",
+    groups: {
+      request: "Запрос",
+      tabs: "Вкладки",
+      tree: "Дерево",
+      editor: "Редактор",
+      window: "Окно",
+    },
+    /** What is pressed, where it is not the name printed on a key. */
+    keys: {
+      space: "Пробел",
+      menuKey: "Клавиша меню",
+      rightClick: "Правая кнопка мыши",
+      middleClick: "Средняя кнопка мыши",
+      wheel: "Колесо мыши",
+    },
+    send: "Отправить запрос",
+    save: "Сохранить вкладку",
+    focusUrl: "Перейти в поле адреса",
+    find: "Поиск в теле ответа",
+    closeTab: "Закрыть вкладку",
+    tabNeighbour: "Соседняя вкладка, когда фокус на вкладке",
+    tabMiddleClick: "Закрыть вкладку",
+    tabWheel: "Прокрутить ряд вкладок",
+    tabMenu: "Меню вкладки: закрыть другие, справа, сохранённые, все",
+    treeMove: "Предыдущая и следующая строка",
+    treeExpand: "Раскрыть папку или перейти к её первой строке",
+    treeCollapse: "Свернуть папку или перейти к родителю",
+    treeOpen: "Открыть запрос или коллекцию, раскрыть или свернуть папку",
+    treeRename: "Переименовать",
+    treeDelete: "Удалить",
+    treeReorder: "Переместить узел",
+    treeMenu: "Меню узла",
+    editorIndent: "Добавить отступ",
+    editorOutdent: "Убрать отступ",
+    editorLeave: "Выйти из редактора к следующему элементу",
+    editorVariables: "Список переменных — в редакторе и в полях с переменными",
+    editorUndo: "Отменить",
+    editorRedo: "Повторить",
+    editorFind: "Поиск в тексте редактора",
+    shortcuts: "Этот список",
+    dismiss: "Закрыть диалог или меню",
   },
   toasts: {
     label: "Уведомления",

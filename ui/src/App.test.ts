@@ -1,6 +1,7 @@
 import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.svelte";
+import { SHORTCUTS } from "./lib/hotkeys";
 import { layout } from "./lib/layout.svelte";
 import { session } from "./lib/session.svelte";
 import { strings } from "./lib/strings";
@@ -408,6 +409,68 @@ describe("App", () => {
 
       expect(event.defaultPrevented).toBe(true);
       expect(searching()).toHaveLength(0);
+    });
+  });
+
+  describe("list of the key combinations", () => {
+    const TEXT = strings.shortcuts;
+    const list = () => screen.queryByRole("dialog", { name: TEXT.title });
+
+    it("opens from the button next to the settings, and gives the focus back to it when closed", async () => {
+      renderApp();
+      const button = screen.getByRole("button", { name: TEXT.button });
+      expect(button.getAttribute("title")).toBe(TEXT.button);
+      expect(button.nextElementSibling).toBe(screen.getByRole("button", { name: strings.settings.button }));
+      button.focus();
+
+      await fireEvent.click(button);
+      const dialog = await screen.findByRole("dialog", { name: TEXT.title });
+      await fireEvent.click(within(dialog).getByRole("button", { name: TEXT.close }));
+
+      await waitFor(() => expect(list()).toBeNull());
+      expect(document.activeElement).toBe(button);
+
+      await fireEvent.click(button);
+      await screen.findByRole("dialog", { name: TEXT.title });
+      await fireEvent.keyDown(window, { key: "Escape" });
+
+      await waitFor(() => expect(list()).toBeNull());
+      expect(document.activeElement).toBe(button);
+    });
+
+    it("opens with F1, which is cancelled; a second F1 changes nothing", async () => {
+      renderApp();
+      const first = createEvent.keyDown(document.body, { key: "F1", code: "F1" });
+      await fireEvent(document.body, first);
+
+      expect(first.defaultPrevented).toBe(true);
+      await screen.findByRole("dialog", { name: TEXT.title });
+
+      const second = createEvent.keyDown(document.body, { key: "F1", code: "F1" });
+      await fireEvent(document.body, second);
+
+      expect(second.defaultPrevented).toBe(true);
+      expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    });
+
+    it("shows every group with its rows: the keys as key caps and what they do", async () => {
+      renderApp();
+      await fireEvent.click(screen.getByRole("button", { name: TEXT.button }));
+      const dialog = await screen.findByRole("dialog", { name: TEXT.title });
+
+      for (const group of SHORTCUTS) {
+        const section = within(dialog).getByRole("region", { name: group.title });
+        const rows = [...section.querySelectorAll(".row")];
+        expect(rows).toHaveLength(group.shortcuts.length);
+        group.shortcuts.forEach((shortcut, index) => {
+          const caps = [...rows[index].querySelectorAll("kbd")].map((cap) => cap.textContent);
+          expect(caps).toEqual(shortcut.keys.flat());
+          expect(rows[index].querySelector("dd")!.textContent).toBe(shortcut.text);
+        });
+      }
+      // Two presses that follow one another are told apart from two ways to do the same.
+      const editor = within(dialog).getByRole("region", { name: TEXT.groups.editor });
+      expect(within(editor).getAllByText(TEXT.then)).toHaveLength(1);
     });
   });
 

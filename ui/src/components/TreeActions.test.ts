@@ -357,7 +357,7 @@ describe("renaming in the tree", () => {
 
   it("renames the open tab at once and keeps its draft and its mark of unsaved edits", async () => {
     const { api } = await renderSidebar({}, ["col-1", "fold-users"]);
-    render(TabBar, { props: { tabs, onclose: () => {} } });
+    render(TabBar, { props: { tabs, onclose: () => {}, onclosemany: () => {} } });
     const row = await screen.findByRole("treeitem", { name: "GET List users" });
     await tabs.open(api, "req-list-users");
     const tab = tabs.list[0] as Tab<RequestDraft>;
@@ -383,7 +383,7 @@ describe("renaming in the tree", () => {
 
   it("renames the open tab of a folder", async () => {
     const { api } = await renderSidebar({}, ["col-1"]);
-    render(TabBar, { props: { tabs, onclose: () => {} } });
+    render(TabBar, { props: { tabs, onclose: () => {}, onclosemany: () => {} } });
     const row = await screen.findByRole("treeitem", { name: "Users" });
     await tabs.open(api, "fold-users");
     const tab = tabs.list[0] as Tab<FolderDraft>;
@@ -546,11 +546,56 @@ describe("deleting in the tree", () => {
 
     await fireEvent.keyDown(row, { key: "Delete" });
     const dialog = await screen.findByRole("dialog");
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.tree.delete }));
+    const confirm = within(dialog).getByRole<HTMLButtonElement>("button", { name: strings.tree.delete });
+    await fireEvent.click(confirm);
 
     await waitFor(() => expect(toasts.items.map((toast) => toast.text)).toEqual(["the storage is locked"]));
     expect(treeItemNames()).toEqual(before);
     expect(tabs.list).toHaveLength(1);
+    // The question stays, and its buttons can be pressed again.
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(confirm.getAttribute("aria-busy")).toBeNull();
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: strings.tree.cancel }).disabled).toBe(false);
+  });
+
+  it("keeps the question on the screen, busy and not dismissable, until the deletion has ended", async () => {
+    const { api } = await renderSidebar({}, ["col-1", "fold-users"]);
+    let finish = () => {};
+    const stored = api.deleteNode.bind(api);
+    const deleteNode = vi.spyOn(api, "deleteNode").mockImplementation(async (id) => {
+      await new Promise<void>((resolve) => (finish = resolve));
+      return stored(id);
+    });
+    await tabs.open(api, "req-list-users");
+    const row = await screen.findByRole("treeitem", { name: "Users" });
+
+    await fireEvent.keyDown(row, { key: "Delete" });
+    const dialog = await screen.findByRole("dialog");
+    const confirm = within(dialog).getByRole<HTMLButtonElement>("button", { name: strings.tree.delete });
+    const cancel = within(dialog).getByRole<HTMLButtonElement>("button", { name: strings.tree.cancel });
+    await fireEvent.click(confirm);
+
+    // The busy state is on the screen before the command starts.
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect(confirm.disabled).toBe(true);
+    expect(cancel.disabled).toBe(true);
+    expect(deleteNode).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(deleteNode).toHaveBeenCalledTimes(1));
+    // Neither Escape nor a second press closes the question or starts a second deletion.
+    await fireEvent.keyDown(window, { key: "Escape" });
+    await fireEvent.click(confirm);
+    await fireEvent.click(cancel);
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(tabs.list).toHaveLength(1);
+
+    finish();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleteNode).toHaveBeenCalledTimes(1);
+    expect(tabs.list).toHaveLength(0);
+    expect(screen.queryByRole("treeitem", { name: "Users" })).toBeNull();
   });
 });
 

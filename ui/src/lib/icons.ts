@@ -49,6 +49,17 @@ export const icons = {
     "M6.5 11h7",
     "M6.5 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
   ],
+  // A keyboard: a row of keys above the space bar.
+  keyboard: [
+    "M3 3.5h10A1.5 1.5 0 0 1 14.5 5v6a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 11V5A1.5 1.5 0 0 1 3 3.5z",
+    "M4.5 6.5h.01",
+    "M6.85 6.5h.01",
+    "M9.15 6.5h.01",
+    "M11.5 6.5h.01",
+    "M5.5 9.5h5",
+  ],
+  // Three quarters of a circle: turned by the button that waits for its command.
+  spinner: ["M14 8a6 6 0 1 1-6-6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /** Name of an icon of the set. */

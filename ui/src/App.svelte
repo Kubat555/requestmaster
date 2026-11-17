@@ -10,6 +10,7 @@
   import RequestEditor from "./components/RequestEditor.svelte";
   import ResponsePanel from "./components/ResponsePanel.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
+  import ShortcutsDialog from "./components/ShortcutsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Splitter from "./components/Splitter.svelte";
   import TabBar from "./components/TabBar.svelte";
@@ -62,12 +63,50 @@
   }
 
   /**
+   * The tabs an item of the menu of the tab `from` closes, some of them (`unsaved`) with unsaved edits, until the
+   * user says whether to close them; `null` — no question on the screen.
+   */
+  let closingMany = $state.raw<{ targets: AnyTab[]; from: AnyTab; unsaved: number } | null>(null);
+
+  /**
+   * An item of the menu of the tab `from` closes `targets`. Without unsaved edits among them they close at once;
+   * otherwise one question is asked about all of them, and nothing closes before the answer.
+   */
+  function requestCloseMany(targets: AnyTab[], from: AnyTab) {
+    const unsaved = targets.filter((tab) => tab.dirty).length;
+    if (unsaved > 0) closingMany = { targets, from, unsaved };
+    else void closeMany(targets, from);
+  }
+
+  /**
+   * Closes the tabs with whatever they hold, each the way a single one is closed: an environment saves what
+   * was waiting for its time first and stays open when that fails. The tab of the menu is shown if it is
+   * still open.
+   */
+  async function closeMany(targets: AnyTab[], from: AnyTab) {
+    for (const tab of targets) {
+      if (tab.kind === "environment" && !(await tab.flush(api))) continue;
+      tabs.close(tab.id);
+    }
+    tabs.activate(from.id);
+  }
+
+  /** The answer to the question about closing several tabs with unsaved edits. */
+  function answerCloseMany(close: boolean) {
+    const question = closingMany;
+    closingMany = null;
+    if (close && question) void closeMany(question.targets, question.from);
+  }
+
+  /**
    * The question asked when the window is closed and something could not be written down: `answer` tells the
    * window whether it may close. `null` — no question on the screen.
    */
   let closeFailed = $state.raw<{ answer: (close: boolean) => void } | null>(null);
   /** The dialog of the application settings is on the screen. */
   let settingsOpen = $state(false);
+  /** The list of the key combinations is on the screen. */
+  let shortcutsOpen = $state(false);
   /** A history entry shows its own response, so its tab takes the area of the response too. */
   const whole = $derived(tabs.active?.kind === "history");
   /** The editor and the response share the area; otherwise there is one cell and nothing to divide. */
@@ -102,6 +141,7 @@
     // Another request came while this one was writing, and has asked already.
     if (closeFailed) return false;
     closing = null;
+    closingMany = null;
     return new Promise((resolve) => (closeFailed = { answer: resolve }));
   }
 
@@ -158,6 +198,7 @@
       focusUrl,
       send: sendActive,
       find,
+      shortcuts: () => (shortcutsOpen = true),
     });
     const removeContextMenuGuard = installContextMenuGuard();
     let stopCloseListening: (() => void) | undefined;
@@ -191,12 +232,13 @@
     <div class="top">
       <section class="tabs" aria-label={strings.tabs.label}>
         {#if tabs.list.length > 0}
-          <TabBar {tabs} onclose={requestClose} />
+          <TabBar {tabs} onclose={requestClose} onclosemany={requestCloseMany} />
         {/if}
       </section>
       <EnvironmentSwitcher {workspace} />
       <LayoutSwitcher {layout} />
       <span class="settings">
+        <IconButton icon="keyboard" label={strings.shortcuts.button} aria-haspopup="dialog" onclick={() => (shortcutsOpen = true)} />
         <IconButton icon="settings" label={strings.settings.button} aria-haspopup="dialog" onclick={() => (settingsOpen = true)} />
       </span>
     </div>
@@ -281,6 +323,18 @@
     </div>
   </Dialog>
 {/if}
+{#if closingMany}
+  <Dialog title={strings.tabs.closeManyTitle} onclose={() => answerCloseMany(false)}>
+    <p class="question">{strings.tabs.closeManyText(closingMany.unsaved)}</p>
+    <div class="dialog-actions">
+      <Button onclick={() => answerCloseMany(true)}>{strings.tabs.closeManyConfirm}</Button>
+      <Button data-initial-focus onclick={() => answerCloseMany(false)}>{strings.tabs.cancel}</Button>
+    </div>
+  </Dialog>
+{/if}
+{#if shortcutsOpen}
+  <ShortcutsDialog onclose={() => (shortcutsOpen = false)} />
+{/if}
 {#if settingsOpen}
   <SettingsDialog onclose={() => (settingsOpen = false)} />
 {/if}
@@ -330,6 +384,7 @@
     align-self: stretch;
   }
 
+  /* The buttons of the dialogs of the window: the key combinations and the settings. */
   .settings {
     flex: none;
     display: flex;

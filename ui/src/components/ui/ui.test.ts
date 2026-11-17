@@ -60,6 +60,42 @@ describe("Button", () => {
   });
 });
 
+describe("Button that is busy", () => {
+  it("cannot be pressed, says so to screen readers and shows the turning mark in the place of its icon", async () => {
+    const onclick = vi.fn();
+    const view = render(Button, { props: { icon: "trash", onclick, children: text("Delete") } });
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete" });
+    expect(button.getAttribute("aria-busy")).toBeNull();
+    expect(button.querySelector(".spinner")).toBeNull();
+    const icon = button.querySelector("svg")!.innerHTML;
+
+    await view.rerender({ icon: "trash", busy: true, onclick, children: text("Delete") });
+    button.click();
+
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.querySelectorAll("svg")).toHaveLength(1);
+    expect(button.querySelector(".spinner svg")!.innerHTML).not.toBe(icon);
+    expect(onclick).not.toHaveBeenCalled();
+
+    await view.rerender({ icon: "trash", busy: false, onclick, children: text("Delete") });
+
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute("aria-busy")).toBeNull();
+    expect(button.querySelector(".spinner")).toBeNull();
+  });
+
+  it("stays disabled after the command when it was disabled anyway", async () => {
+    const view = render(Button, { props: { disabled: true, busy: true, children: text("Delete") } });
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete" });
+    expect(button.disabled).toBe(true);
+
+    await view.rerender({ disabled: true, busy: false, children: text("Delete") });
+
+    expect(button.disabled).toBe(true);
+  });
+});
+
 describe("IconButton", () => {
   it("takes its accessible name from the label", async () => {
     const onclick = vi.fn();

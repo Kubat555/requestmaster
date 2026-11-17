@@ -1,18 +1,27 @@
 <script lang="ts">
   import { tick } from "svelte";
   import IconButton from "./ui/IconButton.svelte";
+  import Menu, { type MenuItem } from "./ui/Menu.svelte";
   import { methodClass, methodLabel, wheelScrollLeft } from "../lib/format";
   import { strings } from "../lib/strings";
-  import { tabPanelId, tabTitleId, type AnyTab, type Tabs } from "../lib/tabs.svelte";
+  import { TAB_MENU_ACTIONS, tabPanelId, tabsToClose, tabTitleId, type AnyTab, type TabMenuAction, type Tabs } from "../lib/tabs.svelte";
   import type { RequestDraft } from "../lib/types";
 
   interface Props {
     tabs: Tabs;
     /** The user asked to close the tab: the cross or the middle mouse button. The owner decides what happens. */
     onclose: (tab: AnyTab) => void;
+    /**
+     * The user chose an item of the menu of the tab `from` that closes several tabs: `targets`, never empty.
+     * The owner decides what happens.
+     */
+    onclosemany: (targets: AnyTab[], from: AnyTab) => void;
   }
 
-  let { tabs, onclose }: Props = $props();
+  let { tabs, onclose, onclosemany }: Props = $props();
+
+  /** Where a menu appears: under an element, or at a point of the window. */
+  type Anchor = HTMLElement | { x: number; y: number };
 
   let bar: HTMLDivElement;
   /**
@@ -20,6 +29,45 @@
    * webview shows the ring after a click on a tab (its own guess about the keyboard), so the bar remembers.
    */
   let pointerFocusedId = $state<string | null>(null);
+  /** The menu of a tab on the screen; `null` — none. */
+  let menu = $state.raw<{ tab: AnyTab; anchor: Anchor } | null>(null);
+
+  /** The items of the menu on the screen; one that would close nothing is not available. */
+  const menuItems = $derived.by<MenuItem[]>(() => {
+    const tab = menu?.tab;
+    if (!tab) return [];
+    return TAB_MENU_ACTIONS.map((action) => ({
+      label: strings.tabs.menuItems[action],
+      disabled: tabsToClose(tabs.list, tab.id, action).length === 0,
+      onselect: () => void tick().then(() => run(tab, action)),
+    }));
+  });
+
+  /**
+   * Shows the menu of the tab. A second request for the menu that is already shown is ignored: the key that
+   * opens the menu may be followed by a `contextmenu` event of its own.
+   */
+  function openMenu(tab: AnyTab, anchor: Anchor) {
+    if (menu?.tab !== tab) menu = { tab, anchor };
+  }
+
+  /**
+   * Does what the item of the menu says. It starts after the menu is gone and the focus is back where it was:
+   * a dialog that appears takes the focus from there, not from the menu being removed. The tabs are the ones
+   * open by then.
+   */
+  function run(tab: AnyTab, action: TabMenuAction) {
+    const targets = tabsToClose(tabs.list, tab.id, action);
+    if (targets.length === 0) return;
+    if (action === "close") onclose(tab);
+    else onclosemany(targets, tab);
+  }
+
+  /** Our menu instead of the one of the webview. */
+  function onContextMenu(event: MouseEvent, tab: AnyTab) {
+    event.preventDefault();
+    openMenu(tab, { x: event.clientX, y: event.clientY });
+  }
 
   // The shown tab is brought into view when another tab is shown and when tabs are added or removed.
   $effect(() => {
@@ -43,8 +91,14 @@
     return tab.kind === "request" ? (tab.draft as RequestDraft).method : null;
   }
 
-  /** The arrows show the neighbouring tab and move the focus to it. */
+  /** The arrows show the neighbouring tab and move the focus to it; the menu key shows the menu of the tab. */
   async function onKeydown(event: KeyboardEvent, index: number) {
+    // The right click of the keyboard: the menu key, or Shift+F10.
+    if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+      event.preventDefault();
+      openMenu(tabs.list[index], event.currentTarget as HTMLElement);
+      return;
+    }
     // From here on the focus is moved by the keyboard: its ring is drawn again.
     if (event.key.startsWith("Arrow") || event.key === "Tab") pointerFocusedId = null;
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -72,7 +126,9 @@
   {#each tabs.list as tab, index (tab.id)}
     {@const active = tabs.active === tab}
     {@const method = methodOf(tab)}
-    <div class="tab" class:active>
+    <!-- The menu is for the pointer here; the keyboard asks for it on the title. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="tab" class:active oncontextmenu={(event) => onContextMenu(event, tab)}>
       <!-- Tab stops at the shown tab only; the arrows go to the others. -->
       <button
         type="button"
@@ -107,6 +163,13 @@
     </div>
   {/each}
 </div>
+
+<!-- Outside the bar: the items of a menu are not tabs of the tab list. -->
+{#if menu}
+  {#key menu}
+    <Menu label={strings.tabs.menu} items={menuItems} anchor={menu.anchor} onclose={() => (menu = null)} />
+  {/key}
+{/if}
 
 <style>
   .tab-bar {

@@ -189,6 +189,25 @@ fn read_subtree(conn: &Connection, root_id: &str) -> Result<Vec<Node>, StoreErro
     Ok(ordered)
 }
 
+/// Ids of the node `root_id` and of all its descendants, found in one pass over the table.
+fn subtree_ids(conn: &Connection, root_id: &str) -> Result<Vec<NodeId>, StoreError> {
+    let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+    let mut statement = conn.prepare("SELECT parent_id, id FROM node WHERE parent_id IS NOT NULL")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        children.entry(row.get(0)?).or_default().push(row.get(1)?);
+    }
+    let mut ids = vec![root_id.to_string()];
+    let mut next = 0;
+    while next < ids.len() {
+        if let Some(own_children) = children.remove(&ids[next]) {
+            ids.extend(own_children);
+        }
+        next += 1;
+    }
+    Ok(ids)
+}
+
 impl Store {
     /// Inserts the nodes in one transaction; used by import. Parents must precede children. A root node
     /// (collection) ignores its own `sort_order` and becomes the last collection.
@@ -318,10 +337,26 @@ impl Store {
 
     /// Deletes the node with its descendants and renumbers the remaining siblings 0..n (one transaction).
     pub fn delete_node(&mut self, id: &str) -> Result<(), StoreError> {
+        // `parent_id` is declared ON DELETE CASCADE, but the table has no index on it: the cascade reads the
+        // whole table once per deleted row, so a folder of 3000 requests took seconds. The descendants are
+        // found here in one pass and deleted by id instead, with the foreign keys switched off meanwhile —
+        // the pragma does nothing inside a transaction, hence it is set around it.
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF")?;
+        let deleted = self.delete_subtree(id);
+        self.conn.execute_batch("PRAGMA foreign_keys = ON")?;
+        deleted
+    }
+
+    /// The transaction of [`Store::delete_node`]; runs with the foreign keys switched off.
+    fn delete_subtree(&mut self, id: &str) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         let (_, parent_id) = kind_and_parent(&tx, id)?;
-        // Descendants go with the node: `parent_id` is declared ON DELETE CASCADE.
-        tx.execute("DELETE FROM node WHERE id = ?1", [id])?;
+        {
+            let mut statement = tx.prepare("DELETE FROM node WHERE id = ?1")?;
+            for node_id in subtree_ids(&tx, id)? {
+                statement.execute([node_id])?;
+            }
+        }
         renumber(&tx, &sibling_ids(&tx, parent_id.as_deref())?)?;
         tx.commit()?;
         Ok(())

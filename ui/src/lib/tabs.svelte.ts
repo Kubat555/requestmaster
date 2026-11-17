@@ -298,6 +298,38 @@ export class HistoryTab implements TabLike {
 /** Any tab of the window. */
 export type AnyTab = Tab | EnvironmentTab | HistoryTab;
 
+/** What the menu of a tab can do. */
+export type TabMenuAction = "close" | "close_others" | "close_right" | "close_saved" | "close_all";
+
+/** The items of the menu of a tab, in their order. */
+export const TAB_MENU_ACTIONS: readonly TabMenuAction[] = ["close", "close_others", "close_right", "close_saved", "close_all"];
+
+/**
+ * The tabs of `list` the item of the menu of the tab `tabId` closes, in the order of the bar; empty when the
+ * item has nothing to close, or there is no such tab. "Saved" are the tabs without unsaved edits, the tab of
+ * the menu among them.
+ */
+export function tabsToClose<T extends { readonly id: string; readonly dirty: boolean }>(
+  list: readonly T[],
+  tabId: string,
+  action: TabMenuAction,
+): T[] {
+  const index = list.findIndex((tab) => tab.id === tabId);
+  if (index < 0) return [];
+  switch (action) {
+    case "close":
+      return [list[index]];
+    case "close_others":
+      return list.filter((tab) => tab.id !== tabId);
+    case "close_right":
+      return list.slice(index + 1);
+    case "close_saved":
+      return list.filter((tab) => !tab.dirty);
+    case "close_all":
+      return [...list];
+  }
+}
+
 /** Content of the kind of the node with every default written out; throws when `content` has another shape. */
 function normalized(kind: NodeDto["kind"], content: NodeContent): TabContent {
   switch (kind) {
@@ -508,7 +540,9 @@ export class Tabs {
    * nothing is left to save them to.
    */
   closeNodes(nodeIds: string[]): void {
-    for (const tab of this.list.filter((candidate) => candidate.nodeId !== null && nodeIds.includes(candidate.nodeId))) this.close(tab.id);
+    // A set: a deleted folder may hold thousands of nodes, and every open tab is looked up among them.
+    const deleted = new Set(nodeIds);
+    for (const tab of this.list.filter((candidate) => candidate.nodeId !== null && deleted.has(candidate.nodeId))) this.close(tab.id);
   }
 
   /** Shows the tab of the node if it is open. */

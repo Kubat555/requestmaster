@@ -4,6 +4,7 @@
 import type { TreeAction } from "../components/TreeMenu.svelte";
 import type { Api } from "./api";
 import { exportToFile } from "./exporting";
+import { painted } from "./paint";
 import { tabs, type AnyTab } from "./tabs.svelte";
 import type { TreeNode } from "./tree";
 import type { Workspace } from "./workspace.svelte";
@@ -12,6 +13,8 @@ import type { Workspace } from "./workspace.svelte";
 export class TreeActions {
   /** The node the user asked to delete, until the question is answered; `null` — no question on the screen. */
   deleting = $state.raw<TreeNode | null>(null);
+  /** The deletion the user confirmed is running: the question waits for it and cannot be answered again. */
+  deletingBusy = $state(false);
   /**
    * The collection the user asked to export while its open tabs have unsaved edits, until the question is
    * answered; `null` — no question on the screen.
@@ -58,18 +61,31 @@ export class TreeActions {
   }
 
   /**
-   * The user confirmed the deletion. The tabs of everything deleted are closed without a question about their
-   * unsaved edits — there is nothing left to save them to; closing stops their sends and releases their
-   * responses. Resolves to the ids of the deleted nodes; `null` — there was no question, or the deletion
-   * failed (already shown as a notification).
+   * The user confirmed the deletion. The question stays on the screen, marked as busy, until the command has
+   * ended. The tabs of everything deleted are closed without a question about their unsaved edits — there is
+   * nothing left to save them to; closing stops their sends and releases their responses. Resolves to the ids
+   * of the deleted nodes; `null` — there was no question, a deletion is already running, or the deletion
+   * failed (already shown as a notification; the question stays).
    */
   async confirmDelete(api: Api): Promise<string[] | null> {
     const node = this.deleting;
-    this.deleting = null;
-    if (!node) return null;
+    if (!node || this.deletingBusy) return null;
+    this.deletingBusy = true;
+    // The question shows that the deletion runs before it starts: a big folder takes a while, and what
+    // follows the command — the tree read again, the tabs closed — holds the window until it is done.
+    await painted();
     const removed = await this.#workspace.deleteNode(api, node.id);
-    if (removed !== null) tabs.closeNodes(removed);
+    this.deletingBusy = false;
+    // A failure leaves the question on the screen, to try again or to cancel.
+    if (removed === null) return null;
+    this.deleting = null;
+    tabs.closeNodes(removed);
     return removed;
+  }
+
+  /** The question about the deletion is dismissed; not while the deletion is running. */
+  cancelDelete(): void {
+    if (!this.deletingBusy) this.deleting = null;
   }
 
   /**

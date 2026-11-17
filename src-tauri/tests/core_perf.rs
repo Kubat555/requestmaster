@@ -117,3 +117,29 @@ fn write_big_collection_file() {
     std::fs::write(&file, serde_json::to_string_pretty(&big_collection(30, 100)).unwrap()).unwrap();
     println!("written: {}", file.display());
 }
+
+/// Imports a synthetic collection and returns how long `delete_node` of the node called `name` takes.
+fn delete_ms(folders: usize, requests_per_folder: usize, name: &str) -> f64 {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_in(&dir);
+    let text = big_collection(folders, requests_per_folder).to_string();
+    let results = core.import_files(vec![ImportFile { name: "big.json".to_string(), text }]);
+    assert_eq!(results[0].error, None);
+    let id = core.tree().unwrap().into_iter().find(|row| row.name == name).unwrap().id;
+
+    let start = Instant::now();
+    core.delete_node(&id).unwrap();
+    let ms = ms_since(start);
+    assert!(core.tree().unwrap().iter().all(|row| row.id != id));
+    ms
+}
+
+/// Unlike the measurements above, this one is telling in a debug build too: it shows whether the deletion
+/// grows with the square of the number of nodes (seconds) or with the number itself (milliseconds).
+#[test]
+#[ignore = "a measurement: run by hand"]
+fn delete_of_3000_requests_report() {
+    // One folder with all the requests, then the whole collection of 30 folders.
+    println!("delete_folder_3000_ms={:.2}", delete_ms(1, 3000, "Folder 000"));
+    println!("delete_collection_3000_ms={:.2}", delete_ms(30, 100, "Synthetic 3000"));
+}

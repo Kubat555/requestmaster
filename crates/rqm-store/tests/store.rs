@@ -102,6 +102,19 @@ fn children(s: &Store, parent: &str) -> Vec<(String, i64)> {
     assert_eq!(s.subtree(&c).unwrap().len(), 3);                 // C, R2, R3
     assert_eq!(children(&s, &c), vec![("R2".into(), 0), ("R3".into(), 1)]);
 }
+#[test] fn delete_removes_every_descendant_and_keeps_the_foreign_keys_on() {
+    let (mut s, [c, f1, f2, r1, r2, r3]) = seeded();
+    s.delete_node(&f1).unwrap();
+    let left: Vec<NodeId> = s.tree().unwrap().into_iter().map(|r| r.id).collect();
+    assert!([&f1, &f2, &r1].iter().all(|id| !left.contains(id)));
+    assert!([&c, &r2, &r3].iter().all(|id| left.contains(id)));
+    assert!(matches!(s.delete_node(&f1), Err(StoreError::NotFound(_))));
+    // After a deletion and after a refused one a node still cannot point at a parent that does not exist.
+    let orphan = Node { id: new_id(), parent_id: Some(f1.clone()), kind: NodeKind::Request, name: "R".into(), sort_order: 0, content: request("GET") };
+    assert!(s.insert_nodes(&[orphan]).is_err());
+    s.delete_node(&c).unwrap();
+    assert!(s.tree().unwrap().is_empty());
+}
 #[test] fn move_rules() {
     let (mut s, [c, f1, f2, r1, r2, r3]) = seeded();
     assert!(matches!(s.move_node(&f1, Some(&f2), 0), Err(StoreError::InvalidMove(_))));   // into own descendant
