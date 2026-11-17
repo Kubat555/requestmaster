@@ -344,6 +344,28 @@ export const strings = {
     },
     resize: "Размер редактора и ответа",
   },
+  /** The application settings: what every send takes. */
+  settings: {
+    /** The button in the row of the tabs. */
+    button: "Настройки",
+    title: "Настройки",
+    timeout: "Таймаут запроса, мс",
+    timeoutNote: "0 — без ограничения",
+    timeoutInvalid: "Целое число от 0 до 3 600 000",
+    verifyTls: "Проверять SSL-сертификаты",
+    verifyTlsNote: "Запрос может переопределить это на вкладке Settings",
+    proxy: "Прокси",
+    proxySystem: "Системный",
+    proxySystemNote: "PAC и WPAD не поддерживаются",
+    proxyOff: "Без прокси",
+    proxyManual: "Вручную",
+    proxyUrl: "Адрес прокси",
+    proxyUrlPlaceholder: "http://host:port",
+    proxyUrlInvalid: "Адрес должен начинаться с http:// или https://",
+    save: "Сохранить",
+    cancel: "Отмена",
+    saved: "Настройки сохранены",
+  },
   toasts: {
     label: "Уведомления",
   },

@@ -18,6 +18,7 @@ import type {
   ScopeVariable,
   SendResult,
   SessionDto,
+  SettingsDto,
   TreeRow,
   VariableRow,
   WindowState,
@@ -111,6 +112,13 @@ export interface Api {
   saveWindowState(state: WindowState): Promise<void>;
   /** Remembers the unsaved draft of the node; `null` forgets it. */
   saveDraft(nodeId: string, content: NodeContent | null): Promise<void>;
+  /** The application settings; the defaults while nothing is saved. */
+  getSettings(): Promise<SettingsDto>;
+  /**
+   * Saves the application settings; they are used from the next send on. A timeout out of range and a manual
+   * proxy address that is not an `http://` or `https://` URL are rejected, and the saved settings stay.
+   */
+  saveSettings(settings: SettingsDto): Promise<void>;
   /**
    * Calls `handler` when the user asks to close the window; the window closes only when the handler answers
    * `true`. Resolves to the function that stops the listening.
@@ -155,6 +163,8 @@ export const tauriApi: Api = {
   loadSession: () => invoke<SessionDto>("load_session"),
   saveWindowState: (state) => invoke<void>("save_window_state", { state }),
   saveDraft: (nodeId, content) => invoke<void>("save_draft", { node_id: nodeId, content }),
+  getSettings: () => invoke<SettingsDto>("get_settings"),
+  saveSettings: (settings) => invoke<void>("save_settings", { settings }),
   // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself
   // unless `preventDefault` was called; nothing has to be called afterwards. It needs the permissions
   // `core:event:allow-listen`, `core:event:allow-unlisten` and `core:window:allow-destroy` of the capability.

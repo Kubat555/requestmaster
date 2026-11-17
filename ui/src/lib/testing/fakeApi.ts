@@ -13,6 +13,7 @@ import {
   type ScopeVariable,
   type SendResult,
   type SessionDto,
+  type SettingsDto,
   type Variable,
   type VariableRow,
   type WindowState,
@@ -42,6 +43,8 @@ export interface FakeSeed {
   history?: StoredHistoryEntry[];
   /** What `loadSession` gives; default — the window of a new database: no tabs, no drafts. */
   session?: SessionDto;
+  /** The saved application settings; default — the ones of a new database. */
+  settings?: SettingsDto;
 }
 
 /** `Api` in memory plus what a test inspects or changes after creation. */
@@ -114,6 +117,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     variables: variablesOf(environment.id),
   }));
   let activeEnvironment = seed.activeEnvironment ?? null;
+  let settings: SettingsDto = structuredClone(seed.settings ?? { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" } });
   const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
   let lastId = 0;
   const newId = () => `new-${++lastId}`;
@@ -369,6 +373,13 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     },
     async saveDraft(nodeId, content) {
       api.draftCalls.push([nodeId, structuredClone(content)]);
+    },
+    async getSettings() {
+      return structuredClone(settings);
+    },
+    // The core checks the values as well; a test of a refusal makes this call reject.
+    async saveSettings(saved) {
+      settings = structuredClone(saved);
     },
     async onCloseRequested(handler) {
       closeHandlers.push(handler);

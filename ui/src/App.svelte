@@ -9,12 +9,14 @@
   import LayoutSwitcher from "./components/LayoutSwitcher.svelte";
   import RequestEditor from "./components/RequestEditor.svelte";
   import ResponsePanel from "./components/ResponsePanel.svelte";
+  import SettingsDialog from "./components/SettingsDialog.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Splitter from "./components/Splitter.svelte";
   import TabBar from "./components/TabBar.svelte";
   import Toasts from "./components/Toasts.svelte";
   import Button from "./components/ui/Button.svelte";
   import EmptyState from "./components/ui/EmptyState.svelte";
+  import IconButton from "./components/ui/IconButton.svelte";
   import type { Api } from "./lib/api";
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { layout, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN } from "./lib/layout.svelte";
@@ -63,6 +65,8 @@
    * window whether it may close. `null` — no question on the screen.
    */
   let closeFailed = $state.raw<{ answer: (close: boolean) => void } | null>(null);
+  /** The dialog of the application settings is on the screen. */
+  let settingsOpen = $state(false);
   /** A history entry shows its own response, so its tab takes the area of the response too. */
   const whole = $derived(tabs.active?.kind === "history");
   /** The editor and the response share the area; otherwise there is one cell and nothing to divide. */
@@ -169,6 +173,9 @@
       </section>
       <EnvironmentSwitcher {workspace} />
       <LayoutSwitcher {layout} />
+      <span class="settings">
+        <IconButton icon="settings" label={strings.settings.button} aria-haspopup="dialog" onclick={() => (settingsOpen = true)} />
+      </span>
     </div>
     <!-- Without tabs the editor takes the whole area and says what to do; there is no response to show.
          The editor always comes first in the markup and the response second, for the keyboard and for screen
@@ -244,6 +251,9 @@
     </div>
   </Dialog>
 {/if}
+{#if settingsOpen}
+  <SettingsDialog onclose={() => (settingsOpen = false)} />
+{/if}
 {#if closeFailed}
   <Dialog title={strings.app.closeFailedTitle} onclose={() => answerCloseFailed(false)}>
     <div class="dialog-actions">
@@ -288,6 +298,12 @@
     flex: 1;
     min-width: 0;
     align-self: stretch;
+  }
+
+  .settings {
+    flex: none;
+    display: flex;
+    margin-right: calc(var(--space) * 2);
   }
 
   .tab-panel {

@@ -38,6 +38,15 @@ export const icons = {
   "panel-top": [FRAME, "M2 6.5h12"],
   // The window that chooses the side by itself: the letter A in the frame.
   "layout-auto": [FRAME, "M5.5 11L8 5l2.5 6", "M6.5 9h3"],
+  // Two sliders with their knobs.
+  settings: [
+    "M2.5 5h7",
+    "M12.5 5h1",
+    "M12.5 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
+    "M2.5 11h1",
+    "M6.5 11h7",
+    "M6.5 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 /** Name of an icon of the set. */

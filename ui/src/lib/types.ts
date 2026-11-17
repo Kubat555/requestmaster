@@ -496,6 +496,18 @@ export interface DraftDto {
   content: NodeContent;
 }
 
+/** The proxy of every send: the one of the system, none, or the one at `url` (`http://` or `https://`). */
+export type ProxyDto = { mode: "system" } | { mode: "off" } | { mode: "manual"; url: string };
+
+/** The application settings: what every send takes. */
+export interface SettingsDto {
+  /** How long a send may take, in milliseconds; 0 — no limit. */
+  timeout_ms: number;
+  /** Whether the certificate of the server is verified, unless the request says otherwise. */
+  verify_tls: boolean;
+  proxy: ProxyDto;
+}
+
 /** What the window remembers between two launches. */
 export interface SessionDto {
   window: WindowState;
