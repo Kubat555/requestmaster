@@ -403,3 +403,20 @@ fn report_items_use_contract_names() {
         assert!(item["detail"].is_string());
     }
 }
+
+#[test]
+fn csp_is_strict() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let security = config["app"]["security"].as_object().unwrap();
+    let csp = security["csp"].as_str().unwrap();
+    assert!(!csp.contains("unsafe-inline"), "{csp}");
+    assert!(!csp.contains("unsafe-eval"), "{csp}");
+    // Each directive is checked whole: `style-src 'self'` followed by anything else would not be strict.
+    let directives: Vec<&str> = csp.split(';').map(str::trim).collect();
+    for wanted in ["style-src 'self'", "frame-src 'none'", "form-action 'none'"] {
+        assert!(directives.contains(&wanted), "{wanted} is not in {csp}");
+    }
+    // Without the key Tauri adds the nonce of the style tag of index.html to `style-src` itself.
+    assert!(!security.contains_key("dangerousDisableAssetCspModification"));
+}

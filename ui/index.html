@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RequestMaster</title>
+    <!-- Tauri puts a nonce on this tag at build time and adds it to style-src; CodeEditor hands the nonce to
+         CodeMirror, whose styles are made by script. The tag must hold a real rule to stay in the built page. -->
+    <style>
+      html { color-scheme: dark; }
+    </style>
   </head>
   <body>
     <div id="app"></div>

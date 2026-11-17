@@ -110,7 +110,24 @@
       "replace all": text.replaceAll,
     });
 
-    return { EditorView, EditorState, Compartment, basicSetup, json, theme, highlight, phrases, variableSupport, openSearchPanel };
+    // The styles of CodeMirror are made by script. The policy of the window allows them only with the nonce that
+    // Tauri puts on the style tag of index.html; without a nonce (tests, a page not served by Tauri) nothing is added.
+    const styleNonce = document.querySelector<HTMLStyleElement>("style[nonce]")?.nonce;
+    const nonce = styleNonce ? EditorView.cspNonce.of(styleNonce) : [];
+
+    return {
+      EditorView,
+      EditorState,
+      Compartment,
+      basicSetup,
+      json,
+      theme,
+      highlight,
+      phrases,
+      nonce,
+      variableSupport,
+      openSearchPanel,
+    };
   }
 </script>
 
@@ -204,6 +221,7 @@
             cm.theme,
             cm.highlight,
             cm.phrases,
+            cm.nonce,
             languageSlot.of(highlighting(cm)),
             readonlySlot.of(cm.EditorState.readOnly.of(readonly)),
             variablesSlot.of(variableSupport(cm)),
