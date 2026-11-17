@@ -40,6 +40,7 @@
     "allow-save-settings",
     "allow-save-response-body",
     "allow-pick-files",
+    "allow-report-timings",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-destroy"

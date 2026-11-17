@@ -558,4 +558,12 @@ export interface SettingsDto {
 export interface SessionDto {
   window: WindowState;
   drafts: DraftDto[];
+  /** Whether the program was started to be measured: the window then reports its timings. */
+  measure: boolean;
+}
+
+/** One measurement of the window: what was measured and how many milliseconds it took. */
+export interface TimingSample {
+  name: string;
+  ms: number;
 }

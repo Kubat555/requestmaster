@@ -21,7 +21,11 @@ export const SIDEBAR_MAX = 480;
 
 /** What a database without a remembered window gives. */
 function emptySession(): SessionDto {
-  return { window: { sidebar_width: SIDEBAR_DEFAULT, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] };
+  return {
+    window: { sidebar_width: SIDEBAR_DEFAULT, placement: "auto", split: 50, tabs: [], active: null },
+    drafts: [],
+    measure: false,
+  };
 }
 
 /** A remembered width of the sidebar within the limits; anything that is not a number is the default. */
@@ -41,6 +45,15 @@ export class Session {
 
   /** What was read at the start; `null` — nothing was read yet. */
   #loaded: SessionDto | null = null;
+
+  /**
+   * Whether the program was started to be measured, as the core told at the start; `false` until
+   * {@link start} has read it and when the reading failed.
+   */
+  get measure(): boolean {
+    return this.#loaded?.measure ?? false;
+  }
+
   /** Changes with every {@link stop}: what was begun before it must not go on after it. */
   #run = 0;
   /** Stops watching for changes; `null` — the watching has not begun. */

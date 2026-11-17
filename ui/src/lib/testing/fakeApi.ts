@@ -14,6 +14,7 @@ import {
   type SendResult,
   type SessionDto,
   type SettingsDto,
+  type TimingSample,
   type Variable,
   type VariableRow,
   type WindowState,
@@ -41,8 +42,11 @@ export interface FakeSeed {
   bodies?: Record<string, Uint8Array>;
   /** Entries of the history, in any order; default — none. A send does not add one: a test does. */
   history?: StoredHistoryEntry[];
-  /** What `loadSession` gives; default — the window of a new database: no tabs, no drafts. */
-  session?: SessionDto;
+  /**
+   * What `loadSession` gives; default — the window of a new database: no tabs, no drafts. Without `measure`
+   * the program is not being measured.
+   */
+  session?: Omit<SessionDto, "measure"> & { measure?: boolean };
   /** The saved application settings; default — the ones of a new database. */
   settings?: SettingsDto;
 }
@@ -65,6 +69,8 @@ export interface FakeApi extends Api {
   windowStates: WindowState[];
   /** What was passed to `saveDraft`, in order: the id of the node and the draft, `null` for a deletion. */
   draftCalls: [string, NodeContent | null][];
+  /** What was passed to `reportTimings`, call by call, in order. */
+  timingCalls: TimingSample[][];
   /**
    * The user asks to close the window: calls what was given to `onCloseRequested` and resolves to whether the
    * window would close.
@@ -162,6 +168,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     filesToPick: [],
     windowStates: [],
     draftCalls: [],
+    timingCalls: [],
 
     async tree() {
       // `sort_order` is the position among the siblings, 0..n, in the order of the seed.
@@ -375,9 +382,10 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       api.history.length = 0;
     },
     async loadSession() {
-      return structuredClone(
-        seed.session ?? { window: { sidebar_width: 280, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] },
-      );
+      return structuredClone({
+        measure: false,
+        ...(seed.session ?? { window: { sidebar_width: 280, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] }),
+      });
     },
     async saveWindowState(state) {
       api.windowStates.push(structuredClone(state));
@@ -391,6 +399,9 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     // The core checks the values as well; a test of a refusal makes this call reject.
     async saveSettings(saved) {
       settings = structuredClone(saved);
+    },
+    async reportTimings(samples) {
+      api.timingCalls.push(structuredClone(samples));
     },
     async onCloseRequested(handler) {
       closeHandlers.push(handler);

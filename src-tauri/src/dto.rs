@@ -502,6 +502,17 @@ pub struct SessionDto {
     pub window: WindowState,
     /// The unsaved drafts of the nodes that still exist, ordered by the id of the node.
     pub drafts: Vec<DraftDto>,
+    /// Whether the window measures itself and reports the timings with `report_timings`.
+    pub measure: bool,
+}
+
+/// One measurement of the window: what was measured and how long it took.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimingSample {
+    /// What was measured: `ready`, or `<event>:<place>` with an optional `:proc` at the end.
+    pub name: String,
+    /// Milliseconds.
+    pub ms: f64,
 }
 
 /// The layout of the window and its open tabs. Stored as JSON under the `window_state` key of `app_state`.

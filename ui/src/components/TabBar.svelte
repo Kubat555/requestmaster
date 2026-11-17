@@ -79,6 +79,7 @@
         class="title"
         class:by-pointer={pointerFocusedId === tab.id}
         role="tab"
+        data-measure="tab"
         id={tabTitleId(tab.id)}
         aria-controls={tabPanelId(tab.id)}
         aria-selected={active}

@@ -190,9 +190,9 @@
       <span bind:this={addAnchor} class="add">
         <IconButton icon="plus" label={strings.tree.add} aria-haspopup="menu" aria-expanded={adding} onclick={() => (adding = !adding)} />
       </span>
-      <Field type="search" icon="search" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
+      <Field type="search" icon="search" data-measure="tree-filter" label={strings.sidebar.filter} placeholder={strings.sidebar.filter} bind:value={workspace.filter} />
     </div>
-    <div class="content">
+    <div class="content" data-measure="tree">
       {#if workspace.rows.length === 0}
         <EmptyState icon="collection" title={strings.sidebar.emptyTitle} text={strings.sidebar.empty} />
       {:else}

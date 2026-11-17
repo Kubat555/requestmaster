@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use requestmaster_lib::dto::{ImportFile, ImportResult, TreeRow};
+use requestmaster_lib::dto::{ImportFile, ImportResult, TimingSample, TreeRow};
 use requestmaster_lib::{AppCore, CoreConfig, COMMANDS};
 use rqm_model::{NodeContent, NodeKind};
 use serde_json::{json, Value};
@@ -15,7 +15,7 @@ const SCHEMA_V20: &str = "https://schema.getpostman.com/json/collection/v2.0.0/c
 /// A core over an in-memory store; the directory must outlive the core.
 fn core() -> (AppCore, TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let core = AppCore::new(CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies"), history_keep: None }).unwrap();
+    let core = AppCore::new(CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies"), history_keep: None, measure_file: None }).unwrap();
     (core, dir)
 }
 
@@ -221,7 +221,7 @@ fn postman_extra_never_reaches_the_window_and_survives_save() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("app.db");
     let core =
-        AppCore::new(CoreConfig { db_path: Some(db_path.clone()), bodies_dir: dir.path().join("bodies"), history_keep: None }).unwrap();
+        AppCore::new(CoreConfig { db_path: Some(db_path.clone()), bodies_dir: dir.path().join("bodies"), history_keep: None, measure_file: None }).unwrap();
     let saved_example = json!([{ "name": "Example", "code": 200, "body": "{\"id\":12345678901234567890}" }]);
     let source = json!({
         "info": { "name": "Demo", "schema": SCHEMA_V21 },
@@ -303,9 +303,10 @@ fn commands_are_listed_everywhere() {
         "save_settings",
         "save_response_body",
         "pick_files",
+        "report_timings",
     ];
     assert_eq!(COMMANDS.iter().copied().collect::<BTreeSet<_>>(), expected.into_iter().collect::<BTreeSet<_>>());
-    assert_eq!(COMMANDS.len(), 36);
+    assert_eq!(COMMANDS.len(), 37);
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join("default.json");
     let capability: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
@@ -419,4 +420,56 @@ fn csp_is_strict() {
     }
     // Without the key Tauri adds the nonce of the style tag of index.html to `style-src` itself.
     assert!(!security.contains_key("dangerousDisableAssetCspModification"));
+}
+
+/// A core over an in-memory store that appends its timings to `<dir>/timings.tsv`.
+fn measuring_core(dir: &TempDir) -> AppCore {
+    AppCore::new(CoreConfig {
+        db_path: None,
+        bodies_dir: dir.path().join("bodies"),
+        history_keep: None,
+        measure_file: Some(dir.path().join("timings.tsv")),
+    })
+    .unwrap()
+}
+
+fn sample(name: &str, ms: f64) -> TimingSample {
+    TimingSample { name: name.to_string(), ms }
+}
+
+#[test]
+fn report_timings_without_a_measure_file_does_nothing() {
+    let (core, dir) = core();
+    assert_eq!(core.report_timings(vec![sample("ready", 812.5)]), Ok(()));
+    let left: Vec<String> =
+        std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(left, ["bodies"], "nothing but the bodies folder is created");
+}
+
+#[test]
+fn report_timings_appends_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = measuring_core(&dir);
+    core.report_timings(vec![sample("ready", 812.5)]).unwrap();
+    core.report_timings(vec![sample("click:tab", 64.0), sample("click:tab:proc", 30.0), sample("keydown:url", 24.0)])
+        .unwrap();
+    let text = std::fs::read_to_string(dir.path().join("timings.tsv")).unwrap();
+    assert_eq!(text, "ready	812.5
+click:tab	64
+click:tab:proc	30
+keydown:url	24
+");
+    assert_eq!(text.lines().count(), 4);
+}
+
+#[test]
+fn load_session_tells_whether_the_timings_are_measured() {
+    let (plain, _plain_dir) = core();
+    assert!(!plain.load_session().unwrap().measure);
+    assert_eq!(as_json(&plain.load_session().unwrap())["measure"], json!(false));
+
+    let dir = tempfile::tempdir().unwrap();
+    let measuring = measuring_core(&dir);
+    assert!(measuring.load_session().unwrap().measure);
+    assert_eq!(as_json(&measuring.load_session().unwrap())["measure"], json!(true));
 }

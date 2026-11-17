@@ -569,6 +569,32 @@ describe("App", () => {
     expect(await first).toBe(true);
   });
 
+  describe("measuring", () => {
+    /** Two frames of the window. */
+    const twoFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it("reports no timings in a usual run", async () => {
+      const api = renderApp();
+      await restored();
+      await twoFrames();
+
+      expect(api.timingCalls).toEqual([]);
+    });
+
+    it("reports `ready` when the core measures", async () => {
+      const api = createFakeApi({
+        session: {
+          window: { sidebar_width: 280, placement: "auto", split: 50, tabs: [], active: null },
+          drafts: [],
+          measure: true,
+        },
+      });
+      render(App, { context: new Map([["api", api]]) });
+
+      await waitFor(() => expect(api.timingCalls).toContainEqual([{ name: "ready", ms: expect.any(Number) }]));
+    });
+  });
+
   it("draws the sidebar as wide as it was remembered", async () => {
     const api = createFakeApi({
       session: { window: { sidebar_width: 320, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] },

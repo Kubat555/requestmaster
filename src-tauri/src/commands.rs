@@ -12,7 +12,7 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::dto::{
     EnvSummary, EnvironmentDto, HistoryEntry, HistoryItem, ImportFile, ImportResult, NodeDto, ScopeVariable,
-    SendResult, SessionDto, SettingsDto, TreeRow, VariableDto, WindowState,
+    SendResult, SessionDto, SettingsDto, TimingSample, TreeRow, VariableDto, WindowState,
 };
 use crate::AppCore;
 
@@ -294,6 +294,12 @@ pub async fn pick_files(window: tauri::WebviewWindow, multiple: bool) -> Result<
         dialog.blocking_pick_file().into_iter().collect()
     };
     chosen.into_iter().map(|file| Ok(chosen_path(file)?.to_string_lossy().into_owned())).collect()
+}
+
+/// Appends the timings the window measured to the measure file; without one does nothing.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn report_timings(core: State<'_, AppCore>, samples: Vec<TimingSample>) -> Result<(), String> {
+    core.report_timings(samples)
 }
 
 /// Asks the user where to save a file named `file_name`; the system window belongs to `window` and stays

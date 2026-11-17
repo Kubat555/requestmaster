@@ -32,6 +32,8 @@ pub struct CoreConfig {
     pub bodies_dir: PathBuf,
     /// How many history entries are kept, the newest ones; `None` = 500.
     pub history_keep: Option<usize>,
+    /// File the timings are appended to; `None` — not measuring.
+    pub measure_file: Option<PathBuf>,
 }
 
 /// Everything the window needs, without any Tauri type. One instance per application.
@@ -42,6 +44,8 @@ pub struct AppCore {
     pub(crate) send: SendState,
     /// How many history entries are kept (see `history.rs`).
     pub(crate) history_keep: usize,
+    /// File the timings are appended to (see `measure.rs`); `None` — not measuring.
+    pub(crate) measure_file: Option<PathBuf>,
 }
 
 impl AppCore {
@@ -62,7 +66,7 @@ impl AppCore {
             .map_err(|error| format!("cannot create the response bodies folder: {error}"))?;
         let send = SendState::new(&store, config.bodies_dir)?;
         let history_keep = config.history_keep.unwrap_or(DEFAULT_HISTORY_KEEP);
-        Ok(AppCore { store: Mutex::new(store), send, history_keep })
+        Ok(AppCore { store: Mutex::new(store), send, history_keep, measure_file: config.measure_file })
     }
 
     /// All nodes without content, ordered by (parent, position).

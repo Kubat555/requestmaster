@@ -20,7 +20,7 @@ fn db_path(dir: &TempDir) -> PathBuf {
 
 /// A core over the database file of `dir`.
 fn open(dir: &TempDir) -> AppCore {
-    AppCore::new(CoreConfig { db_path: Some(db_path(dir)), bodies_dir: dir.path().join("bodies"), history_keep: None })
+    AppCore::new(CoreConfig { db_path: Some(db_path(dir)), bodies_dir: dir.path().join("bodies"), history_keep: None, measure_file: None })
         .unwrap()
 }
 
@@ -111,7 +111,8 @@ fn empty_database_gives_the_default_session() {
         as_json(&session),
         json!({
             "window": { "sidebar_width": 280.0, "placement": "auto", "split": 50.0, "tabs": [], "active": null },
-            "drafts": []
+            "drafts": [],
+            "measure": false
         })
     );
     assert_eq!(raw_get(&db_path(&dir), WINDOW_STATE_KEY), None, "reading writes nothing");

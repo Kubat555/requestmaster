@@ -20,6 +20,7 @@
   import type { Api } from "./lib/api";
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { layout, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN } from "./lib/layout.svelte";
+  import { installMeasure } from "./lib/measure";
   import { canSend } from "./lib/sending.svelte";
   import { session, SIDEBAR_MAX, SIDEBAR_MIN } from "./lib/session.svelte";
   import { strings } from "./lib/strings";
@@ -138,8 +139,17 @@
 
   onMount(() => {
     workspace.onOpen = (id) => void tabs.open(api, id);
+    let unmounted = false;
+    let stopMeasure: (() => void) | undefined;
     // The tabs are restored over the tree that is already read; from then on the changes are written down.
-    void workspace.load(api).then(() => session.open(api));
+    // A program started to be measured reports its timings from here on: `ready` means the window is drawn
+    // and its tabs are back.
+    void workspace
+      .load(api)
+      .then(() => session.open(api))
+      .then(() => {
+        if (!unmounted && session.measure) stopMeasure = installMeasure(api);
+      });
     const removeHotkeys = installHotkeys({
       save: () => void tabs.active?.save(api),
       closeTab: () => {
@@ -150,7 +160,6 @@
       find,
     });
     const removeContextMenuGuard = installContextMenuGuard();
-    let unmounted = false;
     let stopCloseListening: (() => void) | undefined;
     api.onCloseRequested(onCloseRequested).then(
       (stop) => {
@@ -162,6 +171,7 @@
     );
     return () => {
       unmounted = true;
+      stopMeasure?.();
       session.stop();
       removeHotkeys();
       removeContextMenuGuard();

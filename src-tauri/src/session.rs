@@ -23,8 +23,8 @@ impl AppCore {
     ///
     /// A missing or unreadable layout gives the defaults. Tabs of nodes and environments that no longer
     /// exist are left out, and so is the active tab when it was one of them. A draft of a node that no
-    /// longer exists, or one that is not a JSON object, is deleted from the store. The only error is a
-    /// failure of the store itself.
+    /// longer exists, or one that is not a JSON object, is deleted from the store. `measure` tells whether
+    /// the core was started with a file for the timings. The only error is a failure of the store itself.
     pub fn load_session(&self) -> Result<SessionDto, String> {
         let mut store = self.store()?;
         let nodes: HashSet<String> = store.tree().map_err(message)?.into_iter().map(|row| row.id).collect();
@@ -55,7 +55,7 @@ impl AppCore {
                 _ => store.state_delete(&key).map_err(message)?,
             }
         }
-        Ok(SessionDto { window, drafts })
+        Ok(SessionDto { window, drafts, measure: self.measure_file.is_some() })
     }
 
     /// Remembers the layout of the window and its open tabs, as given.

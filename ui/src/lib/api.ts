@@ -19,6 +19,7 @@ import type {
   SendResult,
   SessionDto,
   SettingsDto,
+  TimingSample,
   TreeRow,
   VariableRow,
   WindowState,
@@ -129,6 +130,8 @@ export interface Api {
    * proxy address that is not an `http://` or `https://` URL are rejected, and the saved settings stay.
    */
   saveSettings(settings: SettingsDto): Promise<void>;
+  /** Appends the measurements to the file of timings; a program that is not being measured does nothing. */
+  reportTimings(samples: TimingSample[]): Promise<void>;
   /**
    * Calls `handler` when the user asks to close the window; the window closes only when the handler answers
    * `true`. Resolves to the function that stops the listening.
@@ -177,6 +180,7 @@ export const tauriApi: Api = {
   saveDraft: (nodeId, content) => invoke<void>("save_draft", { node_id: nodeId, content }),
   getSettings: () => invoke<SettingsDto>("get_settings"),
   saveSettings: (settings) => invoke<void>("save_settings", { settings }),
+  reportTimings: (samples) => invoke<void>("report_timings", { samples }),
   // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself
   // unless `preventDefault` was called; nothing has to be called afterwards. It needs the permissions
   // `core:event:allow-listen`, `core:event:allow-unlisten` and `core:window:allow-destroy` of the capability.

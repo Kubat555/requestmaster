@@ -49,7 +49,7 @@
     </div>
   {/if}
   <!-- `data-url-input`: Ctrl+L looks for the field of the shown tab by it. -->
-  <div class="url">
+  <div class="url" data-measure="url">
     <Field
       mono
       variables

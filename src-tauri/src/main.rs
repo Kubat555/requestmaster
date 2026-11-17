@@ -1,13 +1,35 @@
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
+
 use requestmaster_lib::{commands, AppCore, CoreConfig};
 
+/// Environment variable that turns the measuring on: the folder that holds everything of such a run. The
+/// only environment variable the program itself reads.
+const MEASURE_DIR_VAR: &str = "RQM_MEASURE_DIR";
+
 /// The core over the application's database and the folder of response bodies in the temporary directory.
+///
+/// With `RQM_MEASURE_DIR=<folder>` everything lives in that folder instead: the database `app.db`, the
+/// response bodies in `bodies` and the timings in `timings.tsv`. The working database is not opened and the
+/// shared folder of response bodies is not emptied.
 fn create_core() -> Result<AppCore, String> {
-    let db_path = rqm_store::Store::default_path().map_err(|e| e.to_string())?;
-    let bodies_dir = std::env::temp_dir().join("RequestMaster").join("bodies");
-    AppCore::new(CoreConfig { db_path: Some(db_path), bodies_dir, history_keep: None })
+    let config = match std::env::var_os(MEASURE_DIR_VAR).filter(|dir| !dir.is_empty()).map(PathBuf::from) {
+        Some(dir) => CoreConfig {
+            db_path: Some(dir.join("app.db")),
+            bodies_dir: dir.join("bodies"),
+            history_keep: None,
+            measure_file: Some(dir.join("timings.tsv")),
+        },
+        None => CoreConfig {
+            db_path: Some(rqm_store::Store::default_path().map_err(|e| e.to_string())?),
+            bodies_dir: std::env::temp_dir().join("RequestMaster").join("bodies"),
+            history_keep: None,
+            measure_file: None,
+        },
+    };
+    AppCore::new(config)
 }
 
 fn main() {
@@ -54,6 +76,7 @@ fn main() {
                 commands::save_settings,
                 commands::save_response_body,
                 commands::pick_files,
+                commands::report_timings,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

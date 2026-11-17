@@ -447,6 +447,7 @@ describe("Session", () => {
         active: "req-create-user",
       }),
       drafts: [{ node_id: "req-create-user", content: { method: "POST", url: "https://api.example.test/draft" } }],
+      measure: false,
     };
 
     it("opens the remembered tabs with their drafts and writes nothing by itself", async () => {

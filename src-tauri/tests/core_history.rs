@@ -23,7 +23,7 @@ const MIB: usize = 1_048_576;
 /// A core with its bodies in `<dir>/bodies`; the sends do not depend on the system proxy of the machine.
 fn core_with(dir: &TempDir, db_path: Option<PathBuf>, history_keep: Option<usize>) -> AppCore {
     std::env::set_var("NO_PROXY", "127.0.0.1");
-    AppCore::new(CoreConfig { db_path, bodies_dir: dir.path().join("bodies"), history_keep }).unwrap()
+    AppCore::new(CoreConfig { db_path, bodies_dir: dir.path().join("bodies"), history_keep, measure_file: None }).unwrap()
 }
 
 /// A core over an in-memory store; the directory must outlive the core.

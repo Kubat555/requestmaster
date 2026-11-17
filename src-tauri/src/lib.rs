@@ -7,6 +7,7 @@ pub mod core;
 pub mod dto;
 mod export;
 mod history;
+mod measure;
 mod send;
 mod session;
 mod settings;
@@ -56,4 +57,5 @@ pub const COMMANDS: &[&str] = &[
     "save_settings",
     "save_response_body",
     "pick_files",
+    "report_timings",
 ];

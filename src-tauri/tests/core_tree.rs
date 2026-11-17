@@ -12,7 +12,7 @@ const SCHEMA_V21: &str = "https://schema.getpostman.com/json/collection/v2.1.0/c
 /// A core over an in-memory store; the directory must outlive the core.
 fn core() -> (AppCore, TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let config = CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies"), history_keep: None };
+    let config = CoreConfig { db_path: None, bodies_dir: dir.path().join("bodies"), history_keep: None, measure_file: None };
     (AppCore::new(config).unwrap(), dir)
 }
 

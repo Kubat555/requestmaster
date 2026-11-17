@@ -100,7 +100,7 @@
   }
 </script>
 
-<div class="body-editor">
+<div class="body-editor" data-measure="body">
   <div class="bar">
     <select class="select" aria-label={strings.body.kind} value={body.mode} onchange={onKindChosen}>
       {#each EDITABLE as mode (mode)}
