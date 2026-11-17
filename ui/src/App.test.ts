@@ -2,6 +2,7 @@ import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.svelte";
 import { layout } from "./lib/layout.svelte";
+import { session } from "./lib/session.svelte";
 import { strings } from "./lib/strings";
 import { tabs } from "./lib/tabs.svelte";
 import { createFakeApi } from "./lib/testing/fakeApi";
@@ -11,6 +12,12 @@ function renderApp() {
   const api = createFakeApi();
   render(App, { context: new Map([["api", api]]) });
   return api;
+}
+
+/** Waits until the window has restored what was remembered: from then on its changes are written down. */
+async function restored(): Promise<void> {
+  await screen.findByRole("treeitem", { name: /Demo API/ });
+  for (let turn = 0; turn < 20; turn++) await Promise.resolve();
 }
 
 /** Opens the request in a tab and changes its URL, so that the tab has unsaved edits. */
@@ -35,8 +42,9 @@ async function contextMenuPrevented(target: Element): Promise<boolean> {
 afterEach(() => {
   for (const tab of [...tabs.list]) tabs.close(tab.id);
   toasts.items = [];
-  localStorage.clear();
-  layout.load();
+  vi.useRealTimers();
+  session.stop();
+  layout.apply({});
 });
 
 /** Width of the sidebar in pixels as the layout applies it. */
@@ -86,6 +94,7 @@ describe("App", () => {
 
     it("offers the five placements with an icon each and marks the current one", async () => {
       renderApp();
+      await restored();
       await fireEvent.click(screen.getByRole("button", { name: strings.layout.button }));
       const items = within(screen.getByRole("menu", { name: strings.layout.button })).getAllByRole("menuitemradio");
 
@@ -141,19 +150,24 @@ describe("App", () => {
     });
 
     it.each(PLACEMENTS)("remembers the choice for the next window: %s", async (placement) => {
-      await renderWithTab();
+      const api = await renderWithTab();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       await choose(placement);
       await fireEvent.keyDown(divider(), { key: placement === "right" || placement === "left" ? "ArrowLeft" : "ArrowUp" });
       const remembered = split();
       expect(remembered).not.toBe(50);
+      await vi.advanceTimersByTimeAsync(500);
+      vi.useRealTimers();
+      const written = api.windowStates.at(-1)!;
+      expect(written).toMatchObject({ placement, split: remembered });
 
       cleanup();
       // The module forgets: the next window has only what was written down.
       layout.placement = placement === "auto" ? "right" : "auto";
       layout.split = 50;
-      renderApp();
+      render(App, { context: new Map([["api", createFakeApi({ session: { window: written, drafts: [] } })]]) });
 
-      expect(work().dataset.placement).toBe(placement);
+      await waitFor(() => expect(work().dataset.placement).toBe(placement));
       expect(split()).toBe(remembered);
       expect(work().style.getPropertyValue("--editor-share")).toBe(`${remembered}fr`);
       expect(work().style.getPropertyValue("--response-share")).toBe(`${100 - remembered}fr`);
@@ -290,101 +304,131 @@ describe("App", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("asks before the window closes with unsaved edits; Cancel keeps the window", async () => {
+  it("writes the drafts and the state of the window and closes without a question, even with unsaved edits", async () => {
     const api = renderApp();
+    await restored();
     const saveNodeContent = vi.spyOn(api, "saveNodeContent");
     await openAndEdit(api, "req-list-users");
+    // A tab without edits has no draft to write.
+    await tabs.open(api, "req-get-order");
+
+    expect(await api.requestClose()).toBe(true);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(api.draftCalls).toEqual([
+      ["req-list-users", expect.objectContaining({ url: "https://api.example.test/changed/req-list-users" })],
+    ]);
+    expect(api.windowStates).toEqual([
+      {
+        sidebar_width: 280,
+        placement: "auto",
+        split: 50,
+        tabs: [
+          { kind: "node", id: "req-list-users" },
+          { kind: "node", id: "req-get-order" },
+        ],
+        active: "req-get-order",
+      },
+    ]);
+    // The edits stay a draft: nothing is saved to the node, and the tab is still changed.
+    expect(saveNodeContent).not.toHaveBeenCalled();
+    expect(tabs.list[0].dirty).toBe(true);
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("asks when a draft is not written before the window closes; Close without saving closes it", async () => {
+    const api = renderApp();
+    await restored();
+    await openAndEdit(api, "req-list-users");
+    const saveDraft = vi.spyOn(api, "saveDraft").mockRejectedValue("disk is full");
 
     const closed = api.requestClose();
-    const dialog = await screen.findByRole("dialog", { name: strings.app.closeTitle });
+    const dialog = await screen.findByRole("dialog", { name: strings.app.closeFailedTitle });
 
-    expect(within(dialog).getByText(strings.app.closeText(1))).toBeTruthy();
+    expect(strings.app.closeFailedTitle).toBe("Не удалось сохранить состояние. Закрыть всё равно?");
+    expect(saveDraft).toHaveBeenCalledTimes(1);
     expect(within(dialog).getAllByRole("button").map((button) => button.textContent!.trim())).toEqual([
-      strings.app.saveAllAndClose,
       strings.app.closeWithoutSaving,
       strings.app.cancel,
     ]);
+    // Enter right after the question appears closes nothing.
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: strings.app.cancel }));
 
+    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.closeWithoutSaving }));
+
+    expect(await closed).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the window and the edits when the question about a failed write is cancelled", async () => {
+    const api = renderApp();
+    await restored();
+    await openAndEdit(api, "req-list-users");
+    vi.spyOn(api, "saveDraft").mockRejectedValue("disk is full");
+
+    const closed = api.requestClose();
+    const dialog = await screen.findByRole("dialog", { name: strings.app.closeFailedTitle });
     await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.cancel }));
 
     expect(await closed).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(tabs.list).toHaveLength(1);
     expect(tabs.list[0].dirty).toBe(true);
-    expect(saveNodeContent).not.toHaveBeenCalled();
   });
 
-  it("keeps the window when the question is dismissed with Escape", async () => {
+  it("keeps the window when the question about a failed write is dismissed with Escape", async () => {
     const api = renderApp();
+    await restored();
     await openAndEdit(api, "req-list-users");
+    vi.spyOn(api, "saveDraft").mockRejectedValue("disk is full");
 
     const closed = api.requestClose();
-    await screen.findByRole("dialog", { name: strings.app.closeTitle });
+    await screen.findByRole("dialog", { name: strings.app.closeFailedTitle });
     await fireEvent.keyDown(document.body, { key: "Escape" });
 
     expect(await closed).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("closes the window without saving on request", async () => {
-    const api = renderApp();
-    const saveNodeContent = vi.spyOn(api, "saveNodeContent");
-    await openAndEdit(api, "req-list-users");
-
-    const closed = api.requestClose();
-    const dialog = await screen.findByRole("dialog", { name: strings.app.closeTitle });
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.closeWithoutSaving }));
-
-    expect(await closed).toBe(true);
-    expect(saveNodeContent).not.toHaveBeenCalled();
-  });
-
-  it("saves every tab with unsaved edits and then lets the window close", async () => {
-    const api = renderApp();
-    const saveNodeContent = vi.spyOn(api, "saveNodeContent");
-    await openAndEdit(api, "req-list-users");
-    await openAndEdit(api, "req-create-user");
-    // A tab without edits is not saved.
-    await tabs.open(api, "req-get-order");
-
-    const closed = api.requestClose();
-    const dialog = await screen.findByRole("dialog", { name: strings.app.closeTitle });
-    expect(within(dialog).getByText(strings.app.closeText(2))).toBeTruthy();
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.saveAllAndClose }));
-
-    expect(await closed).toBe(true);
-    expect(saveNodeContent.mock.calls.map(([id]) => id)).toEqual(["req-list-users", "req-create-user"]);
-    expect(saveNodeContent).toHaveBeenCalledWith(
-      "req-list-users",
-      expect.objectContaining({ url: "https://api.example.test/changed/req-list-users" }),
-    );
-    expect(tabs.list.some((tab) => tab.dirty)).toBe(false);
-  });
-
-  it("keeps the window open and shows a notification when a save before closing fails", async () => {
-    const api = renderApp();
-    vi.spyOn(api, "saveNodeContent").mockRejectedValue("disk is full");
-    await openAndEdit(api, "req-list-users");
-
-    const closed = api.requestClose();
-    const dialog = await screen.findByRole("dialog", { name: strings.app.closeTitle });
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.saveAllAndClose }));
-
-    expect(await closed).toBe(false);
-    expect((await screen.findByRole("alert")).textContent).toContain("disk is full");
-    expect(screen.queryByRole("dialog")).toBeNull();
     expect(tabs.list[0].dirty).toBe(true);
+  });
+
+  it("asks the same when the state of the window is not written before the window closes", async () => {
+    const api = renderApp();
+    await restored();
+    await tabs.open(api, "req-list-users");
+    const saveWindowState = vi.spyOn(api, "saveWindowState").mockRejectedValue("disk is full");
+
+    const closed = api.requestClose();
+    const dialog = await screen.findByRole("dialog", { name: strings.app.closeFailedTitle });
+
+    expect(saveWindowState).toHaveBeenCalledTimes(1);
+    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.closeWithoutSaving }));
+    expect(await closed).toBe(true);
   });
 
   it("answers a second close request with the same question, not a second dialog", async () => {
     const api = renderApp();
+    await restored();
     await openAndEdit(api, "req-list-users");
+    const saveDraft = vi.spyOn(api, "saveDraft").mockRejectedValue("disk is full");
 
     const first = api.requestClose();
-    await screen.findByRole("dialog", { name: strings.app.closeTitle });
+    await screen.findByRole("dialog", { name: strings.app.closeFailedTitle });
     expect(await api.requestClose()).toBe(false);
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    // The second request wrote nothing: the question is still to be answered.
+    expect(saveDraft).toHaveBeenCalledTimes(1);
 
     await fireEvent.click(screen.getByRole("button", { name: strings.app.closeWithoutSaving }));
     expect(await first).toBe(true);
+  });
+
+  it("draws the sidebar as wide as it was remembered", async () => {
+    const api = createFakeApi({
+      session: { window: { sidebar_width: 320, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] },
+    });
+    render(App, { context: new Map([["api", api]]) });
+
+    await waitFor(() => expect(sidebarWidth()).toBe(320));
+    expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("320");
   });
 });

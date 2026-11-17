@@ -38,7 +38,8 @@ export function installHotkeys(actions: HotkeyActions): () => void {
   };
 
   function handler(event: KeyboardEvent) {
-    // F5 and Ctrl+R (with Shift too) reload the page of the webview, which would drop every unsaved draft.
+    // F5 and Ctrl+R (with Shift too) reload the page of the webview, which would drop the responses and the
+    // edits that are not written down yet.
     const reload = event.key === "F5" || (event.ctrlKey && !event.altKey && letter(event) === "r");
     // AltGr arrives as Ctrl+Alt and types a character, so Alt rules a combination out.
     const action = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey ? byKey[letter(event)] : undefined;
@@ -58,7 +59,8 @@ const KEEPS_CONTEXT_MENU = 'input, textarea, .cm-content, [contenteditable]:not(
 
 /**
  * Cancels the right-click menu of the webview everywhere except text fields, and returns the function that
- * stops it. The menu has a "Reload" item, and a reload of the page drops every unsaved draft.
+ * stops it. The menu has a "Reload" item, and a reload of the page drops the responses and the edits that are
+ * not written down yet.
  */
 export function installContextMenuGuard(): () => void {
   function handler(event: MouseEvent) {

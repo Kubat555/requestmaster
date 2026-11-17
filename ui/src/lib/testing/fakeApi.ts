@@ -6,13 +6,16 @@ import {
   type EnvSummary,
   type HistoryEntry,
   type HistoryItem,
+  type NodeContent,
   type NodeDto,
   type NodeKind,
   type RequestContent,
   type ScopeVariable,
   type SendResult,
+  type SessionDto,
   type Variable,
   type VariableRow,
+  type WindowState,
 } from "../types";
 
 /** An entry of the history as the storage keeps it: whether its request still exists is told by the tree. */
@@ -37,6 +40,8 @@ export interface FakeSeed {
   bodies?: Record<string, Uint8Array>;
   /** Entries of the history, in any order; default — none. A send does not add one: a test does. */
   history?: StoredHistoryEntry[];
+  /** What `loadSession` gives; default — the window of a new database: no tabs, no drafts. */
+  session?: SessionDto;
 }
 
 /** `Api` in memory plus what a test inspects or changes after creation. */
@@ -51,6 +56,10 @@ export interface FakeApi extends Api {
   released: string[];
   /** Entries of the history, in any order; a test may add to them at any time. */
   history: StoredHistoryEntry[];
+  /** What was passed to `saveWindowState`, in order. */
+  windowStates: WindowState[];
+  /** What was passed to `saveDraft`, in order: the id of the node and the draft, `null` for a deletion. */
+  draftCalls: [string, NodeContent | null][];
   /**
    * The user asks to close the window: calls what was given to `onCloseRequested` and resolves to whether the
    * window would close.
@@ -144,6 +153,8 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     cancelled: [],
     released: [],
     history: structuredClone(seed.history ?? []),
+    windowStates: [],
+    draftCalls: [],
 
     async tree() {
       // `sort_order` is the position among the siblings, 0..n, in the order of the seed.
@@ -347,6 +358,17 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     },
     async historyClear() {
       api.history.length = 0;
+    },
+    async loadSession() {
+      return structuredClone(
+        seed.session ?? { window: { sidebar_width: 280, placement: "auto", split: 50, tabs: [], active: null }, drafts: [] },
+      );
+    },
+    async saveWindowState(state) {
+      api.windowStates.push(structuredClone(state));
+    },
+    async saveDraft(nodeId, content) {
+      api.draftCalls.push([nodeId, structuredClone(content)]);
     },
     async onCloseRequested(handler) {
       closeHandlers.push(handler);

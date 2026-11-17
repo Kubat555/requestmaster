@@ -1,7 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Tabs, type Tab } from "./tabs.svelte";
 import { createFakeApi } from "./testing/fakeApi";
-import { normalizeContent, type CollectionDraft, type FolderDraft, type NodeDto, type RequestDraft } from "./types";
+import { toasts } from "./toasts.svelte";
+import {
+  normalizeContent,
+  type CollectionDraft,
+  type FolderDraft,
+  type NodeContent,
+  type NodeDto,
+  type RequestDraft,
+  type SavedTab,
+} from "./types";
+
+// The notifications live in a module; every test starts without them.
+afterEach(() => {
+  toasts.items = [];
+});
 
 /** A collection with a folder and two requests; the first request has a parameter without `enabled`. */
 function nodes(): NodeDto[] {
@@ -286,5 +300,254 @@ describe("Tabs", () => {
 
     tabs.close(a.id);
     expect(tabs.active).toBe(b);
+  });
+});
+
+describe("Tabs.restore", () => {
+  /** The tabs of {@link nodes} that were open: a request, the folder and an environment. */
+  const SAVED: SavedTab[] = [
+    { kind: "node", id: "req-a" },
+    { kind: "node", id: "fold" },
+    { kind: "environment", id: "env-dev" },
+  ];
+
+  /** Three requests in a row, for the cases about a draft of the second one. */
+  const REQUESTS: SavedTab[] = [
+    { kind: "node", id: "req-a" },
+    { kind: "node", id: "req-b" },
+    { kind: "node", id: "req-c" },
+  ];
+
+  function seeded(more: NodeDto[] = []) {
+    return createFakeApi({
+      nodes: [
+        ...nodes(),
+        { id: "req-c", parent_id: "col", kind: "request", name: "C", content: { method: "GET", url: "https://c.test" } },
+        ...more,
+      ],
+      environments: [{ id: "env-dev", name: "Dev" }],
+    });
+  }
+
+  /** Drafts as the storage gives them: any JSON object, whatever its shape. */
+  function drafts(entries: Record<string, unknown>): Map<string, NodeContent> {
+    return new Map(Object.entries(entries)) as Map<string, NodeContent>;
+  }
+
+  it("opens the saved tabs in their order and shows the saved active one", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+
+    await tabs.restore(api, SAVED, new Map(), "fold");
+
+    expect(tabs.list.map((tab) => [tab.kind, tab.id])).toEqual([
+      ["request", "req-a"],
+      ["folder", "fold"],
+      ["environment", "env:env-dev"],
+    ]);
+    expect(tabs.activeId).toBe("fold");
+    expect(tabs.active).toBe(tabs.list[1]);
+    expect(tabs.list.some((tab) => tab.dirty)).toBe(false);
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("shows the first tab when the saved active one is not there", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+    await tabs.restore(api, SAVED, new Map(), "gone");
+    expect(tabs.activeId).toBe("req-a");
+
+    const none = new Tabs();
+    await none.restore(api, SAVED, new Map(), null);
+    expect(none.activeId).toBe("req-a");
+  });
+
+  it("shows an environment tab that was the active one", async () => {
+    const tabs = new Tabs();
+    await tabs.restore(seeded(), SAVED, new Map(), "env:env-dev");
+    expect(tabs.activeId).toBe("env:env-dev");
+  });
+
+  it("reads the nodes one at a time", async () => {
+    const api = seeded();
+    const getNode = api.getNode.bind(api);
+    let running = 0;
+    let most = 0;
+    const spy = vi.spyOn(api, "getNode").mockImplementation(async (id) => {
+      most = Math.max(most, ++running);
+      // Another read started meanwhile would be counted before this one ends.
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      const node = await getNode(id);
+      running--;
+      return node;
+    });
+
+    await new Tabs().restore(api, REQUESTS, new Map(), null);
+
+    expect(spy.mock.calls.map(([id]) => id)).toEqual(["req-a", "req-b", "req-c"]);
+    expect(most).toBe(1);
+  });
+
+  it("leaves out a node and an environment that cannot be read, without a notification", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+    const saved: SavedTab[] = [
+      { kind: "node", id: "gone" },
+      { kind: "node", id: "req-b" },
+      { kind: "environment", id: "env-gone" },
+      { kind: "node", id: "col" },
+    ];
+
+    await tabs.restore(api, saved, new Map(), "gone");
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-b", "col"]);
+    expect(tabs.activeId).toBe("req-b");
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("opens nothing and shows nothing when nothing was saved", async () => {
+    const tabs = new Tabs();
+    await tabs.restore(seeded(), [], new Map(), null);
+    expect(tabs.list).toEqual([]);
+    expect(tabs.activeId).toBeNull();
+  });
+
+  it("opens a tab with a draft as changed and shows the address of the draft", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+    const draft = normalizeContent("request", { method: "GET", url: "https://draft.test" });
+
+    await tabs.restore(api, REQUESTS, drafts({ "req-b": draft }), "req-b");
+
+    const tab = tabs.list[1] as Tab<RequestDraft>;
+    expect(tab.dirty).toBe(true);
+    expect(tab.draft.url).toBe("https://draft.test");
+    expect(tab.draft.method).toBe("GET");
+    // What is stored is still the content of the node.
+    expect(tab.saved.url).toBe("https://b.test");
+    expect(tab.saved.method).toBe("POST");
+    expect(tabs.list[0].dirty).toBe(false);
+    expect(tabs.list[2].dirty).toBe(false);
+    expect(api.draftCalls).toEqual([]);
+  });
+
+  it("does not take a draft that equals the stored content for a change", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+
+    await tabs.restore(api, REQUESTS, drafts({ "req-b": { method: "POST", url: "https://b.test" } }), null);
+
+    expect(tabs.list[1].dirty).toBe(false);
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("normalizes a draft of an older shape and takes the keys it does not have from the node", async () => {
+    const api = seeded([
+      {
+        id: "req-s",
+        parent_id: "col",
+        kind: "request",
+        name: "S",
+        content: { method: "GET", url: "https://s.test", scripts: { test: "check();" }, settings: { max_redirects: 3 } },
+      },
+    ]);
+    const tabs = new Tabs();
+    // Written by a build that knew neither the scripts nor the settings.
+    const same = { method: "GET", url: "https://s.test", query: [], path_variables: [], headers: [], body: { mode: "none" }, auth: null };
+
+    await tabs.restore(api, [{ kind: "node", id: "req-s" }], drafts({ "req-s": same }), null);
+
+    const tab = tabs.list[0] as Tab<RequestDraft>;
+    expect(tab.draft.scripts).toEqual({ pre_request: "", test: "check();" });
+    expect(tab.draft.settings).toEqual({ follow_redirects: null, max_redirects: 3, strict_ssl: null, disable_body_pruning: null });
+    expect(tab.draft.disabled_auto_headers).toEqual([]);
+    expect(tab.dirty).toBe(false);
+
+    const edited = new Tabs();
+    await edited.restore(api, [{ kind: "node", id: "req-s" }], drafts({ "req-s": { ...same, url: "https://old.test" } }), null);
+    const old = edited.list[0] as Tab<RequestDraft>;
+    expect(old.dirty).toBe(true);
+    expect(old.draft.url).toBe("https://old.test");
+    expect(old.draft.scripts).toEqual({ pre_request: "", test: "check();" });
+  });
+
+  it("gives a tab at the end to a draft whose node was not among the saved tabs", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+
+    await tabs.restore(api, [{ kind: "node", id: "req-a" }], drafts({ "req-c": { method: "GET", url: "https://orphan.test" } }), "req-a");
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "req-c"]);
+    const orphan = tabs.list[1] as Tab<RequestDraft>;
+    expect(orphan.dirty).toBe(true);
+    expect(orphan.draft.url).toBe("https://orphan.test");
+    expect(tabs.activeId).toBe("req-a");
+  });
+
+  it.each([
+    ["headers that are not a list", { headers: 5 }],
+    ["a body without its rows", { body: { mode: "url_encoded" } }],
+  ])("drops a draft that cannot be laid over the node: %s", async (_name, broken) => {
+    const api = seeded();
+    const tabs = new Tabs();
+
+    await tabs.restore(api, REQUESTS, drafts({ "req-b": broken }), "req-c");
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "req-b", "req-c"]);
+    const tab = tabs.list[1] as Tab<RequestDraft>;
+    expect(tab.dirty).toBe(false);
+    expect(tab.draft.url).toBe("https://b.test");
+    expect(tab.draft).toEqual(tab.saved);
+    expect(toasts.items).toEqual([]);
+    expect(api.draftCalls).toContainEqual(["req-b", null]);
+    expect(tabs.activeId).toBe("req-c");
+  });
+
+  it("drops a draft of a collection whose variables are not a list", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+    const saved: SavedTab[] = [
+      { kind: "node", id: "req-a" },
+      { kind: "node", id: "col" },
+      { kind: "node", id: "req-c" },
+    ];
+
+    await tabs.restore(api, saved, drafts({ col: { variables: 1 } }), "req-c");
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "col", "req-c"]);
+    const tab = tabs.list[1] as Tab<CollectionDraft>;
+    expect(tab.dirty).toBe(false);
+    expect(tab.draft).toEqual({ auth: null, variables: [], scripts: { pre_request: "", test: "" } });
+    expect(toasts.items).toEqual([]);
+    expect(api.draftCalls).toContainEqual(["col", null]);
+    expect(tabs.activeId).toBe("req-c");
+  });
+
+  it("gives a tab at the end to an orphan draft that cannot be used, and deletes the draft", async () => {
+    const api = seeded();
+    const tabs = new Tabs();
+
+    await tabs.restore(api, [{ kind: "node", id: "req-a" }], drafts({ "req-c": { headers: 5 } }), "req-a");
+
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "req-c"]);
+    const orphan = tabs.list[1] as Tab<RequestDraft>;
+    expect(orphan.dirty).toBe(false);
+    expect(orphan.draft.url).toBe("https://c.test");
+    expect(toasts.items).toEqual([]);
+    expect(api.draftCalls).toEqual([["req-c", null]]);
+  });
+
+  it("goes on when the deletion of a draft that cannot be used fails", async () => {
+    const api = seeded();
+    const saveDraft = vi.spyOn(api, "saveDraft").mockRejectedValue("storage is locked");
+    const tabs = new Tabs();
+
+    await expect(tabs.restore(api, REQUESTS, drafts({ "req-b": { headers: 5 } }), "req-c")).resolves.toBeUndefined();
+
+    expect(saveDraft).toHaveBeenCalledWith("req-b", null);
+    expect(tabs.list.map((tab) => tab.id)).toEqual(["req-a", "req-b", "req-c"]);
+    expect(tabs.list.some((tab) => tab.dirty)).toBe(false);
+    expect(tabs.activeId).toBe("req-c");
+    expect(toasts.items).toEqual([]);
   });
 });

@@ -668,24 +668,59 @@ describe("closing with a pending save", () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the window open and notifies when the save before closing the window fails", async () => {
+  it("notifies and asks whether to close anyway when the save before closing the window fails; Close without saving closes", async () => {
     const api = await openEnvironments();
     const save = vi.spyOn(api, "saveEnvironment").mockRejectedValue("storage is locked");
     await openEditor("Dev");
     useFakeTimers();
     await type(values()[0], "quitting.example.test");
 
-    expect(await api.requestClose()).toBe(false);
+    const closed = api.requestClose();
+    await vi.advanceTimersByTimeAsync(0);
 
+    // The tab says what failed, the window asks what to do about it.
     expect(save).toHaveBeenCalledTimes(1);
     expect(toasts.items).toHaveLength(1);
     expect(toasts.items[0]).toMatchObject({ kind: "error", text: "storage is locked" });
+    const dialog = screen.getByRole("dialog", { name: strings.app.closeFailedTitle });
     expect(tab("Dev")).not.toBeNull();
+
+    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.closeWithoutSaving }));
+    expect(await closed).toBe(true);
   });
 
-  it("asks about the drafts of requests only after the environments are saved", async () => {
+  it("keeps the window and the tab with its edit when the question about the failed save is cancelled", async () => {
     const api = await openEnvironments();
-    const save = vi.spyOn(api, "saveEnvironment");
+    vi.spyOn(api, "saveEnvironment").mockRejectedValue("storage is locked");
+    await openEditor("Dev");
+    useFakeTimers();
+    await type(values()[0], "quitting.example.test");
+
+    const closed = api.requestClose();
+    await vi.advanceTimersByTimeAsync(0);
+    const dialog = screen.getByRole("dialog", { name: strings.app.closeFailedTitle });
+    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.cancel }));
+
+    expect(await closed).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(tab("Dev")).not.toBeNull();
+    expect(values()[0].value).toBe("quitting.example.test");
+    expect(screen.getByText(TEXT.unsaved)).toBeTruthy();
+  });
+
+  it("saves the environments and then writes the drafts of requests, without a question", async () => {
+    const api = await openEnvironments();
+    const order: string[] = [];
+    const saveEnvironment = api.saveEnvironment.bind(api);
+    const saveDraft = api.saveDraft.bind(api);
+    const save = vi.spyOn(api, "saveEnvironment").mockImplementation((...args) => {
+      order.push("saveEnvironment");
+      return saveEnvironment(...args);
+    });
+    vi.spyOn(api, "saveDraft").mockImplementation((...args) => {
+      order.push("saveDraft");
+      return saveDraft(...args);
+    });
     await openEditor("Dev");
     await type(values()[0], "quitting.example.test");
     await tabs.open(api, "req-list-users");
@@ -696,14 +731,12 @@ describe("closing with a pending save", () => {
     });
     await type(url, "https://api.example.test/changed");
 
-    const closed = api.requestClose();
-    const dialog = await screen.findByRole("dialog", { name: strings.app.closeTitle });
+    expect(await api.requestClose()).toBe(true);
 
     expect(save).toHaveBeenCalledTimes(1);
-    // Only the request counts as a tab with unsaved edits.
-    expect(within(dialog).getByText(strings.app.closeText(1))).toBeTruthy();
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.cancel }));
-    expect(await closed).toBe(false);
+    expect(order).toEqual(["saveEnvironment", "saveDraft"]);
+    expect(api.draftCalls).toEqual([["req-list-users", expect.objectContaining({ url: "https://api.example.test/changed" })]]);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("Ctrl+S on the tab of an environment saves its edit at once and never calls saveNodeContent", async () => {

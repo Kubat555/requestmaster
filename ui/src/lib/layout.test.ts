@@ -1,12 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Layout } from "./layout.svelte";
-
-const KEY = "rqm.layout";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  localStorage.clear();
-});
 
 describe("Layout", () => {
   it("starts with the automatic placement and equal shares", () => {
@@ -15,34 +8,26 @@ describe("Layout", () => {
     expect(layout.split).toBe(50);
   });
 
-  it("remembers the placement and the share for the next launch under one key", () => {
+  it("applies the remembered placement and share", () => {
     const layout = new Layout();
-    layout.choose("left");
-    layout.resize(36);
-
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ placement: "left", split: 36 });
-    const next = new Layout();
-    expect(next.placement).toBe("left");
-    expect(next.split).toBe(36);
+    layout.apply({ placement: "left", split: 36 });
+    expect(layout.placement).toBe("left");
+    expect(layout.split).toBe(36);
   });
 
-  it("falls back to the defaults when the stored text is not JSON", () => {
-    localStorage.setItem(KEY, "{not json");
+  it("falls back to the defaults when nothing was remembered", () => {
     const layout = new Layout();
-    expect(layout.placement).toBe("auto");
-    expect(layout.split).toBe(50);
-  });
+    layout.choose("top");
+    layout.resize(30);
 
-  it.each(["null", "42", '"right"', "[]"])("falls back to the defaults when the stored value is %s", (stored) => {
-    localStorage.setItem(KEY, stored);
-    const layout = new Layout();
+    layout.apply({});
     expect(layout.placement).toBe("auto");
     expect(layout.split).toBe(50);
   });
 
   it("takes an unknown placement for the automatic one and keeps the share", () => {
-    localStorage.setItem(KEY, JSON.stringify({ placement: "diagonal", split: 30 }));
     const layout = new Layout();
+    layout.apply({ placement: "diagonal", split: 30 });
     expect(layout.placement).toBe("auto");
     expect(layout.split).toBe(30);
   });
@@ -50,16 +35,16 @@ describe("Layout", () => {
   it.each([
     [5, 20],
     [95, 80],
-  ])("brings a stored share of %d to the limit of %d", (stored, expected) => {
-    localStorage.setItem(KEY, JSON.stringify({ placement: "top", split: stored }));
+  ])("brings a remembered share of %d to the limit of %d", (remembered, expected) => {
     const layout = new Layout();
+    layout.apply({ placement: "top", split: remembered });
     expect(layout.placement).toBe("top");
     expect(layout.split).toBe(expected);
   });
 
-  it("resets a share that is not a number", () => {
-    localStorage.setItem(KEY, JSON.stringify({ placement: "bottom", split: "wide" }));
+  it.each(["wide", null, Number.NaN])("resets a share that is not a number: %s", (split) => {
     const layout = new Layout();
+    layout.apply({ placement: "bottom", split });
     expect(layout.placement).toBe("bottom");
     expect(layout.split).toBe(50);
   });
@@ -72,24 +57,14 @@ describe("Layout", () => {
     expect(layout.split).toBe(80);
   });
 
-  it("works with the defaults when the storage cannot be read", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("denied");
-    });
-    const layout = new Layout();
-    expect(layout.placement).toBe("auto");
-    expect(layout.split).toBe(50);
-  });
-
-  it("still applies a choice when the storage cannot be written", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
+  it("writes nothing to localStorage when the placement is chosen and the share is changed", () => {
     const layout = new Layout();
     layout.choose("right");
     layout.resize(64);
+
     expect(layout.placement).toBe("right");
     expect(layout.split).toBe(64);
+    expect(localStorage.length).toBe(0);
   });
 
   it("turns the automatic placement into a side by the width of the window", () => {

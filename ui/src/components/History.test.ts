@@ -622,18 +622,19 @@ describe("a history entry", () => {
     expect(tabs.list).toEqual([]);
   });
 
-  it("is not counted among the unsaved tabs when the window is closed", async () => {
+  it("is not among the tabs that are remembered when the window is closed", async () => {
     const { api } = await openHistory([entry(1)]);
     await openEntry(1);
     await tabs.open(api, "req-create-user");
     (tabs.active as Tab<RequestDraft>).draft.url += "?edited";
 
-    const closing = api.requestClose();
+    expect(await api.requestClose()).toBe(true);
 
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(strings.app.closeText(1))).toBeTruthy();
-    await fireEvent.click(within(dialog).getByRole("button", { name: strings.app.cancel }));
-    expect(await closing).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(tabs.list.map((tab) => tab.kind)).toEqual(["history", "request"]);
+    expect(api.windowStates).toHaveLength(1);
+    expect(api.windowStates[0].tabs).toEqual([{ kind: "node", id: "req-create-user" }]);
+    expect(api.draftCalls).toEqual([["req-create-user", expect.objectContaining({ url: expect.stringMatching(/\?edited$/) })]]);
   });
 });
 

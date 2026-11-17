@@ -19,6 +19,7 @@
   import { installContextMenuGuard, installHotkeys } from "./lib/hotkeys";
   import { layout, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN } from "./lib/layout.svelte";
   import { canSend } from "./lib/sending.svelte";
+  import { session, SIDEBAR_MAX, SIDEBAR_MIN } from "./lib/session.svelte";
   import { strings } from "./lib/strings";
   import { tabs, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
   import { toasts } from "./lib/toasts.svelte";
@@ -27,14 +28,6 @@
 
   const api = getContext<Api>("api");
 
-  const SIDEBAR_DEFAULT = 280;
-  const SIDEBAR_MIN = 200;
-  const SIDEBAR_MAX = 480;
-
-  let sidebarWidth = $state(SIDEBAR_DEFAULT);
-
-  // What was remembered is read before the first draw, so the window does not open in another layout.
-  layout.load();
   let windowWidth = $state(window.innerWidth);
   /** The area of the editor and the response: the divider counts its way in shares of it. */
   let work = $state<HTMLDivElement>();
@@ -66,11 +59,10 @@
   }
 
   /**
-   * The question asked when the window is closed with unsaved edits: `answer` tells the window whether it may
-   * close. `null` — no question on the screen.
+   * The question asked when the window is closed and something could not be written down: `answer` tells the
+   * window whether it may close. `null` — no question on the screen.
    */
-  let quitting = $state.raw<{ answer: (close: boolean) => void } | null>(null);
-  const dirtyTabs = $derived(tabs.list.filter((tab) => tab.dirty));
+  let closeFailed = $state.raw<{ answer: (close: boolean) => void } | null>(null);
   /** A history entry shows its own response, so its tab takes the area of the response too. */
   const whole = $derived(tabs.active?.kind === "history");
   /** The editor and the response share the area; otherwise there is one cell and nothing to divide. */
@@ -87,38 +79,32 @@
   }
 
   /**
-   * The user asked to close the window. First the environments save what was waiting for its time; a failed
-   * save is shown as a notification (by the tab) and leaves the window open. Then, without unsaved edits the
-   * window closes at once, otherwise after the answer.
+   * The user asked to close the window. First the environments save what was waiting for its time (a failed
+   * save is shown as a notification by the tab), then the drafts of the changed tabs and the state of the
+   * window are written down. When all of that is in the storage, the window closes at once, changed tabs or
+   * not: their drafts come back at the next launch. Otherwise it closes only after the answer.
    */
   async function onCloseRequested(): Promise<boolean> {
+    // The question is already on the screen: this request does not close the window, the answer will.
+    if (closeFailed) return false;
     let saved = true;
     // One after another, and all of them even when one fails.
     for (const tab of [...tabs.list]) {
       if (tab.kind === "environment") saved = (await tab.flush(api)) && saved;
     }
-    if (!saved) return false;
-    if (dirtyTabs.length === 0) return true;
-    // The question is already on the screen: this request does not close the window, the answer will.
-    if (quitting) return false;
+    saved = (await session.flush(api)) && saved;
+    if (saved) return true;
+    // Another request came while this one was writing, and has asked already.
+    if (closeFailed) return false;
     closing = null;
-    return new Promise((resolve) => (quitting = { answer: resolve }));
+    return new Promise((resolve) => (closeFailed = { answer: resolve }));
   }
 
-  /**
-   * The answer to the question about closing the window. "save" writes every tab with unsaved edits; a failed
-   * save is shown as a notification (by the tab) and leaves the window open.
-   */
-  async function answerQuit(choice: "save" | "discard" | "cancel") {
-    const question = quitting;
-    quitting = null;
-    if (!question) return;
-    let close = choice !== "cancel";
-    if (choice === "save") {
-      // One after another: every save re-reads the tree. The rest is saved even when one fails.
-      for (const tab of dirtyTabs) close = (await tab.save(api)) && close;
-    }
-    question.answer(close);
+  /** The answer to the question about closing the window with something not written down. */
+  function answerCloseFailed(close: boolean) {
+    const question = closeFailed;
+    closeFailed = null;
+    question?.answer(close);
   }
 
   function focusUrl() {
@@ -136,7 +122,8 @@
 
   onMount(() => {
     workspace.onOpen = (id) => void tabs.open(api, id);
-    void workspace.load(api);
+    // The tabs are restored over the tree that is already read; from then on the changes are written down.
+    void workspace.load(api).then(() => session.open(api));
     const removeHotkeys = installHotkeys({
       save: () => void tabs.active?.save(api),
       closeTab: () => {
@@ -158,6 +145,7 @@
     );
     return () => {
       unmounted = true;
+      session.stop();
       removeHotkeys();
       removeContextMenuGuard();
       stopCloseListening?.();
@@ -168,10 +156,10 @@
 <svelte:window bind:innerWidth={windowWidth} />
 
 <div class="app">
-  <nav class="sidebar" aria-label={strings.sidebar.label} style:width="{sidebarWidth}px">
+  <nav class="sidebar" aria-label={strings.sidebar.label} style:width="{session.sidebarWidth}px">
     <Sidebar {workspace} />
   </nav>
-  <Splitter bind:value={sidebarWidth} min={SIDEBAR_MIN} max={SIDEBAR_MAX} label={strings.sidebar.resize} />
+  <Splitter bind:value={session.sidebarWidth} min={SIDEBAR_MIN} max={SIDEBAR_MAX} label={strings.sidebar.resize} />
   <main class="main">
     <div class="top">
       <section class="tabs" aria-label={strings.tabs.label}>
@@ -256,13 +244,11 @@
     </div>
   </Dialog>
 {/if}
-{#if quitting}
-  <Dialog title={strings.app.closeTitle} onclose={() => answerQuit("cancel")}>
-    <p class="question">{strings.app.closeText(dirtyTabs.length)}</p>
+{#if closeFailed}
+  <Dialog title={strings.app.closeFailedTitle} onclose={() => answerCloseFailed(false)}>
     <div class="dialog-actions">
-      <Button variant="primary" onclick={() => answerQuit("save")}>{strings.app.saveAllAndClose}</Button>
-      <Button onclick={() => answerQuit("discard")}>{strings.app.closeWithoutSaving}</Button>
-      <Button onclick={() => answerQuit("cancel")}>{strings.app.cancel}</Button>
+      <Button onclick={() => answerCloseFailed(true)}>{strings.app.closeWithoutSaving}</Button>
+      <Button data-initial-focus onclick={() => answerCloseFailed(false)}>{strings.app.cancel}</Button>
     </div>
   </Dialog>
 {/if}

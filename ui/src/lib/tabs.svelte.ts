@@ -9,12 +9,17 @@ import { toasts } from "./toasts.svelte";
 import {
   GLOBALS_ID,
   normalizeContent,
+  type CollectionContent,
   type CollectionDraft,
   type EnvironmentDto,
+  type FolderContent,
   type FolderDraft,
   type HistoryEntry,
+  type NodeContent,
   type NodeDto,
+  type RequestContent,
   type RequestDraft,
+  type SavedTab,
   type VariableRow,
 } from "./types";
 import { bumpVariables } from "./variableScope.svelte";
@@ -76,14 +81,17 @@ export class Tab<C extends TabContent = TabContent> implements TabLike {
   /** The send of the request and its result; the tab of a collection or of a folder never sends. */
   readonly sending = new Sending();
 
-  /** `content` is the normalized content of the node; the tab keeps copies of it. */
-  constructor(node: { id: string; kind: "request" | "collection" | "folder"; name: string }, content: C) {
+  /**
+   * `content` is the normalized content of the node; the tab keeps copies of it. `draft` — the normalized
+   * unsaved draft that was remembered for the node, if there is one: the tab opens with it instead.
+   */
+  constructor(node: { id: string; kind: "request" | "collection" | "folder"; name: string }, content: C, draft?: C) {
     this.id = node.id;
     this.nodeId = node.id;
     this.kind = node.kind;
     this.name = $state(node.name);
     this.saved = $state.raw(structuredClone(content));
-    this.draft = $state(structuredClone(content));
+    this.draft = $state(structuredClone(draft ?? content));
     this.dirty = $derived(!deepEqual(this.draft, this.saved));
   }
 
@@ -278,16 +286,37 @@ export class HistoryTab implements TabLike {
 /** Any tab of the window. */
 export type AnyTab = Tab | EnvironmentTab | HistoryTab;
 
-/** Makes the tab of a node. */
-function createTab(node: NodeDto): Tab {
-  switch (node.kind) {
+/** Content of the kind of the node with every default written out; throws when `content` has another shape. */
+function normalized(kind: NodeDto["kind"], content: NodeContent): TabContent {
+  switch (kind) {
     case "request":
-      return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("request", node.content));
+      return normalizeContent("request", content as RequestContent);
     case "collection":
-      return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("collection", node.content));
+      return normalizeContent("collection", content as CollectionContent);
     case "folder":
-      return new Tab({ id: node.id, kind: node.kind, name: node.name }, normalizeContent("folder", node.content));
+      return normalizeContent("folder", content as FolderContent);
   }
+}
+
+/**
+ * Makes the tab of a node. `draft` — the unsaved draft remembered for the node, in whatever shape it was written:
+ * it is laid over the content of the node, so a key the draft does not have (it was written by a build that
+ * did not know the key) is the one of the node. `draftUsable` is `false` when the draft could not be laid over
+ * and normalized: the tab then holds the content of the node alone.
+ */
+function createTab(node: NodeDto, draft?: NodeContent): { tab: Tab; draftUsable: boolean } {
+  const content = normalized(node.kind, node.content);
+  let restored: TabContent | undefined;
+  let draftUsable = true;
+  if (draft !== undefined) {
+    // Only the draft is guarded: the content of the node comes from the core in the right shape.
+    try {
+      restored = normalized(node.kind, { ...node.content, ...draft } as NodeContent);
+    } catch {
+      draftUsable = false;
+    }
+  }
+  return { tab: new Tab({ id: node.id, kind: node.kind, name: node.name }, content, restored), draftUsable };
 }
 
 /** The tabs of one window. The application uses {@link tabs}; a test may create its own. */
@@ -299,6 +328,11 @@ export class Tabs {
   /** The tab on the screen; `null` when none is open. */
   get active(): AnyTab | null {
     return this.list.find((tab) => tab.id === this.#activeId) ?? null;
+  }
+
+  /** Id of the tab on the screen; `null` when none is open. */
+  get activeId(): string | null {
+    return this.#activeId;
   }
 
   /**
@@ -316,9 +350,67 @@ export class Tabs {
     }
     // The same node may have been opened while this one was being read.
     if (this.#show(nodeId)) return;
-    const tab = createTab(node);
+    const { tab } = createTab(node);
     this.list.push(tab);
     this.#activeId = tab.id;
+  }
+
+  /**
+   * Opens the saved tabs in their order, one after another, without notifications; shows `active` at the end.
+   *
+   * A node or an environment that cannot be read is left out. `drafts` — the remembered unsaved drafts by the
+   * id of their node: the tab of the node opens with its draft, and a draft whose node is not among `saved`
+   * gets a tab at the end. A draft that cannot be laid over the content of its node is dropped — the tab opens
+   * with the stored content — and deleted from the storage; a failure of that deletion is not told either.
+   * When the tab `active` is not there, the first one is shown. A tab that is already open is left as it is.
+   */
+  async restore(api: Api, saved: SavedTab[], drafts: Map<string, NodeContent>, active: string | null): Promise<void> {
+    const orphans = new Map(drafts);
+    let opened = false;
+    for (const { kind, id } of saved) {
+      if (kind === "environment") {
+        opened = (await this.#restoreEnvironment(api, id)) || opened;
+      } else {
+        orphans.delete(id);
+        opened = (await this.#restoreNode(api, id, drafts.get(id))) || opened;
+      }
+    }
+    for (const [id, draft] of orphans) opened = (await this.#restoreNode(api, id, draft)) || opened;
+    // Nothing was opened: whatever is shown now was opened by the user meanwhile.
+    if (opened && !(active !== null && this.activate(active))) this.#activeId = this.list[0].id;
+  }
+
+  /** Opens the node in a tab without showing it; tells whether a tab was added. */
+  async #restoreNode(api: Api, nodeId: string, draft: NodeContent | undefined): Promise<boolean> {
+    const isOpen = () => this.list.some((tab) => tab.nodeId === nodeId);
+    if (isOpen()) return false;
+    let node: NodeDto;
+    try {
+      node = await api.getNode(nodeId);
+    } catch {
+      return false;
+    }
+    if (isOpen()) return false;
+    const { tab, draftUsable } = createTab(node, draft);
+    this.list.push(tab);
+    // Left in the storage, the draft would be dropped again at every launch.
+    if (!draftUsable) await api.saveDraft(nodeId, null).catch(() => {});
+    return true;
+  }
+
+  /** Opens the environment in a tab without showing it; tells whether a tab was added. */
+  async #restoreEnvironment(api: Api, environmentId: string): Promise<boolean> {
+    const isOpen = () => this.list.some((tab) => tab.id === environmentTabId(environmentId));
+    if (isOpen()) return false;
+    let environment: EnvironmentDto;
+    try {
+      environment = await api.getEnvironment(environmentId);
+    } catch {
+      return false;
+    }
+    if (isOpen()) return false;
+    this.list.push(new EnvironmentTab(environment));
+    return true;
   }
 
   /**

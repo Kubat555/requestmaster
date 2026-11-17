@@ -10,9 +10,8 @@ export const strings = {
     seconds: "с",
   },
   app: {
-    closeTitle: "Закрыть приложение?",
-    closeText: (count: number) => `Есть несохранённые изменения во вкладках: ${count}`,
-    saveAllAndClose: "Сохранить всё и закрыть",
+    /** Asked when the window is closed and something could not be written down. */
+    closeFailedTitle: "Не удалось сохранить состояние. Закрыть всё равно?",
     closeWithoutSaving: "Закрыть без сохранения",
     cancel: "Отмена",
   },

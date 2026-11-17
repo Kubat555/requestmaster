@@ -467,3 +467,37 @@ export interface HistoryEntry extends HistoryItem {
   /** Whether the node `node_id` is in the tree now. */
   node_exists: boolean;
 }
+
+/** A tab that was open: of a node (a request, a collection or a folder) or of an environment. */
+export interface SavedTab {
+  kind: "node" | "environment";
+  /** Id of the node or of the environment (`globals` — the global variables). */
+  id: string;
+}
+
+/** The layout of the window and its open tabs, as they are remembered between two launches. */
+export interface WindowState {
+  /** Width of the sidebar in pixels. */
+  sidebar_width: number;
+  /** Side of the editor the response stands on; anything unknown is taken for `auto`. */
+  placement: string;
+  /** Share of the editor in percent. */
+  split: number;
+  /** The open tabs in the order of the tab bar; a tab of a history entry is not remembered. */
+  tabs: SavedTab[];
+  /** Id of the shown tab as the tab bar knows it (`env:` + id for an environment); `null` — none. */
+  active: string | null;
+}
+
+/** The unsaved draft of a node: its content as the editor held it. */
+export interface DraftDto {
+  node_id: string;
+  /** A JSON object; written by any build of the program, so its shape is not guaranteed. */
+  content: NodeContent;
+}
+
+/** What the window remembers between two launches. */
+export interface SessionDto {
+  window: WindowState;
+  drafts: DraftDto[];
+}
