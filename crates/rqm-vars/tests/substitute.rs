@@ -105,3 +105,26 @@ fn sub(res: &Resolver, s: &str) -> (String, Vec<String>) { let o = res.substitut
     assert_eq!(res.entries(), vec![("$guid", "u", Global), ("Mid", "3", Collection), ("alpha", "{{zeta}}", Environment), ("zeta", "1", Global)]);
     assert!(r(&[]).entries().is_empty());
 }
+
+#[test] fn growth_is_bounded_by_one_mebibyte() {
+    // Doubles on every pass: without a bound 19 passes would give 2^19 copies of the token.
+    let res = r(&[(ScopeKind::Global, "a", "{{a}}{{a}}"), (ScopeKind::Global, "big", &"x".repeat(700_000))]);
+    let (text, _) = sub(&res, "{{a}}");
+    assert!(text.len() <= 5 + 1_048_576, "{}", text.len());
+    assert!(text.len() > 500_000, "{}", text.len());
+    assert!(text.split("{{a}}").all(str::is_empty), "only whole tokens are left");
+    // One pass is bounded too: the second value would cross the bound, so its token stays as written.
+    let (text, unresolved) = sub(&res, "{{big}}-{{big}}");
+    assert_eq!(text.len(), 700_000 + "-{{big}}".len());
+    assert!(text.ends_with("x-{{big}}"));
+    assert!(unresolved.is_empty());
+}
+
+#[test] fn a_large_input_is_still_substituted_in_full() {
+    let res = r(&[(ScopeKind::Global, "x", "{{y}}"), (ScopeKind::Global, "y", "v")]);
+    let input = format!("{}{{{{x}}}}", "t".repeat(2 * 1_048_576));
+    let (text, unresolved) = sub(&res, &input);
+    assert_eq!(text.len(), 2 * 1_048_576 + 1);
+    assert!(text.ends_with("tv"));
+    assert!(unresolved.is_empty());
+}

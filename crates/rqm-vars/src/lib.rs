@@ -13,6 +13,10 @@ pub use dynamic::{system_dynamic, DYNAMIC_NAMES};
 /// self-referencing and cyclic variables terminate.
 const MAX_PASSES: usize = 19;
 
+/// How many bytes substitution may add to its input: 1 MiB. A variable that refers to itself several times
+/// (`a` = `{{a}}{{a}}`) doubles the text on every pass; without this bound 19 passes would produce gigabytes.
+const MAX_GROWTH: usize = 1_048_576;
+
 /// Kind of a variable scope, from the widest (`Global`) to the narrowest (`Local`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeKind {
@@ -82,34 +86,45 @@ impl Resolver {
     }
 
     /// `dynamic(name)` is called once per occurrence of `{{$name}}`; `None` leaves the token as is.
+    ///
+    /// The result is never more than [`MAX_GROWTH`] bytes longer than `input`: when the next replacement would
+    /// cross that bound, substitution stops and the tokens not replaced yet stay in the text as written.
     pub fn substitute_with(&self, input: &str, dynamic: &mut dyn FnMut(&str) -> Option<String>) -> Substituted {
         let mut text = input.to_string();
         let mut unresolved = Vec::new();
         // Names already known as not found: such a token stays in the text and is met again on every
         // later pass, but must be neither reported nor passed to `dynamic` twice.
         let mut seen_unresolved = HashSet::new();
+        let limit = input.len().saturating_add(MAX_GROWTH);
         for _ in 0..MAX_PASSES {
-            let next = self.pass(&text, dynamic, &mut unresolved, &mut seen_unresolved);
+            let (next, stopped) = self.pass(&text, limit, dynamic, &mut unresolved, &mut seen_unresolved);
             if next == text {
                 break;
             }
             text = next;
+            if stopped {
+                break;
+            }
         }
         Substituted { text, unresolved }
     }
 
-    /// One pass: replaces every innermost token of `text`, left to right.
+    /// One pass: replaces every innermost token of `text`, left to right. The flag tells that the pass stopped
+    /// early because the next replacement would make the result longer than `limit` bytes; the rest of the
+    /// text is then copied as it is.
     fn pass(
         &self,
         text: &str,
+        limit: usize,
         dynamic: &mut dyn FnMut(&str) -> Option<String>,
         unresolved: &mut Vec<String>,
         seen_unresolved: &mut HashSet<String>,
-    ) -> String {
+    ) -> (String, bool) {
         // Braces are ASCII, so every index used for slicing below is a UTF-8 character boundary.
         let bytes = text.as_bytes();
         let mut out = String::with_capacity(text.len());
         let mut copied = 0; // everything before this index is already in `out`
+        let mut stopped = false;
         let mut i = 0;
         while i + 1 < bytes.len() {
             if bytes[i] != b'{' || bytes[i + 1] != b'{' {
@@ -136,6 +151,13 @@ impl Resolver {
                 };
                 match value {
                     Some(value) => {
+                        // What the result would be at least if this token were replaced: the text up to the
+                        // token, the value, and the rest of the text after the token.
+                        let size = out.len() + (i - copied) + value.len() + (text.len() - token_end);
+                        if size > limit {
+                            stopped = true;
+                            break;
+                        }
                         out.push_str(&text[copied..i]);
                         out.push_str(&value);
                         copied = token_end;
@@ -149,7 +171,7 @@ impl Resolver {
             i = token_end;
         }
         out.push_str(&text[copied..]);
-        out
+        (out, stopped)
     }
 }
 
