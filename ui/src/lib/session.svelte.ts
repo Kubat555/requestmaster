@@ -51,8 +51,8 @@ export class Session {
   /** Counts down to the write of the state of the window. */
   #windowTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Ids of the node tabs that were open when the tabs were looked at last. */
-  #watched = new Set<string>();
+  /** The open tabs of nodes whose drafts are watched, by the id of the node, with what stops the watching. */
+  #watched = new Map<string, { tab: Tab; stop: () => void }>();
   /** Ids of the nodes whose draft is in the storage, or may be: it was written or restored. */
   #stored = new Set<string>();
   /** Ids of the nodes whose tab has edits the storage does not have. */
@@ -148,6 +148,7 @@ export class Session {
     this.#windowWritten = null;
     for (const timer of this.#draftTimers.values()) clearTimeout(timer);
     this.#draftTimers.clear();
+    for (const watched of this.#watched.values()) watched.stop();
     this.#watched.clear();
     this.#stored.clear();
     this.#unwritten.clear();
@@ -205,24 +206,30 @@ export class Session {
    */
   #watchTabs(api: Api): void {
     const open = tabs.list.filter((tab): tab is Tab => tab.nodeId !== null);
-    const ids = new Set(open.map((tab) => tab.nodeId));
-    for (const id of this.#watched) {
-      if (!ids.has(id)) void this.#deleteDraft(api, id);
+    for (const [id, watched] of this.#watched) {
+      if (open.includes(watched.tab)) continue;
+      watched.stop();
+      this.#watched.delete(id);
+      void this.#deleteDraft(api, id);
     }
-    this.#watched = ids;
     for (const tab of open) {
-      let first = true;
-      $effect(() => {
-        this.#watchDraft(api, tab, first);
-        first = false;
+      if (this.#watched.has(tab.nodeId)) continue;
+      // An effect of its own, not a child of this one: it lives as long as the tab, whatever happens to the others.
+      const stop = $effect.root(() => {
+        let first = true;
+        $effect(() => {
+          this.#watchDraft(api, tab, first);
+          first = false;
+        });
       });
+      this.#watched.set(tab.nodeId, { tab, stop });
     }
   }
 
   /**
    * Runs on every edit of the draft of the tab. While the tab is changed, its draft is written when nothing
    * more is edited for a while; when it stops being changed (Ctrl+S, the edits were put back), the stored
-   * draft is deleted at once. `first` — the tab is only being looked at, nothing was edited just now.
+   * draft is deleted at once. `first` — the tab has just got its watching, nothing was edited since.
    */
   #watchDraft(api: Api, tab: Tab, first: boolean): void {
     const id = tab.nodeId;
@@ -232,8 +239,8 @@ export class Session {
     }
     // Reads every field of the draft, so that an edit of any of them comes here.
     $state.snapshot<unknown>(tab.draft);
-    // A changed tab that is looked at again has its write waiting or done; a restored one has its draft stored.
-    if (first && (this.#stored.has(id) || this.#unwritten.has(id))) return;
+    // A restored tab is changed from the start, and its draft is what the storage has.
+    if (first && this.#stored.has(id)) return;
     this.#unwritten.add(id);
     this.#cancelDraftTimer(id);
     this.#draftTimers.set(
