@@ -214,6 +214,41 @@ async fn unconfirmed_file_blocks_send() {
     assert!(result["response"].is_null());
 }
 
+/// The editor of the window writes every key of a part out: `content_type: null`, `enabled`, `postman_extra`.
+#[tokio::test]
+async fn form_data_from_the_window_is_sent() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST")).and(path("/upload")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    let (core, dir) = core();
+    let item = json!({ "name": "Upload", "request": { "method": "POST", "url": { "raw": format!("{}/upload", server.uri()) } } });
+    import_items(&core, json!([item]));
+    let id = id_by_name(&core, "Upload");
+    let file = dir.path().join("picked.txt");
+    std::fs::write(&file, "synthetic file content").unwrap();
+
+    let mut draft = core.get_node(&id).unwrap().content;
+    draft["body"] = json!({ "mode": "form_data", "data": [
+        { "key": "note", "value": { "text": "hello" }, "enabled": true, "content_type": null, "postman_extra": {} },
+        { "key": "attachment", "value": { "files": [{ "path": file.to_str().unwrap(), "confirmed": true }] },
+          "enabled": true, "content_type": null, "postman_extra": {} }
+    ] });
+
+    let result = core.send_request("send-1", &id, Some(draft)).await.unwrap();
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.response.unwrap().status, 200);
+
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1);
+    let content_type = received[0].headers.get("content-type").unwrap().to_str().unwrap();
+    assert!(content_type.starts_with("multipart/form-data; boundary="), "{content_type}");
+    let body = String::from_utf8_lossy(&received[0].body);
+    assert!(body.contains("name=\"note\""), "{body}");
+    assert!(body.contains("hello"), "{body}");
+    assert!(body.contains("name=\"attachment\""), "{body}");
+    assert!(body.contains("filename=\"picked.txt\""), "{body}");
+    assert!(body.contains("synthetic file content"), "{body}");
+}
+
 #[tokio::test]
 async fn cookies_survive_restart() {
     let server = json_server().await;

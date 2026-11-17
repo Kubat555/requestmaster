@@ -59,6 +59,8 @@ export interface FakeApi extends Api {
   released: string[];
   /** Entries of the history, in any order; a test may add to them at any time. */
   history: StoredHistoryEntry[];
+  /** What `pickFiles` resolves to; empty — the user closes the window. A test may replace it at any time. */
+  filesToPick: string[];
   /** What was passed to `saveWindowState`, in order. */
   windowStates: WindowState[];
   /** What was passed to `saveDraft`, in order: the id of the node and the draft, `null` for a deletion. */
@@ -157,6 +159,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     cancelled: [],
     released: [],
     history: structuredClone(seed.history ?? []),
+    filesToPick: [],
     windowStates: [],
     draftCalls: [],
 
@@ -325,6 +328,10 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     async releaseBody(bodyId) {
       api.released.push(bodyId);
       api.bodies.delete(bodyId);
+    },
+    async pickFiles(multiple) {
+      // Like the system window: one file at most unless several were asked for.
+      return multiple ? [...api.filesToPick] : api.filesToPick.slice(0, 1);
     },
     async formatJson(text) {
       // Enough for a test double; the application formats in the core, which keeps every token as written.

@@ -92,6 +92,11 @@ export interface Api {
   copyResponseBody(bodyId: string, pretty: boolean): Promise<string>;
   /** Deletes the stored body; an unknown id is not an error. */
   releaseBody(bodyId: string): Promise<void>;
+  /**
+   * Asks the user for a file of this computer, or for several when `multiple`, with the system window. Resolves
+   * to the full paths; an empty list — the user closed the window.
+   */
+  pickFiles(multiple: boolean): Promise<string[]>;
   /** Re-indents JSON text; rejects when the text is not valid JSON. */
   formatJson(text: string): Promise<string>;
   /**
@@ -156,6 +161,7 @@ export const tauriApi: Api = {
     new Uint8Array(await invoke<ArrayBuffer>("response_body", { body_id: bodyId, pretty })),
   copyResponseBody: (bodyId, pretty) => invoke<string>("copy_response_body", { body_id: bodyId, pretty }),
   releaseBody: (bodyId) => invoke<void>("release_body", { body_id: bodyId }),
+  pickFiles: (multiple) => invoke<string[]>("pick_files", { multiple }),
   formatJson: (text) => invoke<string>("format_json", { text }),
   historyList: (limit, beforeId) => invoke<HistoryItem[]>("history_list", { limit, before_id: beforeId }),
   historyGet: (id) => invoke<HistoryEntry>("history_get", { id }),

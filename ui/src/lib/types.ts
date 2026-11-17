@@ -72,8 +72,8 @@ export interface FormPart {
   value: FormValue;
   /** Absent = `true`. */
   enabled?: boolean;
-  /** Explicit `Content-Type` of the part; absent = chosen automatically. */
-  content_type?: string;
+  /** Explicit `Content-Type` of the part; absent or `null` = chosen automatically. */
+  content_type?: string | null;
   postman_extra?: Extra;
 }
 
@@ -140,8 +140,27 @@ export type ParamRow = Required<Param>;
 /** A variable with every default written out. */
 export type VariableRow = Required<Variable>;
 
-/** A body whose url-encoded rows have every default written out. */
-export type DraftBody = Exclude<Body, { mode: "url_encoded" }> | { mode: "url_encoded"; data: ParamRow[] };
+/** A file of a body with every default written out; `confirmed` is `true` only for a path the system window gave. */
+export type FileRow = Required<FileRef>;
+
+/** Value of a form part whose files have every default written out. */
+export type FormValueRow = { text: string } | { files: FileRow[] };
+
+/** A part of a form-data body with every default written out; `content_type: null` = chosen automatically. */
+export interface FormPartRow {
+  key: string;
+  value: FormValueRow;
+  enabled: boolean;
+  content_type: string | null;
+  postman_extra: Extra;
+}
+
+/** A body whose rows, parts and files have every default written out. */
+export type DraftBody =
+  | Exclude<Body, { mode: "url_encoded" | "form_data" | "binary" }>
+  | { mode: "url_encoded"; data: ParamRow[] }
+  | { mode: "form_data"; data: FormPartRow[] }
+  | { mode: "binary"; data: { file: FileRow | null } };
 
 /** Scripts with both texts written out; an empty text is a script that is absent. */
 export type ScriptsDraft = Required<Scripts>;
@@ -200,16 +219,29 @@ function settingsDraft(settings: RequestSettings | undefined): RequestSettingsDr
   };
 }
 
+function fileRow(file: FileRef): FileRow {
+  return { ...file, confirmed: file.confirmed ?? false };
+}
+
+function formPartRow(part: FormPart): FormPartRow {
+  return {
+    ...part,
+    value: "text" in part.value ? part.value : { files: part.value.files.map(fileRow) },
+    enabled: part.enabled ?? true,
+    content_type: part.content_type ?? null,
+    postman_extra: part.postman_extra ?? {},
+  };
+}
+
 function draftBody(body: Body | undefined): DraftBody {
   if (!body) return { mode: "none" };
   switch (body.mode) {
     case "url_encoded":
       return { mode: "url_encoded", data: body.data.map(paramRow) };
     case "form_data":
-      return {
-        mode: "form_data",
-        data: body.data.map((part) => ({ ...part, enabled: part.enabled ?? true, postman_extra: part.postman_extra ?? {} })),
-      };
+      return { mode: "form_data", data: body.data.map(formPartRow) };
+    case "binary":
+      return { mode: "binary", data: { file: body.data.file ? fileRow(body.data.file) : null } };
     default:
       return body;
   }
@@ -218,7 +250,7 @@ function draftBody(body: Body | undefined): DraftBody {
 /**
  * Writes out every default the core leaves out of the JSON of a node: `enabled: true`, `secret: false`,
  * empty lists, the body "none", `auth: null`, an empty `postman_extra` of a row, empty scripts, `null` for a
- * setting that is not set. Without it a value put back by the user (a checkbox switched off and on) would
+ * setting that is not set, `content_type: null` of a form part, `confirmed: false` of a file. Without it a value put back by the user (a checkbox switched off and on) would
  * differ from the stored content. The core reads the result as it is. Nothing else is touched; the input is
  * not changed.
  */

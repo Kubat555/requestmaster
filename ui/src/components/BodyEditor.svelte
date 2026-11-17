@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { getContext } from "svelte";
+  import { getContext, untrack } from "svelte";
+  import BinaryBodyEditor from "./BinaryBodyEditor.svelte";
   import CodeEditor from "./CodeEditor.svelte";
   import Dialog from "./Dialog.svelte";
+  import FormDataEditor from "./FormDataEditor.svelte";
   import KeyValueTable from "./KeyValueTable.svelte";
   import Button from "./ui/Button.svelte";
   import type { Api } from "../lib/api";
@@ -19,19 +21,38 @@
   const api = getContext<Api>("api");
 
   type Mode = DraftBody["mode"];
-  type RawBody = Extract<DraftBody, { mode: "raw" }>;
-  type FieldsBody = Extract<DraftBody, { mode: "url_encoded" }>;
+  /** A kind whose data the user enters. */
+  type EnteredMode = "raw" | "url_encoded" | "form_data" | "binary";
 
   /** Kinds that can be chosen and edited. */
-  const EDITABLE: Mode[] = ["none", "raw", "url_encoded"];
+  const EDITABLE: Mode[] = ["none", "raw", "url_encoded", "form_data", "binary"];
   const LANGUAGES: RawLanguage[] = ["text", "json", "xml", "html", "javascript"];
 
   /** A kind that is only shown: it stays in the list while the body has it. */
   const readOnly = $derived(!EDITABLE.includes(body.mode));
   /** The kind the user asked for while the body is a read-only one; `null` — no question on the screen. */
   let pending = $state<Mode | null>(null);
-  /** What was typed in the kinds left during this visit, so that switching back does not lose it. */
-  let kept: { raw?: RawBody; url_encoded?: FieldsBody } = {};
+  /** What was entered in the kinds left during this visit, so that switching back does not lose it. */
+  let kept: { [M in EnteredMode]?: Extract<DraftBody, { mode: M }> } = {};
+  /**
+   * The body this editor was given or has set itself. Another one means the body was replaced from outside —
+   * the edits of the tab were thrown away, a draft was restored — and what was kept belongs to the old one.
+   */
+  let known = untrack(() => body);
+
+  function emptyBody(mode: Mode): DraftBody {
+    switch (mode) {
+      case "raw":
+        return { mode, data: { text: "", language: "text" } };
+      case "url_encoded":
+      case "form_data":
+        return { mode, data: [] };
+      case "binary":
+        return { mode, data: { file: null } };
+      default:
+        return { mode: "none" };
+    }
+  }
 
   function onKindChosen(event: Event) {
     const select = event.currentTarget as HTMLSelectElement;
@@ -46,12 +67,15 @@
   }
 
   function setMode(mode: Mode) {
+    if (body !== known) kept = {};
     if (body.mode === "raw") kept.raw = body;
     else if (body.mode === "url_encoded") kept.url_encoded = body;
+    else if (body.mode === "form_data") kept.form_data = body;
+    else if (body.mode === "binary") kept.binary = body;
 
-    if (mode === "raw") body = kept.raw ?? { mode: "raw", data: { text: "", language: "text" } };
-    else if (mode === "url_encoded") body = kept.url_encoded ?? { mode: "url_encoded", data: [] };
-    else body = { mode: "none" };
+    body = (mode === "raw" || mode === "url_encoded" || mode === "form_data" || mode === "binary" ? kept[mode] : undefined) ?? emptyBody(mode);
+    // Read back: what the tab holds now, not the object that was handed to it.
+    known = body;
   }
 
   function confirmReplace() {
@@ -121,25 +145,10 @@
     </div>
   {:else if body.mode === "form_data"}
     <div class="scroll">
-      <table class="parts">
-        <tbody>
-          {#each body.data as part, index (index)}
-            <tr class:off={part.enabled === false}>
-              <th scope="row">{part.key}</th>
-              <td>
-                {#if "text" in part.value}
-                  {part.value.text}
-                {:else}
-                  {strings.body.file}: {part.value.files.map((file) => file.path).join(", ") || strings.body.fileNotChosen}
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      <FormDataEditor bind:parts={body.data} />
     </div>
   {:else if body.mode === "binary"}
-    <p class="value">{strings.body.file}: {body.data.file?.path || strings.body.fileNotChosen}</p>
+    <BinaryBodyEditor bind:file={body.data.file} />
   {:else}
     <div class="scroll">
       <p class="note">{strings.body.graphqlQuery}</p>
@@ -194,42 +203,14 @@
     color: var(--text-muted);
   }
 
-  .empty,
-  .value {
+  .empty {
     margin: 0;
     padding: calc(var(--space) * 2);
   }
 
-  .value,
-  .parts,
   pre {
     font-family: var(--font-mono);
     overflow-wrap: anywhere;
-  }
-
-  .parts {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  .parts th,
-  .parts td {
-    padding: calc(var(--space) * 1.5) calc(var(--space) * 2);
-    border: 1px solid var(--border);
-    font-weight: 400;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  .parts th {
-    width: 30%;
-  }
-
-  .parts .off {
-    color: var(--text-muted);
-  }
-
-  pre {
     margin: calc(var(--space) * 1) 0 calc(var(--space) * 3);
     white-space: pre-wrap;
   }

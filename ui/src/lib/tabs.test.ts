@@ -90,6 +90,61 @@ describe("normalizeContent", () => {
     expect(normalized.scripts).toEqual({ pre_request: "", test: "x" });
   });
 
+  it("writes out the defaults of the parts and of the files of a form-data body", () => {
+    const normalized = normalizeContent("request", {
+      method: "POST",
+      url: "u",
+      body: {
+        mode: "form_data",
+        data: [
+          { key: "note", value: { text: "hello" } },
+          {
+            key: "doc",
+            value: { files: [{ path: "C:/a.txt" }, { path: "C:/b.txt", confirmed: true }] },
+            enabled: false,
+            content_type: "text/plain",
+            postman_extra: { description: "d" },
+          },
+        ],
+      },
+    });
+    expect(normalized.body).toEqual({
+      mode: "form_data",
+      data: [
+        { key: "note", value: { text: "hello" }, enabled: true, content_type: null, postman_extra: {} },
+        {
+          key: "doc",
+          value: {
+            files: [
+              { path: "C:/a.txt", confirmed: false },
+              { path: "C:/b.txt", confirmed: true },
+            ],
+          },
+          enabled: false,
+          content_type: "text/plain",
+          postman_extra: { description: "d" },
+        },
+      ],
+    });
+    expect(normalizeContent("request", normalized)).toEqual(normalized);
+  });
+
+  it("writes out whether the file of a binary body is confirmed", () => {
+    const withFile = normalizeContent("request", { method: "POST", url: "u", body: { mode: "binary", data: { file: { path: "C:/a.bin" } } } });
+    expect(withFile.body).toEqual({ mode: "binary", data: { file: { path: "C:/a.bin", confirmed: false } } });
+    expect(normalizeContent("request", withFile)).toEqual(withFile);
+
+    const picked = normalizeContent("request", {
+      method: "POST",
+      url: "u",
+      body: { mode: "binary", data: { file: { path: "C:/a.bin", confirmed: true } } },
+    });
+    expect(picked.body).toEqual({ mode: "binary", data: { file: { path: "C:/a.bin", confirmed: true } } });
+
+    const empty = normalizeContent("request", { method: "POST", url: "u", body: { mode: "binary", data: { file: null } } });
+    expect(empty.body).toEqual({ mode: "binary", data: { file: null } });
+  });
+
   it("writes out the defaults of a folder and keeps what is set", () => {
     expect(normalizeContent("folder", {})).toEqual({ auth: null, scripts: { pre_request: "", test: "" } });
     const folder = normalizeContent("folder", { auth: { type: "no_auth" }, scripts: { test: "t();" } });

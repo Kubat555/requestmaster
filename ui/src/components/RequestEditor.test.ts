@@ -322,35 +322,55 @@ describe("RequestEditor", () => {
     expect(draft().body).toEqual({ mode: "raw", data: { text: "hello", language: "text" } });
   });
 
-  it("shows a form-data body read-only with a note and asks before replacing it", async () => {
-    const formData: RequestContent = {
+  it("shows a GraphQL body read-only with a note and asks before replacing it", async () => {
+    const graphql: RequestContent = {
       method: "POST",
       url: "u",
-      body: { mode: "form_data", data: [{ key: "avatar", value: { files: [{ path: "C:/pic.png" }] } }, { key: "name", value: { text: "Ann" } }] },
+      body: { mode: "graphql", data: { query: "query { users { id } }", variables: '{ "first": 5 }' } },
     };
-    const { draft } = await openRequest(formData);
+    const { draft } = await openRequest(graphql);
     await showSection(/^Body/);
     const kind = screen.getByRole<HTMLSelectElement>("combobox", { name: strings.body.kind });
 
-    expect(kind.value).toBe("form_data");
+    expect(kind.value).toBe("graphql");
     expect(screen.getByText(strings.body.readOnly)).toBeTruthy();
-    expect(screen.getByText("avatar")).toBeTruthy();
-    expect(screen.getByText("Ann")).toBeTruthy();
+    expect(screen.getByText("query { users { id } }")).toBeTruthy();
+    expect(screen.getByText('{ "first": 5 }')).toBeTruthy();
     // Nothing of the body can be typed into.
-    expect(screen.queryByRole("textbox", { name: strings.table.value })).toBeNull();
+    const panel = screen.getByRole("tabpanel", { name: /^Body/ });
+    expect(within(panel).queryByRole("textbox")).toBeNull();
 
     // Cancel leaves the body and the choice as they were.
     await fireEvent.change(kind, { target: { value: "raw" } });
     let dialog = await screen.findByRole("dialog", { name: strings.body.replaceTitle });
     await fireEvent.click(within(dialog).getByRole("button", { name: strings.body.cancel }));
-    expect(draft().body.mode).toBe("form_data");
-    expect(kind.value).toBe("form_data");
+    expect(draft().body.mode).toBe("graphql");
+    expect(kind.value).toBe("graphql");
     expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
 
     await fireEvent.change(kind, { target: { value: "raw" } });
     dialog = await screen.findByRole("dialog", { name: strings.body.replaceTitle });
     await fireEvent.click(within(dialog).getByRole("button", { name: strings.body.replace }));
     expect(draft().body).toEqual({ mode: "raw", data: { text: "", language: "text" } });
+    expect(screen.queryByText(strings.body.readOnly)).toBeNull();
+  });
+
+  it("edits a form-data body and a binary one without asking", async () => {
+    const formData: RequestContent = {
+      method: "POST",
+      url: "u",
+      body: { mode: "form_data", data: [{ key: "name", value: { text: "Ann" } }] },
+    };
+    const { draft } = await openRequest(formData);
+    await showSection(/^Body/);
+    const kind = screen.getByRole<HTMLSelectElement>("combobox", { name: strings.body.kind });
+
+    expect(kind.value).toBe("form_data");
+    expect(screen.queryByText(strings.body.readOnly)).toBeNull();
+
+    await fireEvent.change(kind, { target: { value: "binary" } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(draft().body).toEqual({ mode: "binary", data: { file: null } });
     expect(screen.queryByText(strings.body.readOnly)).toBeNull();
   });
 
