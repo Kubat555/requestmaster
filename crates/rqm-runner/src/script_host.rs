@@ -15,8 +15,8 @@ use crate::prepare::form_encode;
 enum HostCall {
     /// A script waits for the answer to its request.
     Request(OutgoingRequest, std::sync::mpsc::Sender<Result<ScriptResponse, String>>),
-    /// The scripts of the phase are over.
-    Done(Report),
+    /// The scripts of the phase are over. Boxed: a report is several times larger than a request.
+    Done(Box<Report>),
 }
 
 /// The host the script thread owns: nothing but the sending end of the channel.
@@ -47,7 +47,7 @@ pub(crate) async fn run_job(
     let token = cancel.clone();
     tokio::task::spawn_blocking(move || {
         let report = rqm_script::run_with_host(job, host, &token);
-        let _ = calls.send(HostCall::Done(report));
+        let _ = calls.send(HostCall::Done(Box::new(report)));
     });
     // Until `Done`, not until the channel closes: the host lives in the script thread, and a thread the
     // watchdog gave up on never drops it.
@@ -56,7 +56,7 @@ pub(crate) async fn run_job(
             HostCall::Request(request, reply) => {
                 let _ = reply.send(exchange(engine, request, options, cancel).await);
             }
-            HostCall::Done(report) => return Some(report),
+            HostCall::Done(report) => return Some(*report),
         }
     }
 }

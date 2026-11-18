@@ -286,7 +286,7 @@ pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
             (kind, Vec::new())
         }
         // Until the window learns the kinds of its own for scripts.
-        SendError::Script(_) => (SendErrorKind::Other, Vec::new()),
+        SendError::Script(_) | SendError::Skipped => (SendErrorKind::Other, Vec::new()),
         SendError::Cancelled => (SendErrorKind::Cancelled, Vec::new()),
     };
     SendErrorDto { kind, message, fields }

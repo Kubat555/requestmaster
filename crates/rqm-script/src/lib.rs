@@ -115,6 +115,37 @@ pub enum ResponseBody {
     Bytes(Vec<u8>),
 }
 
+/// The request of the send, as `pm.request` shows it. There is no file in it, and there will be none.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ScriptRequest {
+    pub method: String,
+    /// The address with its query (the query stands before the `#fragment`). Pre-request: as typed,
+    /// variables are not substituted. Test: the address that was sent.
+    pub url: String,
+    pub headers: Vec<ScriptPair>,
+    pub body: ScriptBody,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptPair {
+    pub key: String,
+    pub value: String,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ScriptBody {
+    #[default]
+    None,
+    Raw(String),
+    UrlEncoded(Vec<ScriptPair>),
+    /// The text fields of a form-data body (file parts are left out): a script reads them in the legacy
+    /// `request.data`, sees the mode `formdata` and cannot edit the body.
+    FormData(Vec<ScriptPair>),
+    /// A body a script sees only the mode of and cannot edit: `file`, `graphql`.
+    Other(String),
+}
+
 /// The scripts of one phase of one send, in the order they run.
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -128,6 +159,8 @@ pub struct Job {
     pub variables: Variables,
     /// `Some` only in `Phase::Test`: without it a script has no `pm.response`.
     pub response: Option<ScriptResponse>,
+    /// What `pm.request` shows; what the scripts leave of it comes back in `Report::request`.
+    pub request: ScriptRequest,
 }
 
 impl Job {
@@ -141,6 +174,7 @@ impl Job {
             info: Info::default(),
             variables: Variables::default(),
             response: None,
+            request: ScriptRequest::default(),
         }
     }
 }
@@ -157,6 +191,10 @@ pub struct Report {
     pub changes: Vec<VariableChange>,
     /// What `pm.test` recorded, in the order the tests ran.
     pub tests: Vec<TestResult>,
+    /// The request after the last script that ran; the caller reads it after `Phase::PreRequest` only.
+    pub request: ScriptRequest,
+    /// `pm.execution.skipRequest()` was called; never true in `Phase::Test`.
+    pub skip_request: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

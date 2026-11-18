@@ -9,7 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::prepare::{prepare, prepare_with, unconfirmed_file_fields, PrepareError, Prepared, SendWarning};
 use crate::script_host::script_response;
-use crate::scripts::{nodes_with_scripts, script_steps, ScriptRun};
+use crate::scripts::{
+    edited_request, nodes_with_scripts, script_request, script_steps, sent_request, ScriptRun,
+};
 use crate::{ConsoleLevel, ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptsMode, ScriptsReport, SendInput};
 
 /// Why a send produced no response.
@@ -27,6 +29,9 @@ pub enum SendError {
     /// The send was cancelled while a pre-request script ran.
     #[error("cancelled")]
     Cancelled,
+    /// A pre-request script called `pm.execution.skipRequest()`; nothing was sent.
+    #[error("the request was skipped by a script")]
+    Skipped,
 }
 
 /// Result of [`send`].
@@ -34,7 +39,8 @@ pub enum SendError {
 pub struct SendOutcome {
     /// The response, or why there is none.
     pub result: Result<HttpResponse, SendError>,
-    /// Present on a network error too; empty when nothing was built: a pre-request script or `prepare` failed.
+    /// Present on a network error too; empty when nothing was built: a pre-request script failed or skipped
+    /// the request, or `prepare` failed.
     pub warnings: Vec<SendWarning>,
     /// What was prepared for sending, for the history. `None` when nothing was built.
     pub request: Option<PreparedSummary>,
@@ -79,8 +85,9 @@ impl PreparedSummary {
 }
 
 /// The scripts of `input` (when they are on) and its HTTP request, in the order of Postman: the pre-request
-/// scripts, the request built with the variables they left (dynamic values from the system clock and random
-/// generator), the exchange through `engine`, the test scripts. `cancel` stops a script and the exchange.
+/// scripts, the request built with the variables they left and with what they changed in it (dynamic values
+/// from the system clock and random generator), the exchange through `engine`, the test scripts — they see
+/// the request that was sent. `cancel` stops a script and the exchange.
 pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: CancellationToken) -> SendOutcome {
     let epoch = Instant::now();
     let failed = |error: SendError, scripts: ScriptsReport| SendOutcome {
@@ -111,15 +118,26 @@ pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: Cancellati
         }
     };
 
+    // The input of this send with what the pre-request scripts changed in its request: a copy that is sent
+    // and never stored. `None` — they changed nothing.
+    let mut edited: Option<SendInput> = None;
     if let Some(run) = run.as_mut().filter(|_| !pre.is_empty()) {
-        if let Some(failure) = run.run_phase(engine, &pre, ScriptPhase::PreRequest, None).await {
+        let before = script_request(&input.request);
+        let failure = run.run_phase(engine, &pre, ScriptPhase::PreRequest, None, before.clone()).await;
+        if let Some(failure) = failure {
             let error = match failure.kind {
                 ScriptErrorKind::Cancelled => SendError::Cancelled,
                 _ => SendError::Script(failure),
             };
             return failed(error, std::mem::take(&mut run.report));
         }
+        if run.skip_request {
+            return failed(SendError::Skipped, std::mem::take(&mut run.report));
+        }
+        let after = std::mem::take(&mut run.request);
+        edited = edited_request(&input.request, &before, after).map(|request| SendInput { request, ..input.clone() });
     }
+    let input = edited.as_ref().unwrap_or(input);
 
     let mut dynamic = |name: &str| rqm_vars::system_dynamic(name);
     let prepared = match &run {
@@ -127,13 +145,15 @@ pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: Cancellati
         Some(run) => prepare_with(input, run.variables.resolver(), &mut dynamic),
         None => prepare(input, &mut dynamic),
     };
-    let Prepared { http, warnings: prepare_warnings } = match prepared {
+    let Prepared { http, warnings: prepare_warnings, script_body } = match prepared {
         Ok(prepared) => prepared,
         Err(error) => return failed(error.into(), run.map(|run| run.report).unwrap_or_default()),
     };
     warnings.extend(prepare_warnings);
-    // The engine takes the request by value, so it is described first.
+    // The engine takes the request by value, so it is described first: for the history, and for the test
+    // scripts when there are any to run.
     let request = PreparedSummary::of(&http);
+    let sent = (run.is_some() && !tests.is_empty()).then(|| sent_request(&http, script_body, &input.request));
     let result = engine.send(http, cancel).await.map_err(SendError::from);
     if let Some(run) = run.as_mut() {
         let outcome = match &result {
@@ -147,10 +167,11 @@ pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: Cancellati
     }
     let request = Some(request);
 
-    if let (Some(run), Ok(response)) = (run.as_mut().filter(|_| !tests.is_empty()), &result) {
+    if let (Some(run), Some(sent), Ok(response)) = (run.as_mut(), sent, &result) {
         let response = script_response(response, ResponseBody::File(response.body_path.clone()));
-        // An error of a test script stays in the report: the response is the result all the same.
-        run.run_phase(engine, &tests, ScriptPhase::Test, Some(response)).await;
+        // An error of a test script stays in the report: the response is the result all the same. What the
+        // test scripts do to the request goes nowhere.
+        run.run_phase(engine, &tests, ScriptPhase::Test, Some(response), sent).await;
     }
     SendOutcome { result, warnings, request, scripts: run.map(|run| run.report).unwrap_or_default() }
 }

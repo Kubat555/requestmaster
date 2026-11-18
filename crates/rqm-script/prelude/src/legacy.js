@@ -60,3 +60,81 @@ export function installLegacyResponse(response) {
   });
   lazyGlobal("responseTime", () => data.time);
 }
+
+/** The old `request`: worked out from the request as the script got it. */
+export function installLegacyRequest(request) {
+  lazyGlobal("request", () => request.legacy());
+}
+
+/**
+ * `environment`, `globals`, `data`, `iteration` and the object `postman`. `response` — as `createResponse`
+ * gives it; `undefined` before the request.
+ */
+export function installLegacyVariables(safe, pm, response) {
+  /**
+   * `toObject()` of a scope at the moment the snapshot is first asked for. The object stays here: a script
+   * that puts its own value under the global name does not change what `postman.set…` writes to.
+   */
+  function snapshot(name, scope) {
+    let object;
+    function current() {
+      if (object === undefined) object = scope.toObject();
+      return object;
+    }
+    lazyGlobal(name, current);
+    return current;
+  }
+  const environment = snapshot("environment", pm.environment);
+  const globals = snapshot("globals", pm.globals);
+  lazyGlobal("data", () => ({}));
+  lazyGlobal("iteration", () => 0);
+
+  /** As `postman-sandbox` 6.9.0 does: `toString()` for a truthy value and for `false`; the rest as it is. */
+  function stored(value) {
+    return (value === false || value) && typeof value.toString === "function" ? value.toString() : value;
+  }
+
+  // Each changes the scope and the old object of this script.
+  function setter(scope, object) {
+    return function (key, value) {
+      const kept = stored(value);
+      scope.set(key, kept);
+      put(object(), key, kept);
+    };
+  }
+  function unsetter(scope, object) {
+    return function (key) {
+      scope.unset(key);
+      delete object()[key];
+    };
+  }
+  function clearer(scope, object) {
+    return function () {
+      scope.clear();
+      const kept = object();
+      const names = safe.keys(kept);
+      for (let i = 0; i < names.length; i++) delete kept[names[i]];
+    };
+  }
+
+  globalThis.postman = {
+    setEnvironmentVariable: setter(pm.environment, environment),
+    getEnvironmentVariable(key) {
+      return pm.environment.get(key);
+    },
+    clearEnvironmentVariable: unsetter(pm.environment, environment),
+    clearEnvironmentVariables: clearer(pm.environment, environment),
+    setGlobalVariable: setter(pm.globals, globals),
+    getGlobalVariable(key) {
+      return pm.globals.get(key);
+    },
+    clearGlobalVariable: unsetter(pm.globals, globals),
+    clearGlobalVariables: clearer(pm.globals, globals),
+    /** The case of the name does not matter; before the request there is no response. */
+    getResponseHeader(name) {
+      return response === undefined ? undefined : response.api.headers.get(name);
+    },
+    /** Only a collection run has a next request. */
+    setNextRequest() {},
+  };
+}

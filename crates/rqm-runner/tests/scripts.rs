@@ -506,3 +506,202 @@ async fn big_answer_of_a_script_request() {
     assert_eq!(logged(&outcome.scripts), ["response body is larger than 10 MB and is not available to scripts"]);
     assert_eq!(outcome.result.as_ref().unwrap().status, 200);
 }
+
+// ---- pm.request: what a pre-request script changes is sent; a test script sees what was sent ----
+
+fn row(key: &str, value: &str, enabled: bool) -> Param {
+    Param { key: key.into(), value: value.into(), enabled, postman_extra: Extra::new() }
+}
+/// A server that answers 200 to everything.
+async fn any_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any()).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    server
+}
+/// The only request the server got.
+async fn the_request(server: &MockServer) -> wiremock::Request {
+    let mut received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1, "{received:?}");
+    received.remove(0)
+}
+/// The tree with the collection variables `host` = the server, `id` = `7`, `token` = `T-1` and no scripts
+/// but those of the request.
+fn tree_of(server: &MockServer, request: RequestContent) -> Tree {
+    let variables = vec![var("host", &server.uri()), var("id", "7"), var("token", "T-1")];
+    tree(variables, Scripts::default(), Scripts::default(), Scripts::default(), request)
+}
+fn set_collection_auth(tree: &mut Tree, auth: Auth) {
+    let NodeContent::Collection(mut content) = tree.store.node(&tree.col).unwrap().content else { panic!() };
+    content.auth = Some(auth);
+    tree.store.update_content(&tree.col, &NodeContent::Collection(content)).unwrap();
+}
+fn json_body(text: &str) -> Body {
+    Body::Raw { text: text.into(), language: RawLanguage::Json }
+}
+
+#[tokio::test]
+async fn pre_request_changes_the_request_that_is_sent() {
+    let server = any_server().await;
+    let pre = "pm.request.headers.add({ key: 'X-Sig', value: 'abc' }); pm.variables.set('stamp', '42');\n\
+        pm.request.url.query.add({ key: 'ts', value: '{{stamp}}' });\n\
+        pm.request.body.raw = JSON.stringify({ n: 1 }); pm.request.method = 'PUT';";
+    let stored = get("{{host}}/x", scripts(pre, ""));
+    let tree = tree_of(&server, stored.clone());
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200);
+    let received = the_request(&server).await;
+    assert_eq!((received.method.as_str(), received.url.path(), received.url.query()), ("PUT", "/x", Some("ts=42")));
+    assert_eq!(received.headers.get("X-Sig").unwrap(), "abc");
+    assert_eq!(String::from_utf8_lossy(&received.body), "{\"n\":1}");
+    // The history is told the same.
+    let summary = outcome.request.as_ref().unwrap();
+    assert_eq!((summary.method.as_str(), summary.url.as_str()), ("PUT", format!("{}/x?ts=42", server.uri()).as_str()));
+    assert!(summary.headers.contains(&("X-Sig".to_string(), "abc".to_string())), "{:?}", summary.headers);
+    assert_eq!(summary.body.as_deref(), Some("{\"n\":1}"));
+    // Only this send was changed: the stored request is as it was.
+    assert_eq!(tree.store.node(&tree.req).unwrap().content, NodeContent::Request(stored));
+}
+
+#[tokio::test]
+async fn query_rows_of_the_model_reach_the_script() {
+    let server = any_server().await;
+    let mut request = get("{{host}}/x", scripts("console.log(pm.request.url.getQueryString())", ""));
+    request.query = vec![row("a", "1", true), row("b", "2", false)];
+    let tree = tree_of(&server, request);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(texts(&outcome.scripts), ["a=1"]);
+    assert_eq!(the_request(&server).await.url.query(), Some("a=1"));
+}
+
+#[tokio::test]
+async fn query_stands_before_the_fragment_and_stays_encoded() {
+    let server = any_server().await;
+    let pre = "console.log(pm.request.url.getQueryString(), pm.request.url.toString().endsWith('#frag'));\n\
+        pm.request.url.query.add({ key: 'x', value: '1' })";
+    let mut request = get("{{host}}/x#frag", scripts(pre, ""));
+    request.query = vec![row("q", "{{v}}", true)];
+    let mut tree = tree_of(&server, request);
+    let NodeContent::Collection(mut content) = tree.store.node(&tree.col).unwrap().content else { panic!() };
+    content.variables.push(var("v", "a&b c"));
+    tree.store.update_content(&tree.col, &NodeContent::Collection(content)).unwrap();
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    // The script sees the variable as typed; its value is encoded when the request is built.
+    assert_eq!(texts(&outcome.scripts), ["q={{v}} true"]);
+    let received = the_request(&server).await;
+    assert_eq!((received.url.path(), received.url.query()), ("/x", Some("q=a%26b%20c&x=1")));
+}
+
+#[tokio::test]
+async fn literal_query_characters_survive_a_script_edit() {
+    let server = any_server().await;
+    let pre = "console.log(pm.request.url.query.count()); pm.request.url.query.add({ key: 'ts', value: '1' })";
+    let mut request = get("{{host}}/x", scripts(pre, ""));
+    request.query = vec![row("k", "a&b#c", true), row("m=n", "1", true)];
+    let tree = tree_of(&server, request);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(texts(&outcome.scripts), ["2"]);
+    // What goes out without the script, and `ts` after it.
+    assert_eq!(the_request(&server).await.url.query(), Some("k=a%26b%23c&m%3Dn=1&ts=1"));
+}
+
+#[tokio::test]
+async fn api_key_in_the_query_still_replaces_the_row() {
+    let server = any_server().await;
+    let mut request = get("{{host}}/x", scripts("pm.request.url.query.add({ key: 'ts', value: '1' })", ""));
+    request.query = vec![row("key", "old", true)];
+    let mut tree = tree_of(&server, request);
+    let auth = Auth::ApiKey { key: "key".into(), value: "secret".into(), placement: ApiKeyPlacement::Query };
+    set_collection_auth(&mut tree, auth);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    // One parameter `key`, and it is the one of the authorization.
+    assert_eq!(the_request(&server).await.url.query(), Some("ts=1&key=secret"));
+}
+
+#[tokio::test]
+async fn test_script_sees_the_sent_request_and_cannot_change_it() {
+    let server = any_server().await;
+    let test = "console.log(pm.request.headers.get('X-P'), pm.request.url.toString().startsWith('http://127.0.0.1'),\n\
+        JSON.parse(pm.request.body.raw).n, pm.request.headers.get('Authorization'), pm.request.body.mode,\n\
+        pm.request.headers.has('X-Off'), request.data, request.headers.authorization);\n\
+        pm.request.method = 'DELETE'";
+    let mut request = get("{{host}}/x", scripts("pm.request.headers.add({ key: 'X-P', value: '1' })", test));
+    request.method = "POST".into();
+    request.body = json_body("{\"n\":{{id}}}");
+    request.headers = vec![row("X-Off", "1", false)];
+    let mut tree = tree_of(&server, request);
+    set_collection_auth(&mut tree, Auth::Bearer { token: "{{token}}".into() });
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(texts(&outcome.scripts), ["1 true 7 Bearer T-1 raw false {\"n\":7} Bearer T-1"]);
+    assert_eq!(the_request(&server).await.method.as_str(), "POST");
+}
+
+#[tokio::test]
+async fn test_script_sees_the_sent_urlencoded_body() {
+    let server = any_server().await;
+    let test = "console.log(pm.request.body.mode, pm.request.body.urlencoded.get('a'), pm.request.body.urlencoded.get('stamp'))";
+    let mut request = get("{{host}}/x", scripts("", test));
+    request.method = "POST".into();
+    request.body = Body::UrlEncoded(vec![row("a", "{{id}}", true), row("stamp", "{{$timestamp}}", true)]);
+    let tree = tree_of(&server, request);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    let received = the_request(&server).await;
+    let body = String::from_utf8_lossy(&received.body).into_owned();
+    let stamp = body.strip_prefix("a=7&stamp=").unwrap_or_else(|| panic!("{body}"));
+    assert!(!stamp.is_empty() && stamp.bytes().all(|byte| byte.is_ascii_digit()), "{body}");
+    // The very value that went out: nothing is substituted a second time for the script.
+    assert_eq!(texts(&outcome.scripts), [format!("urlencoded 7 {stamp}")]);
+}
+
+#[tokio::test]
+async fn pruned_body_is_still_visible_to_the_test() {
+    let server = any_server().await;
+    let mut request = get("{{host}}/x", scripts("", "console.log(pm.request.body.raw)"));
+    request.body = json_body("{\"n\":{{id}}}");
+    let tree = tree_of(&server, request);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(texts(&outcome.scripts), ["{\"n\":7}"]);
+    assert!(the_request(&server).await.body.is_empty(), "GET sends no body");
+}
+
+#[tokio::test]
+async fn skip_request_sends_nothing() {
+    let server = any_server().await;
+    let col = scripts("console.log('before'); pm.execution.skipRequest(); console.log('after')", "");
+    let tree = tree(vec![], col, Scripts::default(), Scripts::default(), get(&server.uri(), logging("Req")));
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert!(matches!(outcome.result, Err(SendError::Skipped)), "{:?}", outcome.result);
+    assert!(outcome.request.is_none());
+    // Neither the pre-request script of the request nor any test script ran.
+    assert_eq!(texts(&outcome.scripts), ["before"]);
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert!(server.received_requests().await.unwrap().is_empty(), "nothing may be sent");
+}
+
+#[tokio::test]
+async fn script_cannot_turn_the_body_into_a_file() {
+    let server = any_server().await;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), "the contents of a file").unwrap();
+    let path = file.path().to_string_lossy().replace('\\', "/");
+    let pre = format!("pm.request.body.update({{ mode: 'file', file: {{ src: '{path}' }} }})");
+    let mut request = get("{{host}}/x", scripts(&pre, ""));
+    request.method = "POST".into();
+    request.body = Body::Raw { text: "as typed".into(), language: RawLanguage::Text };
+    let tree = tree_of(&server, request);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(String::from_utf8_lossy(&the_request(&server).await.body), "as typed");
+}

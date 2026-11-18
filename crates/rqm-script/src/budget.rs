@@ -50,6 +50,8 @@ pub(crate) enum Stop {
     Abandoned,
     /// The script waited for its timers longer than it may.
     TimerWait,
+    /// The script called `pm.execution.skipRequest()`: it ends at once, and that is not an error.
+    Skipped,
 }
 
 /// The longest sleep between two looks at the cancel token while a script waits for a timer.
@@ -66,6 +68,8 @@ pub(crate) struct Budget {
     waited: Cell<Duration>,
     /// Set by a primitive; the interrupt handler stops the script by it.
     host_limit: Cell<Option<HostLimit>>,
+    /// Set by the primitive `skip_request`; the interrupt handler stops the script by it.
+    skipped: Cell<bool>,
     cancel: CancellationToken,
     watch: Arc<Watch>,
 }
@@ -81,6 +85,7 @@ impl Budget {
             timer_wait: limits.timer_wait,
             waited: Cell::new(Duration::ZERO),
             host_limit: Cell::new(None),
+            skipped: Cell::new(false),
             cancel,
             watch,
         }
@@ -115,6 +120,8 @@ impl Budget {
             Some(Stop::Memory(limit))
         } else if self.watch.is_abandoned() {
             Some(Stop::Abandoned)
+        } else if self.skipped.get() {
+            Some(Stop::Skipped)
         } else {
             None
         }
@@ -154,6 +161,15 @@ impl Budget {
         if self.host_limit.get().is_none() {
             self.host_limit.set(Some(limit));
         }
+    }
+
+    pub(crate) fn is_skipped(&self) -> bool {
+        self.skipped.get()
+    }
+
+    /// Latches: from here on the script only ends.
+    pub(crate) fn set_skipped(&self) {
+        self.skipped.set(true);
     }
 
     /// Latches once the time is spent.

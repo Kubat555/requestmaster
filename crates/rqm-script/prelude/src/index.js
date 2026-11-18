@@ -9,7 +9,13 @@
 // - the built-in functions this code needs are saved below, before the text of the script runs.
 import { installAsync } from "./async.js";
 import { installConsole } from "./console.js";
-import { installLegacyResponse, installLegacyTests } from "./legacy.js";
+import {
+  installLegacyRequest,
+  installLegacyResponse,
+  installLegacyTests,
+  installLegacyVariables,
+} from "./legacy.js";
+import { createExecution, createRequest } from "./request.js";
 import { createResponse, isResponse, makeResponse } from "./response.js";
 import { createSendRequest } from "./send-request.js";
 import { createTest } from "./test.js";
@@ -80,6 +86,19 @@ if (response !== undefined) {
   pm.response = response.api;
   installLegacyResponse(response);
 }
+
+// `pm.request` is made when a script first reads it: the host is not asked for the request before that.
+const request = createRequest(host, safe, info);
+Object.defineProperty(pm, "request", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return request.api();
+  },
+});
+installLegacyRequest(request);
+pm.execution = createExecution(host, info);
+installLegacyVariables(safe, pm, response);
 
 // The answer to a request of the script is a response of the same factory; its body stays on the Rust side
 // until the script asks for it.

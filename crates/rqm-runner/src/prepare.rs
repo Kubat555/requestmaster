@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use rqm_http::{HttpBody, HttpRequest, MultipartPart, PartValue, SendOptions};
 use rqm_model::{Body, FormValue, Param, RawLanguage};
+use rqm_script::{ScriptBody, ScriptPair};
 use rqm_vars::{apply_path_variables, Resolver};
 
 use crate::auth::{auth_effect, effective_auth, AuthEffect};
@@ -45,6 +46,8 @@ pub struct Prepared {
     pub http: HttpRequest,
     /// In the order: authorization, body pruning, unresolved variables.
     pub warnings: Vec<SendWarning>,
+    /// The body as a test script sees it: substituted, before pruning and before encoding.
+    pub(crate) script_body: ScriptBody,
 }
 
 /// Variable substitution of one `prepare` call; remembers every name that was not found.
@@ -115,7 +118,7 @@ pub(crate) fn prepare_with(
     let mut headers = vars.pairs(&request.headers);
     headers.retain(|(name, _)| !name.is_empty());
 
-    let mut body = build_body(&request.body, &mut vars);
+    let (mut body, script_body) = build_body(&request.body, &mut vars);
 
     if let Some(auth) = effective_auth(input) {
         match auth_effect(auth, &mut |text| vars.substitute(text)) {
@@ -153,7 +156,7 @@ pub(crate) fn prepare_with(
         disabled_auto_headers: request.disabled_auto_headers.clone(),
     };
     let http = HttpRequest { method: request.method.clone(), url: finish_url(&url, &query), headers, body, options };
-    Ok(Prepared { http, warnings })
+    Ok(Prepared { http, warnings, script_body })
 }
 
 /// Names of the enabled form fields (or `"binary"`) that refer to a file not confirmed on this computer.
@@ -170,14 +173,17 @@ pub(crate) fn unconfirmed_file_fields(body: &Body) -> Vec<String> {
     }
 }
 
-/// The body to send, before body pruning. File paths and file contents are not substituted.
-fn build_body(body: &Body, vars: &mut Vars) -> HttpBody {
+/// The body to send, before body pruning, and the same body as a test script sees it: both come from one
+/// pass of substitution, so a dynamic value is the same in the two. File paths and file contents are not
+/// substituted.
+fn build_body(body: &Body, vars: &mut Vars) -> (HttpBody, ScriptBody) {
     let bytes = |data: Vec<u8>, content_type: &str| HttpBody::Bytes {
         data,
         default_content_type: Some(content_type.to_string()),
     };
+    let pair = |key: &str, value: &str| ScriptPair { key: key.to_string(), value: value.to_string(), disabled: false };
     match body {
-        Body::None | Body::Binary { file: None } => HttpBody::None,
+        Body::None | Body::Binary { file: None } => (HttpBody::None, ScriptBody::None),
         Body::Raw { text, language } => {
             let content_type = match language {
                 RawLanguage::Text => "text/plain",
@@ -186,23 +192,28 @@ fn build_body(body: &Body, vars: &mut Vars) -> HttpBody {
                 RawLanguage::Html => "text/html",
                 RawLanguage::JavaScript => "application/javascript",
             };
-            bytes(vars.substitute(text).into_bytes(), content_type)
+            let text = vars.substitute(text);
+            (bytes(text.clone().into_bytes(), content_type), ScriptBody::Raw(text))
         }
         Body::UrlEncoded(params) => {
             let pairs = vars.pairs(params);
             let encoded: Vec<String> =
                 pairs.iter().map(|(key, value)| format!("{}={}", form_encode(key), form_encode(value))).collect();
-            bytes(encoded.join("&").into_bytes(), "application/x-www-form-urlencoded")
+            let fields = pairs.iter().map(|(key, value)| pair(key, value)).collect();
+            (bytes(encoded.join("&").into_bytes(), "application/x-www-form-urlencoded"), ScriptBody::UrlEncoded(fields))
         }
         Body::FormData(parts) => {
             let mut out = Vec::new();
+            // The text fields only: a script never sees a file.
+            let mut fields = Vec::new();
             for part in parts.iter().filter(|part| part.enabled) {
                 let name = vars.substitute(&part.key);
                 let content_type = part.content_type.clone();
                 match &part.value {
                     FormValue::Text(text) => {
-                        let value = PartValue::Text(vars.substitute(text));
-                        out.push(MultipartPart { name, value, content_type });
+                        let text = vars.substitute(text);
+                        fields.push(pair(&name, &text));
+                        out.push(MultipartPart { name, value: PartValue::Text(text), content_type });
                     }
                     // Several files in one field are several parts with the same name.
                     FormValue::Files(files) => out.extend(files.iter().map(|file| MultipartPart {
@@ -212,11 +223,12 @@ fn build_body(body: &Body, vars: &mut Vars) -> HttpBody {
                     })),
                 }
             }
-            HttpBody::Multipart(out)
+            (HttpBody::Multipart(out), ScriptBody::FormData(fields))
         }
-        Body::Binary { file: Some(file) } => {
-            HttpBody::File { path: PathBuf::from(&file.path), default_content_type: None }
-        }
+        Body::Binary { file: Some(file) } => (
+            HttpBody::File { path: PathBuf::from(&file.path), default_content_type: None },
+            ScriptBody::Other("file".to_string()),
+        ),
         Body::GraphQl { query, variables } => {
             // `Display` of a JSON string value is the quoted and escaped string.
             let mut json = format!("{{\"query\":{}", serde_json::Value::String(vars.substitute(query)));
@@ -227,7 +239,7 @@ fn build_body(body: &Body, vars: &mut Vars) -> HttpBody {
                 json.push_str(&compact_json(&variables).unwrap_or(variables));
             }
             json.push('}');
-            bytes(json.into_bytes(), "application/json")
+            (bytes(json.into_bytes(), "application/json"), ScriptBody::Other("graphql".to_string()))
         }
     }
 }
@@ -272,7 +284,7 @@ pub(crate) fn form_encode(text: &str) -> String {
 
 /// Percent-encodes only what cannot stand in a query: space, `"`, `#`, `<`, `>`, `&`, and `=` in a key.
 /// Anything else, `%` included, is kept: the user may have typed an already encoded value.
-fn query_encode(text: &str, is_key: bool) -> String {
+pub(crate) fn query_encode(text: &str, is_key: bool) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {

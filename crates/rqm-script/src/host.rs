@@ -9,8 +9,9 @@ use crate::bundle::{self, Bundle};
 use crate::text;
 use crate::variables::{self, Book, Target, View};
 use crate::{
-    Info, Job, Phase, Report, ResponseBody, ScriptError, ScriptResponse, StoredScope, TestResult,
-    Variables, MAX_QUEUED_REQUEST_BYTES, MAX_REQUEST_BYTES, MAX_SEND_REQUESTS, MAX_VALUE_BYTES,
+    Info, Job, Phase, Report, ResponseBody, ScriptBody, ScriptError, ScriptPair, ScriptRequest,
+    ScriptResponse, StoredScope, TestResult, Variables, MAX_QUEUED_REQUEST_BYTES,
+    MAX_REQUEST_BYTES, MAX_SEND_REQUESTS, MAX_VALUE_BYTES,
 };
 use rquickjs::function::{IntoJsFunc, Opt};
 use rquickjs::{Array, Ctx, Exception, Function, Object, Value};
@@ -60,6 +61,12 @@ const UNKNOWN_ANSWER: &str = "unknown answer";
 const TOO_MANY_REQUESTS: &str = "pm.sendRequest: more than 50 requests in one script";
 const TOO_MANY_FIELDS: &str = "pm.sendRequest: more than 10000 headers and body fields";
 const BAD_REQUEST: &str = "pm.sendRequest: the request is not well formed";
+const SKIPPED: &str = "the request was skipped";
+const NO_SKIP: &str = "pm.execution.skipRequest is not available after the request was sent";
+const REQUEST_SENT: &str = "pm.request: the request cannot be changed after it was sent";
+const REQUEST_TOO_LARGE: &str = "pm.request: what the script wrote is larger than 10 MB";
+const REQUEST_TOO_MANY_PAIRS: &str = "pm.request: more than 10000 headers or body fields";
+const BAD_REQUEST_CHANGE: &str = "pm.request: the change is not well formed";
 
 /// The most pairs — headers and fields of the body together — one `pm.sendRequest` may carry. The limit of
 /// bytes does not bound them: a pair may be empty, and each one costs memory of the host.
@@ -258,10 +265,14 @@ pub(crate) struct State {
     requests: VecDeque<Queued>,
     /// UTF-8 bytes of `requests`.
     queued_bytes: usize,
+    /// The request of the send as the scripts have left it so far.
+    request: ScriptRequest,
+    /// A script has called `pm.execution.skipRequest()`.
+    pub(crate) skip_request: bool,
 }
 
 impl State {
-    pub(crate) fn new(variables: Variables) -> Self {
+    pub(crate) fn new(variables: Variables, request: ScriptRequest) -> Self {
         State {
             errors: Vec::new(),
             console: Vec::new(),
@@ -272,6 +283,8 @@ impl State {
             test_bytes: 0,
             requests: VecDeque::new(),
             queued_bytes: 0,
+            request,
+            skip_request: false,
         }
     }
 
@@ -283,6 +296,8 @@ impl State {
             variables: self.book.variables,
             changes: self.book.changes,
             tests: self.tests,
+            request: self.request,
+            skip_request: self.skip_request,
         }
     }
 
@@ -394,8 +409,8 @@ impl Primitives {
         }
     }
 
-    /// Every primitive goes through here. Refuses when the thread is abandoned or a host limit was crossed;
-    /// never waits for the lock and never calls into JavaScript under it.
+    /// Every primitive goes through here. Refuses when the thread is abandoned, a host limit was crossed or
+    /// the script has skipped the request; never waits for the lock and never calls into JavaScript under it.
     fn with_state<T>(
         &self,
         action: impl FnOnce(&mut State) -> Result<T, Refusal>,
@@ -405,6 +420,9 @@ impl Primitives {
         }
         if let Some(limit) = self.budget.host_limit() {
             return Err(Refusal::Limit(limit));
+        }
+        if self.budget.is_skipped() {
+            return Err(Refusal::Error(SKIPPED.to_string()));
         }
         let mut guard = match self.state.try_lock() {
             Ok(guard) => guard,
@@ -525,6 +543,65 @@ impl Primitives {
         let text = body_text(&response.body);
         self.budget.resume();
         text
+    }
+
+    /// JSON of what the prelude builds `pm.request` from: `[method, url, headers, mode, raw, fields, other]`
+    /// — pairs are `[key, value, disabled]`; `mode` is 0 for no body, 1 — raw (`raw` is its text), 2 —
+    /// urlencoded and 3 — form-data (`fields` are the pairs), 4 — a body of the kind `other` names.
+    fn request(&self) -> Result<String, Refusal> {
+        self.with_state(|state| {
+            let request = &state.request;
+            let (mode, raw, fields, other) = match &request.body {
+                ScriptBody::None => (0, None, Vec::new(), None),
+                ScriptBody::Raw(text) => (1, Some(text.as_str()), Vec::new(), None),
+                ScriptBody::UrlEncoded(fields) => (2, None, described_pairs(fields), None),
+                ScriptBody::FormData(fields) => (3, None, described_pairs(fields), None),
+                ScriptBody::Other(name) => (4, None, Vec::new(), Some(name.as_str())),
+            };
+            let described = (
+                request.method.as_str(),
+                request.url.as_str(),
+                described_pairs(&request.headers),
+                mode,
+                raw,
+                fields,
+                other,
+            );
+            serde_json::to_string(&described).map_err(|error| Refusal::Error(error.to_string()))
+        })
+    }
+
+    /// Whether a script may change the request: only before it is sent.
+    fn request_writable(&self) -> Result<(), Refusal> {
+        self.with_state(|_| match self.phase {
+            Phase::PreRequest => Ok(()),
+            Phase::Test => Err(Refusal::Error(REQUEST_SENT.to_string())),
+        })
+    }
+
+    /// Changes the request of the send; refuses once the request has been sent.
+    fn change_request(&self, change: impl FnOnce(&mut ScriptRequest)) -> Result<(), Refusal> {
+        self.with_state(|state| match self.phase {
+            Phase::PreRequest => {
+                change(&mut state.request);
+                Ok(())
+            }
+            Phase::Test => Err(Refusal::Error(REQUEST_SENT.to_string())),
+        })
+    }
+
+    /// `pm.execution.skipRequest()`: the request is not going to be sent, and from here on every primitive
+    /// refuses this script — it only ends. Refuses once the request has been sent.
+    fn skip_request(&self) -> Result<(), Refusal> {
+        self.with_state(|state| match self.phase {
+            Phase::PreRequest => {
+                state.skip_request = true;
+                Ok(())
+            }
+            Phase::Test => Err(Refusal::Error(NO_SKIP.to_string())),
+        })?;
+        self.budget.set_skipped();
+        Ok(())
     }
 
     /// A new timer; its number is a positive integer.
@@ -685,6 +762,14 @@ impl Primitives {
         self.asked_bundles.set(asked | bit);
         Ok(Some(*bundle))
     }
+}
+
+/// Pairs as the prelude reads them: `[key, value, disabled]`.
+fn described_pairs(pairs: &[ScriptPair]) -> Vec<(&str, &str, bool)> {
+    pairs
+        .iter()
+        .map(|pair| (pair.key.as_str(), pair.value.as_str(), pair.disabled))
+        .collect()
 }
 
 fn busy() -> Refusal {
@@ -1032,8 +1117,156 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Primitives>) -> rquickjs::R
         },
     )?;
 
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "req_get",
+        move |ctx: Ctx<'js>| -> rquickjs::Result<String> {
+            this.request().map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "req_method",
+        move |ctx: Ctx<'js>, method: rquickjs::String<'js>| -> rquickjs::Result<()> {
+            this.request_writable()
+                .map_err(|refusal| throw(&ctx, &refusal))?;
+            let method = read_request_text(&ctx, method)?;
+            this.change_request(|request| request.method = method)
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "req_url",
+        move |ctx: Ctx<'js>, url: rquickjs::String<'js>| -> rquickjs::Result<()> {
+            this.request_writable()
+                .map_err(|refusal| throw(&ctx, &refusal))?;
+            let url = read_request_text(&ctx, url)?;
+            this.change_request(|request| request.url = url)
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    // `parts` — a key, a value and "is disabled" for every header, one after another.
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "req_headers",
+        move |ctx: Ctx<'js>, parts: Array<'js>| -> rquickjs::Result<()> {
+            this.request_writable()
+                .map_err(|refusal| throw(&ctx, &refusal))?;
+            let headers = read_script_pairs(&ctx, &parts)?;
+            this.change_request(|request| request.headers = headers)
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    // `mode` 1 — raw: `parts` holds its text; 2 — urlencoded: `parts` is laid out as for `req_headers`.
+    // There is no other mode: a script cannot make the body a file, form-data or GraphQL.
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "req_body",
+        move |ctx: Ctx<'js>, mode: i32, parts: Array<'js>| -> rquickjs::Result<()> {
+            this.request_writable()
+                .map_err(|refusal| throw(&ctx, &refusal))?;
+            let bad = || Exception::throw_type(&ctx, BAD_REQUEST_CHANGE);
+            let body = match mode {
+                1 => {
+                    if parts.len() != 1 {
+                        return Err(bad());
+                    }
+                    let text: Value<'js> = parts.get(0)?;
+                    let text = text.into_string().ok_or_else(bad)?;
+                    ScriptBody::Raw(read_request_text(&ctx, text)?)
+                }
+                2 => ScriptBody::UrlEncoded(read_script_pairs(&ctx, &parts)?),
+                _ => return Err(bad()),
+            };
+            this.change_request(|request| request.body = body)
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    // Always throws: the script that skips its request ends there.
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "skip_request",
+        move |ctx: Ctx<'js>| -> rquickjs::Result<()> {
+            this.skip_request()
+                .map_err(|refusal| throw(&ctx, &refusal))?;
+            Err(Exception::throw_message(&ctx, SKIPPED))
+        },
+    )?;
+
     ctx.globals().set("__host", object.clone())?;
     Ok(object)
+}
+
+/// A text a script writes into the request: at most `MAX_REQUEST_BYTES`.
+fn read_request_text<'js>(ctx: &Ctx<'js>, text: rquickjs::String<'js>) -> rquickjs::Result<String> {
+    read(ctx, text, MAX_REQUEST_BYTES, || {
+        REQUEST_TOO_LARGE.to_string()
+    })
+}
+
+/// Reads the pairs the prelude has laid out for `req_headers` and `req_body`: a key, a value and "is
+/// disabled" for each. At most `MAX_REQUEST_FIELDS` pairs and `MAX_REQUEST_BYTES` of text: the sizes are
+/// summed before anything is copied out of JavaScript.
+fn read_script_pairs<'js>(
+    ctx: &Ctx<'js>,
+    parts: &Array<'js>,
+) -> rquickjs::Result<Vec<ScriptPair>> {
+    let bad = || Exception::throw_type(ctx, BAD_REQUEST_CHANGE);
+    let length = parts.len();
+    if length.checked_rem(3) != Some(0) {
+        return Err(bad());
+    }
+    let count = length.checked_div(3).unwrap_or(0);
+    if count > MAX_REQUEST_FIELDS {
+        return Err(Exception::throw_message(ctx, REQUEST_TOO_MANY_PAIRS));
+    }
+    let string = |index: usize| -> rquickjs::Result<rquickjs::String<'js>> {
+        let part: Value<'js> = parts.get(index)?;
+        part.into_string().ok_or_else(bad)
+    };
+    let mut read = Vec::with_capacity(count);
+    let mut bytes = 0usize;
+    for pair in 0..count {
+        let at = pair.saturating_mul(3);
+        let key = string(at)?;
+        let value = string(at.saturating_add(1))?;
+        let disabled: Value<'js> = parts.get(at.saturating_add(2))?;
+        let disabled = disabled.as_bool().ok_or_else(bad)?;
+        bytes = bytes
+            .saturating_add(byte_length(&key)?)
+            .saturating_add(byte_length(&value)?);
+        if bytes > MAX_REQUEST_BYTES {
+            return Err(Exception::throw_message(ctx, REQUEST_TOO_LARGE));
+        }
+        read.push((key, value, disabled));
+    }
+    let mut pairs = Vec::with_capacity(count);
+    for (key, value, disabled) in read {
+        pairs.push(ScriptPair {
+            key: key.to_string()?,
+            value: value.to_string()?,
+            disabled,
+        });
+    }
+    Ok(pairs)
 }
 
 /// Reads the request the prelude has laid out for the primitive `request`. The sizes are summed before
@@ -1248,7 +1481,10 @@ mod tests {
         ));
         let job = Job::new(Phase::Test, Vec::new());
         Primitives::new(
-            Arc::new(Mutex::new(Some(State::new(variables)))),
+            Arc::new(Mutex::new(Some(State::new(
+                variables,
+                ScriptRequest::default(),
+            )))),
             watch,
             budget,
             0,
@@ -1389,6 +1625,35 @@ mod tests {
         assert!(host.queue_request(request("http://x", 0)).is_err());
         assert!(host.take_request().is_err());
         assert!(host.answer_body(1).is_err());
+        assert!(host.request().is_err());
+        assert!(host.request_writable().is_err());
+        assert!(host.change_request(|_| ()).is_err());
+        assert!(host.skip_request().is_err());
+    }
+
+    #[test]
+    fn request_cannot_be_changed_or_skipped_after_it_was_sent() {
+        // The host of these tests is one of `Phase::Test`.
+        let host = host(Variables::default());
+        let sent = Err(Refusal::Error(REQUEST_SENT.to_string()));
+        assert_eq!(host.request_writable(), sent);
+        assert_eq!(
+            host.change_request(|request| request.method = "DELETE".to_string()),
+            sent
+        );
+        assert_eq!(
+            host.skip_request(),
+            Err(Refusal::Error(NO_SKIP.to_string()))
+        );
+        assert!(!host.budget.is_skipped());
+        // Reading still works, and nothing has changed.
+        assert_eq!(
+            host.request(),
+            Ok(r#"["","",[],0,null,[],null]"#.to_string())
+        );
+        let report = report(&host);
+        assert_eq!(report.request, ScriptRequest::default());
+        assert!(!report.skip_request);
     }
 
     fn request(url: &str, body_bytes: usize) -> OutgoingRequest {

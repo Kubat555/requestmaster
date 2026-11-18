@@ -4,9 +4,9 @@
 //! Extended by the later tasks, each time with the API of that task.
 
 use rqm_script::{
-    run, run_with_host, Host, Job, OutgoingRequest, Phase, Report, ResponseBody, ScriptErrorKind,
-    ScriptResponse, Variables, CONSOLE_LINE_CHARS, CONSOLE_MAX_LINES, MAX_CHANGES,
-    MAX_SEND_REQUESTS, MAX_TESTS, TEST_NAME_CHARS,
+    run, run_with_host, Host, Job, OutgoingRequest, Phase, Report, ResponseBody, ScriptBody,
+    ScriptErrorKind, ScriptPair, ScriptRequest, ScriptResponse, Variables, CONSOLE_LINE_CHARS,
+    CONSOLE_MAX_LINES, MAX_CHANGES, MAX_SEND_REQUESTS, MAX_TESTS, TEST_NAME_CHARS,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -24,6 +24,20 @@ fn response() -> ScriptResponse {
     }
 }
 
+/// `POST http://x/p?a=1`, the header `Accept: json`, the raw body `{}`.
+fn request() -> ScriptRequest {
+    ScriptRequest {
+        method: "POST".to_string(),
+        url: "http://x/p?a=1".to_string(),
+        headers: vec![ScriptPair {
+            key: "Accept".to_string(),
+            value: "json".to_string(),
+            disabled: false,
+        }],
+        body: ScriptBody::Raw("{}".to_string()),
+    }
+}
+
 fn job(script: &str) -> Job {
     let mut job = Job::new(Phase::Test, vec![script.to_string()]);
     job.variables = Variables {
@@ -31,31 +45,20 @@ fn job(script: &str) -> Job {
         ..Variables::default()
     };
     job.response = Some(response());
+    job.request = request();
     job
 }
 
-/// Answers every request and counts them.
-struct CountingHost(Arc<AtomicUsize>);
-
-impl Host for CountingHost {
-    fn send_request(&mut self, _request: OutgoingRequest) -> Result<ScriptResponse, String> {
-        self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(response())
-    }
+/// The same job before the request: there is no response yet, and the request may be changed.
+fn pre_request_job(script: &str) -> Job {
+    let mut job = job(script);
+    job.phase = Phase::PreRequest;
+    job.response = None;
+    job
 }
 
-/// The report, and how many requests of the script reached the host.
-fn run_counting(script: &str) -> (Report, usize) {
-    let requests = Arc::new(AtomicUsize::new(0));
-    let host = CountingHost(Arc::clone(&requests));
-    let report = run_with_host(job(script), Box::new(host), &CancellationToken::new());
-    (report, requests.load(Ordering::SeqCst))
-}
-
-#[test]
-fn tampered_builtins_do_not_lift_limits() {
-    // Every replacement answers "nothing was cut, everything is allowed".
-    let script = "
+/// Every replacement answers "nothing was cut, everything is allowed".
+const TAMPERED: &str = "
         const whole = function () { return String(this) };
         String.prototype.slice = whole;
         String.prototype.substring = whole;
@@ -69,46 +72,11 @@ fn tampered_builtins_do_not_lift_limits() {
         Function.prototype.apply = function () { return true };
         Function.prototype.bind = function () { return this };
         Reflect.apply = function () { return true };
-        Promise.prototype.then = function () { return this };
-        for (let i = 0; i < 5000; i++) console.log('x'.repeat(20000));
-        // chai is loaded into a realm that is already broken: whatever comes of it, the limits hold.
-        try { pm.expect(1).to.equal(1) } catch (error) {}
-        try { pm.response.to.have.status(200) } catch (error) {}
-        try { pm.test('later', function (done) {}) } catch (error) {}
-        for (let i = 0; i < 1001; i++) {
-            try { pm.test('n'.repeat(5000), function () {}) } catch (error) {}
-        }
-        // One call more than a script may make, each on its own: the count is kept by Rust.
-        for (let i = 0; i < 51; i++) {
-            try { pm.sendRequest('http://x/' + i, function () {}) } catch (error) {}
-        }
-        try { clearTimeout(setTimeout(function () {}, 0)); clearInterval(-1); clearImmediate(1e9) } catch (error) {}
-        // The requests go first, then the timer: the limits of the host hold in a callback too.
-        setTimeout(function () { for (;;) pm.environment.set('i', 1) }, 0)";
-    let (report, requests) = run_counting(script);
+        Promise.prototype.then = function () { return this };";
 
-    assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
-    assert_eq!(report.errors[0].kind, ScriptErrorKind::Memory);
-    assert_eq!(requests, MAX_SEND_REQUESTS);
-    assert!(!report.console.is_empty());
-    assert!(report.console.len() <= CONSOLE_MAX_LINES);
-    assert!(report
-        .console
-        .iter()
-        .all(|line| line.text.chars().count() <= CONSOLE_LINE_CHARS + 1));
-    assert_eq!(report.changes.len(), MAX_CHANGES);
-    assert!(!report.tests.is_empty());
-    assert!(report.tests.len() <= MAX_TESTS);
-    assert!(report
-        .tests
-        .iter()
-        .all(|test| test.name.chars().count() <= TEST_NAME_CHARS));
-}
-
-#[test]
-fn host_primitives_do_not_leak() {
-    // The replaced functions note every `this` and every function among their arguments, then do their job.
-    let script = "
+/// The replaced functions note every `this` and every function among their arguments, then do their job.
+/// `leaks()` counts the primitives of the host among what they have seen.
+const SPIES: &str = "
         const seen = [];
         const note = (value) => { if (typeof value === 'function') seen[seen.length] = value; };
         const apply = Reflect.apply;
@@ -130,9 +98,137 @@ fn host_primitives_do_not_leak() {
                             'includes', 'reduce', 'some', 'every', 'find']) {
             Array.prototype[name] = spy(Array.prototype[name]);
         }
+        for (const name of ['slice', 'split', 'indexOf', 'replace', 'trim', 'toLowerCase']) {
+            String.prototype[name] = spy(String.prototype[name]);
+        }
         // The spies do see what goes through them.
         (function probe() {}).call(null);
+        const leaks = () => {
+            let leaked = 0;
+            for (let i = 0; i < seen.length; i++) {
+                if (String(seen[i].name).indexOf('rqm_host_') === 0) leaked++;
+            }
+            return leaked;
+        };";
 
+/// Everything of `pm.request`, `postman` and `pm.execution` but `skipRequest`, and the old names.
+const REQUEST_API: &str = "
+        const req = pm.request;
+        const about = [req.method, req.url.toString(), req.url.getRaw(), req.url.getHost(), req.url.getPath(),
+                       req.url.getQueryString(), req.url.getPathWithQuery(), req.body.mode, req.body.raw,
+                       req.body.toString(), req.body.isEmpty()];
+        req.method = 'PUT';
+        req.url = 'http://y/p?a=1#f';
+        const query = req.url.query;
+        query.add({ key: 'b', value: '2' }); query.upsert({ key: 'b', value: '3' }); query.remove('a');
+        query.get('b'); query.has('b'); query.all(); query.each(function () {}); query.toObject(); query.count();
+        req.url.addQueryParams('c=1&d=2'); req.url.addQueryParams([{ key: 'e', value: '5' }]);
+        req.url.removeQueryParams(['c', 'd']);
+        req.headers.add('X-A: 1'); req.addHeader({ key: 'X-B', value: '2' });
+        req.upsertHeader({ key: 'x-b', value: '3' }); req.removeHeader('X-A'); req.headers.toObject();
+        req.body.raw = 'r';
+        req.body.update({ mode: 'urlencoded', urlencoded: 'a=1' });
+        req.body.urlencoded.add({ key: 'k', value: 'v' });
+        req.body.update({ mode: 'file', file: { src: 'C:/x' } });
+        req.body.update('s');
+        postman.setEnvironmentVariable('pe', 1); postman.getEnvironmentVariable('pe');
+        postman.clearEnvironmentVariable('pe'); postman.clearEnvironmentVariables();
+        postman.setGlobalVariable('pg', 1); postman.getGlobalVariable('pg');
+        postman.clearGlobalVariable('pg'); postman.clearGlobalVariables();
+        postman.getResponseHeader('content-type'); postman.setNextRequest('x');
+        pm.execution.setNextRequest('x');
+        const old = [environment, globals, request, data, iteration];";
+
+/// Answers every request and counts them.
+struct CountingHost(Arc<AtomicUsize>);
+
+impl Host for CountingHost {
+    fn send_request(&mut self, _request: OutgoingRequest) -> Result<ScriptResponse, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(response())
+    }
+}
+
+/// The report, and how many requests of the script reached the host.
+fn run_counting(script: &str) -> (Report, usize) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let host = CountingHost(Arc::clone(&requests));
+    let report = run_with_host(job(script), Box::new(host), &CancellationToken::new());
+    (report, requests.load(Ordering::SeqCst))
+}
+
+#[test]
+fn tampered_builtins_do_not_lift_limits() {
+    let script = "
+        for (let i = 0; i < 5000; i++) console.log('x'.repeat(20000));
+        // chai is loaded into a realm that is already broken: whatever comes of it, the limits hold.
+        try { pm.expect(1).to.equal(1) } catch (error) {}
+        try { pm.response.to.have.status(200) } catch (error) {}
+        try { pm.test('later', function (done) {}) } catch (error) {}
+        for (let i = 0; i < 1001; i++) {
+            try { pm.test('n'.repeat(5000), function () {}) } catch (error) {}
+        }
+        // One call more than a script may make, each on its own: the count is kept by Rust.
+        for (let i = 0; i < 51; i++) {
+            try { pm.sendRequest('http://x/' + i, function () {}) } catch (error) {}
+        }
+        try { clearTimeout(setTimeout(function () {}, 0)); clearInterval(-1); clearImmediate(1e9) } catch (error) {}
+        // The request has been sent: whatever the script does to it, it stays as it is.
+        try { pm.request.method = 'DELETE' } catch (error) {}
+        try { pm.request.url = 'http://other' } catch (error) {}
+        try { pm.request.headers.add({ key: 'X', value: '1' }) } catch (error) {}
+        try { pm.request.body.update('x') } catch (error) {}
+        try { postman.setEnvironmentVariable('old', 1) } catch (error) {}
+        try { pm.execution.setNextRequest('x'); pm.execution.skipRequest() } catch (error) {}
+        // The requests go first, then the timer: the limits of the host hold in a callback too.
+        setTimeout(function () { for (;;) pm.environment.set('i', 1) }, 0)";
+    let (report, requests) = run_counting(&format!("{TAMPERED}{script}"));
+
+    assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
+    assert_eq!(report.errors[0].kind, ScriptErrorKind::Memory);
+    assert_eq!(requests, MAX_SEND_REQUESTS);
+    assert!(!report.console.is_empty());
+    assert!(report.console.len() <= CONSOLE_MAX_LINES);
+    assert!(report
+        .console
+        .iter()
+        .all(|line| line.text.chars().count() <= CONSOLE_LINE_CHARS + 1));
+    assert_eq!(report.changes.len(), MAX_CHANGES);
+    assert!(!report.tests.is_empty());
+    assert!(report.tests.len() <= MAX_TESTS);
+    assert!(report
+        .tests
+        .iter()
+        .all(|test| test.name.chars().count() <= TEST_NAME_CHARS));
+    assert_eq!(report.request, request());
+    assert!(!report.skip_request);
+
+    // Before the request: what a script writes into the request is bounded by Rust as well.
+    let script = "
+        const big = 'x'.repeat(11 << 20);
+        try { pm.request.body.raw = big } catch (error) { console.log(error.message) }
+        try { pm.request.url = big } catch (error) { console.log(error.message) }
+        try { pm.request.headers.add({ key: 'X-Big', value: big }) } catch (error) { console.log(error.message) }";
+    let report = run(
+        pre_request_job(&format!("{TAMPERED}{script}")),
+        &CancellationToken::new(),
+    );
+    assert_eq!(report.errors, vec![]);
+    let lines: Vec<&str> = report
+        .console
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(
+        lines,
+        vec!["pm.request: what the script wrote is larger than 10 MB"; 3]
+    );
+    assert_eq!(report.request, request());
+}
+
+#[test]
+fn host_primitives_do_not_leak() {
+    let script = "
         console.log('a', { b: [1] }, 1n, () => 1);
         console.info(1); console.warn(1); console.error(new Error('e')); console.debug(1); console.clear();
         for (const scope of [pm.globals, pm.collectionVariables, pm.environment, pm.variables]) {
@@ -197,14 +293,8 @@ fn host_primitives_do_not_leak() {
         pm.sendRequest({}, function (error) {});
 
         // After the requests and the other timers: their callbacks have been through the spies too.
-        setTimeout(function () {
-            let leaked = 0;
-            for (let i = 0; i < seen.length; i++) {
-                if (String(seen[i].name).indexOf('rqm_host_') === 0) leaked++;
-            }
-            console.log(leaked, seen.length > 0);
-        }, 30);";
-    let (report, requests) = run_counting(script);
+        setTimeout(function () { console.log(leaks(), seen.length > 0) }, 30);";
+    let (report, requests) = run_counting(&format!("{SPIES}{script}{REQUEST_API}"));
     assert_eq!(report.errors, vec![]);
     assert_eq!(requests, 4);
     assert_eq!(report.console.last().unwrap().text, "0 true");
@@ -217,6 +307,33 @@ fn host_primitives_do_not_leak() {
         .collect();
     assert_eq!(failed, vec!["bad"], "{:?}", report.tests);
     assert_eq!(report.tests.len(), 9);
+    assert_eq!(report.request, request());
+
+    // Before the request the same calls do change the request — through the primitives.
+    let script = "
+        console.log(leaks(), seen.length > 0);
+        pm.execution.skipRequest();";
+    let report = run(
+        pre_request_job(&format!("{SPIES}{REQUEST_API}{script}")),
+        &CancellationToken::new(),
+    );
+    assert_eq!(report.errors, vec![]);
+    assert_eq!(report.console.last().unwrap().text, "0 true");
+    assert!(report.skip_request);
+    let pair = |key: &str, value: &str| ScriptPair {
+        key: key.to_string(),
+        value: value.to_string(),
+        disabled: false,
+    };
+    assert_eq!(
+        report.request,
+        ScriptRequest {
+            method: "PUT".to_string(),
+            url: "http://y/p?b=3&e=5#f".to_string(),
+            headers: vec![pair("Accept", "json"), pair("X-B", "3")],
+            body: ScriptBody::Raw("s".to_string()),
+        }
+    );
 }
 
 #[test]

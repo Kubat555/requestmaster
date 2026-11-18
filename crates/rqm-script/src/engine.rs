@@ -36,6 +36,7 @@ const WATCH_STEP: Duration = Duration::from_millis(20);
 const THREAD_FAILED: &str = "script thread failed";
 const TOO_MANY_ABANDONED: &str =
     "too many scripts are still running after their time limit; restart the application";
+const SKIPPED: &str = "the request was skipped";
 const NEVER_FINISHES: &str =
     "the script never finishes: its promise is pending and nothing can settle it";
 
@@ -66,6 +67,13 @@ impl Shared {
             state.errors.push(error);
         }
     }
+
+    /// A script of the job has called `pm.execution.skipRequest()`.
+    fn skip_requested(&self) -> bool {
+        lock(&self.state)
+            .as_ref()
+            .is_some_and(|state| state.skip_request)
+    }
 }
 
 /// Lives on the script thread and is dropped at its very end, on a panic too.
@@ -94,20 +102,25 @@ pub(crate) fn run(
     cancel: &CancellationToken,
 ) -> Report {
     let variables = std::mem::take(&mut job.variables);
+    let request = std::mem::take(&mut job.request);
     if job.scripts.is_empty() {
         return Report {
             variables,
+            request,
             ..Report::default()
         };
     }
     if abandoned_threads() >= MAX_ABANDONED_THREADS {
-        return internal_report(TOO_MANY_ABANDONED, variables);
+        return Report {
+            request,
+            ..internal_report(TOO_MANY_ABANDONED, variables)
+        };
     }
     let limits = job.limits;
     // Shared by the hosts of all the scripts: the body may be large and is never copied.
     let response = job.response.take().map(Arc::new);
     let shared = Arc::new(Shared {
-        state: Arc::new(Mutex::new(Some(State::new(variables)))),
+        state: Arc::new(Mutex::new(Some(State::new(variables, request)))),
         watch: Arc::new(Watch::default()),
         current: AtomicUsize::new(0),
         completed: AtomicBool::new(false),
@@ -206,7 +219,7 @@ fn abandon(
     Some(report)
 }
 
-/// No script ran: the variables go back as they came.
+/// No script ran: the variables go back as they came (the caller puts the request back).
 fn internal_report(message: &str, variables: Variables) -> Report {
     Report {
         errors: vec![ScriptError {
@@ -239,12 +252,17 @@ fn run_scripts(
         } else {
             run_script(index, code, job, response, app, cancel, shared)
         };
-        if let Some(failure) = failure {
+        // A script stopped by its own `pm.execution.skipRequest()` has no error.
+        if let Some(failure) = failure.filter(|failure| !failure.skip) {
             let kind = failure.kind;
             shared.push(failure.into_error(index));
             if job.phase == Phase::PreRequest || kind == ScriptErrorKind::Cancelled {
                 break;
             }
+        }
+        // The scripts that are left do not run: the request is not going to be sent.
+        if shared.skip_requested() {
+            break;
         }
     }
     shared.completed.store(true, Ordering::SeqCst);
@@ -256,6 +274,8 @@ struct Failure {
     message: String,
     line: Option<u32>,
     column: Option<u32>,
+    /// Not an error: the script called `pm.execution.skipRequest()` and was stopped for it.
+    skip: bool,
 }
 
 impl Failure {
@@ -265,6 +285,7 @@ impl Failure {
             message,
             line: None,
             column: None,
+            skip: false,
         }
     }
 
@@ -279,6 +300,10 @@ impl Failure {
                 ScriptErrorKind::Timeout,
                 format!("the script ran longer than {} ms", limits.time.as_millis()),
             ),
+            Stop::Skipped => Failure {
+                skip: true,
+                ..Failure::new(ScriptErrorKind::Exception, SKIPPED.to_string())
+            },
             Stop::TimerWait => Failure::new(
                 ScriptErrorKind::Timeout,
                 format!(
@@ -606,6 +631,7 @@ impl<'js> Script<'_, 'js> {
             message: text::clip(&read.text, MAX_ERROR_CHARS).to_string(),
             line,
             column,
+            skip: false,
         }
     }
 
