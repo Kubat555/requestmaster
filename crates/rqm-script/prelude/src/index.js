@@ -7,9 +7,11 @@
 //   (`host.log(x)`): never through `.call / .apply / .bind`, never passed as a callback, never put into an
 //   object the script can reach;
 // - the built-in functions this code needs are saved below, before the text of the script runs.
+import { installAsync } from "./async.js";
 import { installConsole } from "./console.js";
 import { installLegacyResponse, installLegacyTests } from "./legacy.js";
-import { createResponse, isResponse } from "./response.js";
+import { createResponse, isResponse, makeResponse } from "./response.js";
+import { createSendRequest } from "./send-request.js";
 import { createTest } from "./test.js";
 import { createVariables } from "./variables.js";
 
@@ -22,6 +24,10 @@ const sliceString = String.prototype.slice;
 
 const safe = {
   String,
+  Number,
+  Error,
+  Promise,
+  apply,
   stringify: JSON.stringify,
   parse: JSON.parse,
   isArray: Array.isArray,
@@ -36,6 +42,7 @@ const safe = {
 };
 
 installConsole(host, safe);
+const later = installAsync(host, safe);
 
 const info = safe.parse(host.info());
 info.iteration = 0;
@@ -74,12 +81,20 @@ if (response !== undefined) {
   installLegacyResponse(response);
 }
 
+// The answer to a request of the script is a response of the same factory; its body stays on the Rust side
+// until the script asks for it.
+pm.sendRequest = createSendRequest(host, safe, pm, later, function (data, number) {
+  return makeResponse(safe, loadChai, data, function () {
+    return host.answer_body(number);
+  }).api;
+});
+
 const tests = createTest(host, safe, pm);
 pm.test = tests.test;
 const collectLegacyTests = installLegacyTests(safe, tests.record);
 
-// The engine calls this when the text of the script has ended, with an exception too (not after a timeout,
-// a memory limit or a cancel): first the tests of `pm.test` that are still waiting, then the pairs of `tests`.
+// The engine calls this when the script has ended — its text, its requests and its timers — with an exception
+// too (not after a timeout, a memory limit or a cancel): first the tests of `pm.test` that are still waiting, then the pairs of `tests`.
 // The object of the primitives is out of the reach of the script, so the function is too.
 host.finish = function () {
   tests.finish();

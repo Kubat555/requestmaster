@@ -48,7 +48,12 @@ pub(crate) enum Stop {
     Memory(HostLimit),
     /// The watchdog gave up on the thread: whatever it reports now is dropped.
     Abandoned,
+    /// The script waited for its timers longer than it may.
+    TimerWait,
 }
+
+/// The longest sleep between two looks at the cancel token while a script waits for a timer.
+const WAIT_STEP: Duration = Duration::from_millis(10);
 
 pub(crate) struct Budget {
     limit: Duration,
@@ -56,6 +61,9 @@ pub(crate) struct Budget {
     used: Cell<Duration>,
     running_since: Cell<Option<Instant>>,
     expired: Cell<bool>,
+    /// How long the script may wait for its timers, and how long it has.
+    timer_wait: Duration,
+    waited: Cell<Duration>,
     /// Set by a primitive; the interrupt handler stops the script by it.
     host_limit: Cell<Option<HostLimit>>,
     cancel: CancellationToken,
@@ -70,6 +78,8 @@ impl Budget {
             used: Cell::new(Duration::ZERO),
             running_since: Cell::new(None),
             expired: Cell::new(false),
+            timer_wait: limits.timer_wait,
+            waited: Cell::new(Duration::ZERO),
             host_limit: Cell::new(None),
             cancel,
             watch,
@@ -108,6 +118,31 @@ impl Budget {
         } else {
             None
         }
+    }
+
+    /// Waits for the moment a timer of the script is due. The stopwatch stands meanwhile and the watchdog
+    /// has no deadline: waiting is not execution. Returns why the script has to stop instead, if it has.
+    pub(crate) fn wait_until(&self, due: Instant) -> Option<Stop> {
+        self.pause();
+        let stop = loop {
+            if let Some(stop) = self.stop() {
+                break Some(stop);
+            }
+            let left = due.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break None;
+            }
+            let allowed = self.timer_wait.saturating_sub(self.waited.get());
+            if allowed.is_zero() {
+                break Some(Stop::TimerWait);
+            }
+            let started = Instant::now();
+            std::thread::sleep(left.min(allowed).min(WAIT_STEP));
+            self.waited
+                .set(self.waited.get().saturating_add(started.elapsed()));
+        };
+        self.resume();
+        stop
     }
 
     pub(crate) fn host_limit(&self) -> Option<HostLimit> {

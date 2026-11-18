@@ -24,8 +24,9 @@ mod text;
 mod variables;
 
 pub use host::{
-    ConsoleLevel, ConsoleLine, BODY_LIMIT, CONSOLE_LINE_CHARS, CONSOLE_MAX_BYTES,
-    CONSOLE_MAX_LINES, MAX_TESTS, MAX_TEST_TEXT_BYTES, TEST_ERROR_CHARS, TEST_NAME_CHARS,
+    ConsoleLevel, ConsoleLine, OutgoingBody, OutgoingRequest, BODY_LIMIT, CONSOLE_LINE_CHARS,
+    CONSOLE_MAX_BYTES, CONSOLE_MAX_LINES, MAX_TESTS, MAX_TEST_TEXT_BYTES, TEST_ERROR_CHARS,
+    TEST_NAME_CHARS,
 };
 pub use variables::{
     StoredScope, Var, VariableChange, VariableOp, Variables, MAX_CHANGES, MAX_CHANGES_BYTES,
@@ -48,6 +49,14 @@ const _: () = assert!(MAX_STACK_BYTES * 2 <= THREAD_STACK_BYTES);
 pub const WATCHDOG_GRACE: Duration = Duration::from_secs(2);
 /// The most script threads that may still be running after `run` gave up on them.
 pub const MAX_ABANDONED_THREADS: usize = 4;
+/// The most a script may wait for its timers.
+pub const TIMER_WAIT_LIMIT: Duration = Duration::from_secs(60);
+/// The most `pm.sendRequest` calls of one script.
+pub const MAX_SEND_REQUESTS: usize = 50;
+/// The most one `pm.sendRequest` may carry: UTF-8 bytes of the method, the address, the headers and the body.
+pub const MAX_REQUEST_BYTES: usize = 10 * 1_048_576;
+/// The most the requests waiting in the queue of one script may hold together.
+pub const MAX_QUEUED_REQUEST_BYTES: usize = 32 * 1_048_576;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -57,6 +66,8 @@ pub struct Limits {
     pub stack_bytes: usize,
     /// How long past `time`, or past a cancel, the watchdog waits before it abandons the thread.
     pub grace: Duration,
+    /// How long one script may wait for its timers, all waits together.
+    pub timer_wait: Duration,
 }
 
 impl Default for Limits {
@@ -66,6 +77,7 @@ impl Default for Limits {
             memory_bytes: 128 * 1024 * 1024,
             stack_bytes: MAX_STACK_BYTES,
             grace: WATCHDOG_GRACE,
+            timer_wait: TIMER_WAIT_LIMIT,
         }
     }
 }
@@ -177,11 +189,35 @@ pub enum ScriptErrorKind {
     Internal,
 }
 
+/// What the scripts ask of the application. The host moves to the thread of the scripts and may outlive
+/// `run_with_host` there (a thread the watchdog gave up on), hence `'static`; an abandoned script never
+/// reaches it.
+pub trait Host {
+    /// Sends the request and blocks until the answer; `Err` — the text of the network error.
+    /// Must return soon after the token of the run is cancelled.
+    fn send_request(&mut self, request: OutgoingRequest) -> Result<ScriptResponse, String>;
+}
+
+/// The host of `run`: it has no network.
+struct NoHost;
+
+impl Host for NoHost {
+    fn send_request(&mut self, _request: OutgoingRequest) -> Result<ScriptResponse, String> {
+        Err("pm.sendRequest is not available".to_string())
+    }
+}
+
 /// Runs the scripts one after another on a thread of its own (stack `THREAD_STACK_BYTES`) and blocks until
 /// they have finished — or until the watchdog gives up on a script the engine cannot interrupt: never longer
-/// than the time the scripts are allowed plus `Limits::grace` per script. An empty job starts nothing.
+/// than the time the scripts are allowed (waiting for timers and for the host apart) plus `Limits::grace`
+/// per script. An empty job starts nothing.
+pub fn run_with_host(job: Job, host: Box<dyn Host + Send>, cancel: &CancellationToken) -> Report {
+    engine::run(job, host, cancel)
+}
+
+/// `run_with_host` with a host that answers every request with the error `pm.sendRequest is not available`.
 pub fn run(job: Job, cancel: &CancellationToken) -> Report {
-    engine::run(job, cancel)
+    run_with_host(job, Box::new(NoHost), cancel)
 }
 
 /// Script threads `run` gave up on that have not ended yet. For tests and measurements.

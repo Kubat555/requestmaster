@@ -18,8 +18,16 @@ export function isResponse(value) {
 export function createResponse(host, safe, chai) {
   const described = host.response();
   if (typeof described !== "string") return undefined;
-  const data = safe.parse(described);
+  return makeResponse(safe, chai, safe.parse(described), function () {
+    return host.response_body();
+  });
+}
 
+/**
+ * The one factory of response objects: `pm.response` and the answer to `pm.sendRequest`. `data` — what the
+ * primitive tells of the response without its body; `read()` asks a primitive for the body.
+ */
+export function makeResponse(safe, chai, data, read) {
   // Read on first use and kept for this script.
   let asked = false;
   let text;
@@ -27,8 +35,8 @@ export function createResponse(host, safe, chai) {
   /** The text of the body; `undefined` — it is larger than the limit. Throws when it cannot be read. */
   function body() {
     if (!asked) {
-      const read = host.response_body();
-      text = typeof read === "string" ? read : undefined;
+      const got = read();
+      text = typeof got === "string" ? got : undefined;
       asked = true;
     }
     return text;

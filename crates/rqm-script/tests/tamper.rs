@@ -4,11 +4,25 @@
 //! Extended by the later tasks, each time with the API of that task.
 
 use rqm_script::{
-    run, Job, Phase, ResponseBody, ScriptErrorKind, ScriptResponse, Variables, CONSOLE_LINE_CHARS,
-    CONSOLE_MAX_LINES, MAX_CHANGES, MAX_TESTS, TEST_NAME_CHARS,
+    run, run_with_host, Host, Job, OutgoingRequest, Phase, Report, ResponseBody, ScriptErrorKind,
+    ScriptResponse, Variables, CONSOLE_LINE_CHARS, CONSOLE_MAX_LINES, MAX_CHANGES,
+    MAX_SEND_REQUESTS, MAX_TESTS, TEST_NAME_CHARS,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
+
+fn response() -> ScriptResponse {
+    ScriptResponse {
+        code: 200,
+        status: "OK".to_string(),
+        headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+        time_ms: 1.0,
+        size: 7,
+        body: ResponseBody::Bytes(br#"{"a":1}"#.to_vec()),
+    }
+}
 
 fn job(script: &str) -> Job {
     let mut job = Job::new(Phase::Test, vec![script.to_string()]);
@@ -16,15 +30,26 @@ fn job(script: &str) -> Job {
         environment_name: Some("Dev".to_string()),
         ..Variables::default()
     };
-    job.response = Some(ScriptResponse {
-        code: 200,
-        status: "OK".to_string(),
-        headers: vec![("Content-Type".to_string(), "application/json".to_string())],
-        time_ms: 1.0,
-        size: 7,
-        body: ResponseBody::Bytes(br#"{"a":1}"#.to_vec()),
-    });
+    job.response = Some(response());
     job
+}
+
+/// Answers every request and counts them.
+struct CountingHost(Arc<AtomicUsize>);
+
+impl Host for CountingHost {
+    fn send_request(&mut self, _request: OutgoingRequest) -> Result<ScriptResponse, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(response())
+    }
+}
+
+/// The report, and how many requests of the script reached the host.
+fn run_counting(script: &str) -> (Report, usize) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let host = CountingHost(Arc::clone(&requests));
+    let report = run_with_host(job(script), Box::new(host), &CancellationToken::new());
+    (report, requests.load(Ordering::SeqCst))
 }
 
 #[test]
@@ -53,11 +78,18 @@ fn tampered_builtins_do_not_lift_limits() {
         for (let i = 0; i < 1001; i++) {
             try { pm.test('n'.repeat(5000), function () {}) } catch (error) {}
         }
-        for (;;) pm.environment.set('i', 1)";
-    let report = run(job(script), &CancellationToken::new());
+        // One call more than a script may make, each on its own: the count is kept by Rust.
+        for (let i = 0; i < 51; i++) {
+            try { pm.sendRequest('http://x/' + i, function () {}) } catch (error) {}
+        }
+        try { clearTimeout(setTimeout(function () {}, 0)); clearInterval(-1); clearImmediate(1e9) } catch (error) {}
+        // The requests go first, then the timer: the limits of the host hold in a callback too.
+        setTimeout(function () { for (;;) pm.environment.set('i', 1) }, 0)";
+    let (report, requests) = run_counting(script);
 
     assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
     assert_eq!(report.errors[0].kind, ScriptErrorKind::Memory);
+    assert_eq!(requests, MAX_SEND_REQUESTS);
     assert!(!report.console.is_empty());
     assert!(report.console.len() <= CONSOLE_MAX_LINES);
     assert!(report
@@ -147,14 +179,34 @@ fn host_primitives_do_not_leak() {
         pm.test('done', function (done) { done() });
         pm.test('promise', function () { return Promise.resolve() });
         tests['old'] = true;
+        setTimeout(function (a, b) {}, 1, 1, 2);
+        const interval = setInterval(function () { clearInterval(interval) }, 1);
+        setImmediate(function () {});
+        clearTimeout(setTimeout(function () {}, 5));
+        pm.sendRequest('http://x/a', function (error, answer) {
+            const read = [answer.code, answer.headers.get('content-type'), answer.text(), answer.json()];
+            answer.to.have.status(200);
+        });
+        pm.sendRequest({ url: { raw: 'http://x/b' }, method: 'POST', header: 'A: 1\\nB: 2',
+                         body: { mode: 'urlencoded', urlencoded: 'a=1&b=2' } }).then(function () {});
+        pm.sendRequest({ url: 'http://x/c', header: [{ key: 'A', value: '1' }],
+                         body: { mode: 'formdata', formdata: [{ key: 'f', type: 'file', src: 'C:/x' }] } },
+                       function () {});
+        pm.sendRequest({ url: 'http://x/d', header: { A: '1' }, body: { mode: 'raw', raw: { a: 1 } } },
+                       function () {});
+        pm.sendRequest({}, function (error) {});
 
-        let leaked = 0;
-        for (let i = 0; i < seen.length; i++) {
-            if (String(seen[i].name).indexOf('rqm_host_') === 0) leaked++;
-        }
-        console.log(leaked, seen.length > 0);";
-    let report = run(job(script), &CancellationToken::new());
+        // After the requests and the other timers: their callbacks have been through the spies too.
+        setTimeout(function () {
+            let leaked = 0;
+            for (let i = 0; i < seen.length; i++) {
+                if (String(seen[i].name).indexOf('rqm_host_') === 0) leaked++;
+            }
+            console.log(leaked, seen.length > 0);
+        }, 30);";
+    let (report, requests) = run_counting(script);
     assert_eq!(report.errors, vec![]);
+    assert_eq!(requests, 4);
     assert_eq!(report.console.last().unwrap().text, "0 true");
     // The API did its job under the spies: only the test that throws has failed.
     let failed: Vec<&str> = report

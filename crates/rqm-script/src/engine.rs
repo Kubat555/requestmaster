@@ -1,18 +1,20 @@
 //! The script thread, the watchdog that stops waiting for it, a `Runtime` and a `Context` per script, the
-//! wrapper a script runs in, and the reading of its error.
+//! wrapper a script runs in, the loop that drives its jobs, its requests and its timers, and the reading of
+//! its error.
 
 use crate::budget::{lock, Budget, Stop, Watch};
 use crate::bundle::{self, Bundle};
-use crate::host::{self, Host, State};
+use crate::host::{self, Primitives, State};
 use crate::text;
 use crate::{
-    Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, ScriptResponse, Variables,
+    Host, Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, ScriptResponse, Variables,
     MAX_ABANDONED_THREADS, MAX_STACK_BYTES, MIN_STACK_BYTES, THREAD_STACK_BYTES,
 };
 use rquickjs::context::EvalOptions;
 use rquickjs::convert::Coerced;
 use rquickjs::promise::PromiseState;
-use rquickjs::{Context, Ctx, Error, FromJs, Function, Object, Runtime, Value};
+use rquickjs::{Context, Ctx, Error, FromJs, Function, Object, Persistent, Runtime, Value};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -86,7 +88,11 @@ impl Drop for ThreadEnd {
     }
 }
 
-pub(crate) fn run(mut job: Job, cancel: &CancellationToken) -> Report {
+pub(crate) fn run(
+    mut job: Job,
+    mut host: Box<dyn Host + Send>,
+    cancel: &CancellationToken,
+) -> Report {
     let variables = std::mem::take(&mut job.variables);
     if job.scripts.is_empty() {
         return Report {
@@ -119,7 +125,7 @@ pub(crate) fn run(mut job: Job, cancel: &CancellationToken) -> Report {
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let end = end;
-            run_scripts(&job, response.as_ref(), &token, &end.shared);
+            run_scripts(&job, response.as_ref(), host.as_mut(), &token, &end.shared);
         });
     if spawned.is_err() {
         // The closure, and `end` in it, is dropped: the state is free to take.
@@ -219,6 +225,7 @@ fn internal_report(message: &str, variables: Variables) -> Report {
 fn run_scripts(
     job: &Job,
     response: Option<&Arc<ScriptResponse>>,
+    app: &mut dyn Host,
     cancel: &CancellationToken,
     shared: &Shared,
 ) {
@@ -230,7 +237,7 @@ fn run_scripts(
         let failure = if cancel.is_cancelled() {
             Some(Failure::stopped(Stop::Cancelled, &job.limits))
         } else {
-            run_script(index, code, job, response, cancel, shared)
+            run_script(index, code, job, response, app, cancel, shared)
         };
         if let Some(failure) = failure {
             let kind = failure.kind;
@@ -272,6 +279,13 @@ impl Failure {
                 ScriptErrorKind::Timeout,
                 format!("the script ran longer than {} ms", limits.time.as_millis()),
             ),
+            Stop::TimerWait => Failure::new(
+                ScriptErrorKind::Timeout,
+                format!(
+                    "the script waited for timers longer than {} ms",
+                    limits.timer_wait.as_millis()
+                ),
+            ),
         }
     }
 
@@ -307,19 +321,58 @@ impl Failure {
     }
 }
 
+/// Where the rejection tracker of the engine finds the function of the prelude it calls. The only
+/// JavaScript value Rust keeps between two calls into the engine; it is put here and taken away inside one
+/// `Context::with` (`Untrack`), so it never outlives the context.
+type Tracking = Rc<RefCell<Option<Persistent<Function<'static>>>>>;
+
+/// Takes the function of the prelude away from the tracker when the script is over, however it ends.
+struct Untrack<'a>(&'a Tracking);
+
+impl Drop for Untrack<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.0.try_borrow_mut() {
+            slot.take();
+        }
+    }
+}
+
+/// The engine tells of every promise that is rejected with no handler, and again when it gets one later;
+/// the prelude keeps the list.
+fn track_rejections(runtime: &Runtime, tracking: &Tracking) {
+    let slot = Rc::clone(tracking);
+    runtime.set_host_promise_rejection_tracker(Some(Box::new(
+        move |ctx, promise, reason, handled| {
+            // The borrow ends before JavaScript runs.
+            let saved = slot.try_borrow().ok().and_then(|slot| slot.clone());
+            let Some(saved) = saved else {
+                return;
+            };
+            let called = saved
+                .restore(&ctx)
+                .and_then(|track| track.call::<_, ()>((promise, reason, handled)));
+            if matches!(called, Err(Error::Exception)) {
+                // Must not stay pending in the context. A stop is not lost: its flag stays set.
+                let _ = ctx.catch();
+            }
+        },
+    )));
+}
+
 /// One script: a `Runtime` and a `Context` of its own, both created and dropped on this thread.
 fn run_script(
     index: usize,
     code: &str,
     job: &Job,
     response: Option<&Arc<ScriptResponse>>,
+    app: &mut dyn Host,
     cancel: &CancellationToken,
     shared: &Shared,
 ) -> Option<Failure> {
     let limits = &job.limits;
     let watch = &shared.watch;
     let budget = Rc::new(Budget::new(limits, cancel.clone(), Arc::clone(watch)));
-    let host = Rc::new(Host::new(
+    let host = Rc::new(Primitives::new(
         Arc::clone(&shared.state),
         Arc::clone(watch),
         Rc::clone(&budget),
@@ -335,6 +388,8 @@ fn run_script(
     runtime.set_max_stack_size(limits.stack_bytes.clamp(MIN_STACK_BYTES, MAX_STACK_BYTES));
     let interrupt = Rc::clone(&budget);
     runtime.set_interrupt_handler(Some(Box::new(move || interrupt.stop().is_some())));
+    let tracking: Tracking = Rc::new(RefCell::new(None));
+    track_rejections(&runtime, &tracking);
     let context = match Context::full(&runtime) {
         Ok(context) => context,
         Err(error) => return Some(Failure::engine(&error, limits)),
@@ -345,6 +400,7 @@ fn run_script(
             code,
             limits,
             budget: &budget,
+            primitives: &host,
             well_formed: text::well_formed_function(&ctx),
         };
         // `__host`, then the prelude, then the text of the script. The stopwatch of the script stands
@@ -355,10 +411,20 @@ fn run_script(
             Ok(hooks) => hooks,
             Err(error) => return Some(script.failure(error, Origin::Engine)),
         };
+        let _untrack = Untrack(&tracking);
+        match host::tracker(&hooks) {
+            Ok(track) => {
+                if let Ok(mut slot) = tracking.try_borrow_mut() {
+                    *slot = Some(Persistent::save(&ctx, track));
+                }
+            }
+            Err(error) => return Some(script.failure(error, Origin::Engine)),
+        }
         budget.resume();
-        let failure = script.execute();
+        let failure = script.execute(&hooks, app);
         let failure = script.finish(&hooks, failure);
         budget.pause();
+        host.discard_requests();
         failure
     })
 }
@@ -369,11 +435,12 @@ struct Script<'a, 'js> {
     code: &'a str,
     limits: &'a Limits,
     budget: &'a Budget,
+    primitives: &'a Primitives,
     well_formed: Option<Function<'js>>,
 }
 
 impl<'js> Script<'_, 'js> {
-    fn execute(&self) -> Option<Failure> {
+    fn execute(&self, hooks: &Object<'js>, app: &mut dyn Host) -> Option<Failure> {
         let mut options = EvalOptions::default();
         options.strict = false;
         options.filename = Some(SCRIPT_FILE.to_string());
@@ -383,17 +450,22 @@ impl<'js> Script<'_, 'js> {
             Err(error) => return Some(self.failure(error, Origin::Script)),
         };
         let promise = value.into_promise()?;
-        while self.budget.stop().is_none() && self.ctx.execute_pending_job() {}
-        if let Some(stop) = self.budget.stop() {
-            return Some(Failure::stopped(stop, self.limits));
+        if let Some(failure) = self.drive(hooks, app) {
+            return Some(failure);
         }
         match promise.state() {
-            PromiseState::Resolved => None,
+            // The rejection of the promise of the script itself is in the list of the prelude too: the
+            // list is looked at only here, or one error would be named twice.
+            PromiseState::Resolved => match host::unhandled(hooks) {
+                Ok(Some(reason)) => Some(self.thrown(&reason, Origin::Script)),
+                Ok(None) => None,
+                Err(error) => Some(self.failure(error, Origin::Script)),
+            },
             PromiseState::Rejected => match promise.result::<Value<'js>>() {
                 Some(Err(error)) => Some(self.failure(error, Origin::Script)),
                 _ => None,
             },
-            // No job is left that could settle it.
+            // Nothing is left that could settle it: no job, no request, no timer.
             PromiseState::Pending => Some(Failure::new(
                 ScriptErrorKind::Exception,
                 NEVER_FINISHES.to_string(),
@@ -401,7 +473,84 @@ impl<'js> Script<'_, 'js> {
         }
     }
 
-    /// The text of the script has ended, by itself or with an exception: the prelude records the tests that
+    /// Drives the script until nothing of it is left to wait for: its jobs, then its requests one at a
+    /// time in the order of the calls, then its timers. `None` — it has come to its end; otherwise why it
+    /// was stopped, or the first exception of a callback (what is left of the timers and the requests is
+    /// dropped with the script).
+    fn drive(&self, hooks: &Object<'js>, app: &mut dyn Host) -> Option<Failure> {
+        loop {
+            while self.budget.stop().is_none() && self.ctx.execute_pending_job() {}
+            // An abandoned script stops here: it neither reaches the host nor waits for a timer.
+            if let Some(stop) = self.budget.stop() {
+                return Some(Failure::stopped(stop, self.limits));
+            }
+            match self.send_next(hooks, app) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(failure) => return Some(failure),
+            }
+            let (number, due) = self.primitives.next_timer()?;
+            if let Some(stop) = self.budget.wait_until(due) {
+                return Some(Failure::stopped(stop, self.limits));
+            }
+            self.primitives.timer_fired(number);
+            if let Err(error) = host::fire(hooks, number) {
+                return Some(self.failure(error, Origin::Script));
+            }
+        }
+    }
+
+    /// Sends the earliest request of the script that waits, if there is one, and hands the answer to the
+    /// prelude. Waiting for the host is not execution: the stopwatch stands and the watchdog has no
+    /// deadline. It is stopped before the request leaves the queue, so the watchdog cannot give up on the
+    /// script for its time between the two: a request that left the queue belongs to a script that was not
+    /// abandoned.
+    fn send_next(&self, hooks: &Object<'js>, app: &mut dyn Host) -> Result<bool, Failure> {
+        self.budget.pause();
+        let (number, request) = match self.primitives.take_request() {
+            Ok(Some(taken)) => taken,
+            Ok(None) => {
+                self.budget.resume();
+                return Ok(false);
+            }
+            Err(refusal) => {
+                self.budget.resume();
+                return Err(match self.budget.stop() {
+                    Some(stop) => Failure::stopped(stop, self.limits),
+                    None => Failure::new(
+                        ScriptErrorKind::Internal,
+                        format!("script engine failed: {}", refusal.message()),
+                    ),
+                });
+            }
+        };
+        let sent = format!("{} {}", request.method, request.url);
+        let started = Instant::now();
+        let answer = app.send_request(request);
+        let millis = started.elapsed().as_millis();
+        self.budget.resume();
+        let (failure, described) = match answer {
+            Ok(response) => {
+                self.primitives.network(&format!(
+                    "{sent} → {} {} ({millis} ms)",
+                    response.code, response.status
+                ));
+                (None, Some(self.primitives.keep_answer(number, response)))
+            }
+            Err(error) => {
+                self.primitives.network(&format!("{sent} → error: {error}"));
+                (Some(error), None)
+            }
+        };
+        if let Some(stop) = self.budget.stop() {
+            return Err(Failure::stopped(stop, self.limits));
+        }
+        host::answer(hooks, number, failure, described)
+            .map_err(|error| self.failure(error, Origin::Script))?;
+        Ok(true)
+    }
+
+    /// The script has ended, by itself or with an exception: the prelude records the tests that
     /// are left (`host::finish`). Not after a timeout, a memory limit or a cancel. Still on the clock of the
     /// script — it runs getters of the script. An exception here is the error of the script when it has
     /// none yet; a stop always is.
@@ -432,7 +581,12 @@ impl<'js> Script<'_, 'js> {
         let Some(thrown) = thrown else {
             return Failure::engine(&error, self.limits);
         };
-        let read = self.read_thrown(&thrown);
+        self.thrown(&thrown, origin)
+    }
+
+    /// The error a thrown value, or the reason of a rejected promise, makes.
+    fn thrown(&self, thrown: &Value<'js>, origin: Origin) -> Failure {
+        let read = self.read_thrown(thrown);
         // Reading runs getters of the script; they are stopped like the script itself.
         if let Some(stop) = self.budget.stop() {
             return Failure::stopped(stop, self.limits);
