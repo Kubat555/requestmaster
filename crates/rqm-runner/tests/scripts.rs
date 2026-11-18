@@ -9,7 +9,7 @@ use rqm_model::*;
 use rqm_runner::*;
 use rqm_store::Store;
 use tokio_util::sync::CancellationToken;
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{body_string, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const MIB: usize = 1024 * 1024;
@@ -313,4 +313,196 @@ async fn draft_script_of_the_request_runs() {
     let (outcome, _dir) = sent(&input).await;
     assert_eq!(outcome.result.as_ref().unwrap().status, 200);
     assert_eq!(texts(&outcome.scripts), ["from the draft"]);
+}
+
+// ---- pm.sendRequest: the requests of a script go through the same HTTP engine ----
+
+/// The tree with the collection variable `host` = the server and a pre-request script of the request, which
+/// is `GET {{host}}/data`.
+fn tree_with_pre_request(server: &MockServer, pre_request: &str) -> Tree {
+    let request = get("{{host}}/data", scripts(pre_request, ""));
+    tree(vec![var("host", &server.uri())], Scripts::default(), Scripts::default(), Scripts::default(), request)
+}
+/// `GET /data` answers 200.
+async fn mount_data(server: &MockServer) {
+    Mock::given(method("GET")).and(path("/data")).respond_with(ResponseTemplate::new(200)).mount(server).await;
+}
+/// What the scripts wrote with `console.log`.
+fn logged(report: &ScriptsReport) -> Vec<&str> {
+    let lines = report.console.iter().filter(|line| line.level == ConsoleLevel::Log);
+    lines.map(|line| line.text.as_str()).collect()
+}
+
+const FETCH_TOKEN: &str = "const res = await pm.sendRequest({ url: pm.collectionVariables.get('host') + '/token', method: 'POST',\n\
+    header: { 'Content-Type': 'application/json' }, body: { mode: 'raw', raw: JSON.stringify({ user: 'u' }) } });\n\
+    pm.environment.set('token', res.json().access_token);";
+const LOGIN: &str = "await pm.sendRequest(pm.collectionVariables.get('host') + '/login')";
+
+/// `POST /token` with the body `{"user":"u"}` gives the token `T-9`; `GET /data` wants it.
+async fn token_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST")).and(path("/token")).and(body_string("{\"user\":\"u\"}"))
+        .and(header("Content-Type", "application/json"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{\"access_token\":\"T-9\"}"))
+        .mount(&server).await;
+    Mock::given(method("GET")).and(path("/data")).and(header("Authorization", "Bearer T-9"))
+        .respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    server
+}
+fn token_tree(server: &MockServer) -> Tree {
+    let mut request = get("{{host}}/data", scripts(FETCH_TOKEN, ""));
+    request.headers = vec![Param { key: "Authorization".into(), value: "Bearer {{token}}".into(), enabled: true,
+        postman_extra: Extra::new() }];
+    tree(vec![var("host", &server.uri())], Scripts::default(), Scripts::default(), Scripts::default(), request)
+}
+/// `GET /login` sets the cookie `sid=1`; `GET /data` wants it.
+async fn login_server() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/login"))
+        .respond_with(ResponseTemplate::new(200).insert_header("set-cookie", "sid=1; Path=/").set_body_string("in"))
+        .mount(&server).await;
+    Mock::given(method("GET")).and(path("/data")).and(header("Cookie", "sid=1"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("data")).mount(&server).await;
+    server
+}
+
+#[tokio::test]
+async fn token_is_fetched_in_pre_request() {
+    let server = token_server().await;
+    let tree = token_tree(&server);
+
+    let (outcome, _dir) = sent(&input(&tree, true)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200, "the server takes only GET /data with the token");
+    assert_eq!(outcome.scripts.changes, vec![set(StoredScope::Environment, "token", "T-9")]);
+}
+
+#[tokio::test]
+async fn send_request_shares_the_cookies() {
+    let server = login_server().await;
+    let tree = tree_with_pre_request(&server, LOGIN);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200, "the server takes only GET /data with the cookie");
+}
+
+#[tokio::test]
+async fn bodies_of_script_requests_are_removed() {
+    let server = login_server().await;
+    let tree = tree_with_pre_request(&server, LOGIN);
+
+    let (outcome, dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    let response = outcome.result.as_ref().unwrap();
+    let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(files, vec![response.body_path.clone()], "only the body of the main response stays");
+}
+
+#[tokio::test]
+async fn urlencoded_and_formdata_bodies() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    mount_data(&server).await;
+    let pre = "const host = pm.collectionVariables.get('host');\n\
+        await pm.sendRequest({ url: host + '/form', method: 'POST', body: { mode: 'urlencoded',\n\
+          urlencoded: [{ key: 'a', value: '1' }, { key: 'b', value: 'x y' }] } });\n\
+        await pm.sendRequest({ url: host + '/multi', method: 'POST', body: { mode: 'formdata',\n\
+          formdata: [{ key: 't', value: 'v' }] } });";
+    let tree = tree_with_pre_request(&server, pre);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    let received = server.received_requests().await.unwrap();
+    let content_type = |request: &wiremock::Request| {
+        request.headers.get("content-type").unwrap().to_str().unwrap().to_string()
+    };
+    let form = received.iter().find(|request| request.url.path() == "/form").unwrap();
+    assert_eq!(String::from_utf8_lossy(&form.body), "a=1&b=x+y");
+    assert_eq!(content_type(form), "application/x-www-form-urlencoded");
+    let multi = received.iter().find(|request| request.url.path() == "/multi").unwrap();
+    assert!(content_type(multi).starts_with("multipart/form-data"), "{}", content_type(multi));
+    assert!(String::from_utf8_lossy(&multi.body).contains("name=\"t\""), "{:?}", multi.body);
+}
+
+#[tokio::test]
+async fn network_error_in_a_script_request_does_not_stop_the_send() {
+    let server = MockServer::start().await;
+    mount_data(&server).await;
+    let pre = "pm.sendRequest('http://127.0.0.1:1/x', (err) => console.log('E: ' + err.message))";
+    let tree = tree_with_pre_request(&server, pre);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    let [line] = logged(&outcome.scripts)[..] else { panic!("{:?}", outcome.scripts.console) };
+    assert!(line.starts_with("E: connection failed"), "{line}");
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn console_has_network_lines_in_order() {
+    let server = token_server().await;
+    let tree = token_tree(&server);
+
+    let (outcome, _dir) = sent(&input(&tree, true)).await;
+    let network = outcome.scripts.console.iter().filter(|line| line.level == ConsoleLevel::Network);
+    let [script, app] = &network.collect::<Vec<_>>()[..] else { panic!("{:?}", outcome.scripts.console) };
+    assert_eq!(script.source, Some(source(&tree.req, "Req", NodeKind::Request, ScriptPhase::PreRequest)));
+    assert!(script.text.starts_with(&format!("POST {}/token → 200 OK (", server.uri())), "{}", script.text);
+    assert_eq!(app.source, None);
+    assert!(app.text.starts_with(&format!("GET {}/data → 200 OK (", server.uri())), "{}", app.text);
+    assert!(script.text.ends_with(" ms)") && app.text.ends_with(" ms)"), "{} | {}", script.text, app.text);
+    assert!(script.at_ms <= app.at_ms);
+}
+
+#[tokio::test]
+async fn cancel_during_a_script_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST")).and(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(30))).mount(&server).await;
+    mount_data(&server).await;
+    let tree = token_tree(&server);
+
+    let cancel = CancellationToken::new();
+    let canceller = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        canceller.cancel();
+    });
+    let started = Instant::now();
+    let (outcome, _dir) = send_with(&input(&tree, true), cancel).await;
+    assert!(matches!(outcome.result, Err(SendError::Cancelled)), "{:?}", outcome.result);
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+}
+
+#[tokio::test]
+async fn script_request_uses_the_application_timeout() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/slow"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2))).mount(&server).await;
+    mount_data(&server).await;
+    let pre = "try { await pm.sendRequest(pm.collectionVariables.get('host') + '/slow') } catch (e) { console.log('failed') }";
+    let tree = tree_with_pre_request(&server, pre);
+    let mut input = input(&tree, false);
+    input.settings.timeout = Some(Duration::from_millis(200));
+
+    let (outcome, _dir) = sent(&input).await;
+    assert_eq!(logged(&outcome.scripts), ["failed"]);
+    let slow = outcome.scripts.console.iter().find(|line| line.text.contains("/slow")).expect("no network line");
+    assert!(slow.text.ends_with("/slow → error: request timed out"), "{}", slow.text);
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn big_answer_of_a_script_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/big"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![b'a'; 11 * MIB])).mount(&server).await;
+    mount_data(&server).await;
+    let pre = "const res = await pm.sendRequest(pm.collectionVariables.get('host') + '/big');\n\
+        try { res.text() } catch (e) { console.log(e.message) }";
+    let tree = tree_with_pre_request(&server, pre);
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(logged(&outcome.scripts), ["response body is larger than 10 MB and is not available to scripts"]);
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200);
 }

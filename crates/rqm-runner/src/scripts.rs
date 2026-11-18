@@ -3,12 +3,14 @@
 
 use std::time::Instant;
 
+use rqm_http::{HttpEngine, SendOptions};
 use rqm_model::{NodeContent, NodeKind, Scripts, Variable};
 use rqm_script::{Info, Job, Limits, Phase, Report, ScriptResponse, Var, Variables};
 use tokio_util::sync::CancellationToken;
 
 pub use rqm_script::{ConsoleLevel, ScriptErrorKind, StoredScope, VariableChange, VariableOp};
 
+use crate::script_host::run_job;
 use crate::{ScopeSources, SendInput};
 
 /// When a script of a send runs.
@@ -129,6 +131,8 @@ pub(crate) struct ScriptRun {
     /// The start of the send: the console lines of both phases are timed from it.
     epoch: Instant,
     cancel: CancellationToken,
+    /// The settings of the requests the scripts send: those of the application, not of the request.
+    options: SendOptions,
 }
 
 impl ScriptRun {
@@ -147,13 +151,21 @@ impl ScriptRun {
             local: Vec::new(),
         };
         let info = Info { request_id: input.request_id.clone(), request_name: input.request_name.clone() };
-        ScriptRun { variables, report: ScriptsReport::default(), info, epoch, cancel }
+        let options = SendOptions {
+            timeout: input.settings.timeout,
+            verify_tls: input.settings.verify_tls,
+            proxy: input.settings.proxy.clone(),
+            ..SendOptions::default()
+        };
+        ScriptRun { variables, report: ScriptsReport::default(), info, epoch, cancel, options }
     }
 
-    /// Runs the scripts of one phase on a blocking thread and adds what they left to the report.
+    /// Runs the scripts of one phase on a blocking thread and adds what they left to the report; their
+    /// `pm.sendRequest` goes through `engine`.
     /// Returns the error that stops a pre-request phase: the cancel if there is one, else the first error.
     pub(crate) async fn run_phase(
         &mut self,
+        engine: &dyn HttpEngine,
         steps: &[ScriptStep],
         phase: ScriptPhase,
         response: Option<ScriptResponse>,
@@ -171,12 +183,11 @@ impl ScriptRun {
             variables: std::mem::take(&mut self.variables),
             response,
         };
-        let cancel = self.cancel.clone();
         let first_new = self.report.errors.len();
-        match tokio::task::spawn_blocking(move || rqm_script::run(job, &cancel)).await {
-            Ok(report) => self.take(steps, report),
+        match run_job(engine, job, &self.options, &self.cancel).await {
+            Some(report) => self.take(steps, report),
             // Reachable in the dev and test profiles only: the release profile aborts on a panic.
-            Err(_) => self.report.errors.extend(steps.first().map(|step| ScriptFailure {
+            None => self.report.errors.extend(steps.first().map(|step| ScriptFailure {
                 source: step.source.clone(),
                 kind: ScriptErrorKind::Internal,
                 message: "script thread failed".to_string(),
@@ -187,6 +198,12 @@ impl ScriptRun {
         let new = self.report.errors.get(first_new..).unwrap_or_default();
         let cancelled = new.iter().find(|error| error.kind == ScriptErrorKind::Cancelled);
         cancelled.or(new.first()).cloned()
+    }
+
+    /// Adds a console line of the application itself, timed like the lines of the scripts.
+    pub(crate) fn app_line(&mut self, level: ConsoleLevel, text: String) {
+        let at_ms = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.report.console.push(ConsoleEntry { source: None, level, text, at_ms });
     }
 
     /// Adds the report of the engine for `steps` to the report of the send and keeps the variables.

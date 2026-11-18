@@ -4,12 +4,13 @@
 use std::time::Instant;
 
 use rqm_http::{HttpBody, HttpEngine, HttpError, HttpRequest, HttpResponse, PartValue};
-use rqm_script::{ResponseBody, ScriptResponse};
+use rqm_script::ResponseBody;
 use tokio_util::sync::CancellationToken;
 
 use crate::prepare::{prepare, prepare_with, unconfirmed_file_fields, PrepareError, Prepared, SendWarning};
+use crate::script_host::script_response;
 use crate::scripts::{nodes_with_scripts, script_steps, ScriptRun};
-use crate::{ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptsMode, ScriptsReport, SendInput};
+use crate::{ConsoleLevel, ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptsMode, ScriptsReport, SendInput};
 
 /// Why a send produced no response.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -111,7 +112,7 @@ pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: Cancellati
     };
 
     if let Some(run) = run.as_mut().filter(|_| !pre.is_empty()) {
-        if let Some(failure) = run.run_phase(&pre, ScriptPhase::PreRequest, None).await {
+        if let Some(failure) = run.run_phase(engine, &pre, ScriptPhase::PreRequest, None).await {
             let error = match failure.kind {
                 ScriptErrorKind::Cancelled => SendError::Cancelled,
                 _ => SendError::Script(failure),
@@ -132,20 +133,24 @@ pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: Cancellati
     };
     warnings.extend(prepare_warnings);
     // The engine takes the request by value, so it is described first.
-    let request = Some(PreparedSummary::of(&http));
+    let request = PreparedSummary::of(&http);
     let result = engine.send(http, cancel).await.map_err(SendError::from);
+    if let Some(run) = run.as_mut() {
+        let outcome = match &result {
+            Ok(response) => {
+                let millis = response.timings.total.as_millis();
+                format!("{} {} ({millis} ms)", response.status, response.status_text)
+            }
+            Err(error) => format!("error: {error}"),
+        };
+        run.app_line(ConsoleLevel::Network, format!("{} {} → {outcome}", request.method, request.url));
+    }
+    let request = Some(request);
 
     if let (Some(run), Ok(response)) = (run.as_mut().filter(|_| !tests.is_empty()), &result) {
-        let response = ScriptResponse {
-            code: response.status,
-            status: response.status_text.clone(),
-            headers: response.headers.clone(),
-            time_ms: response.timings.total.as_secs_f64() * 1000.0,
-            size: response.decoded_size,
-            body: ResponseBody::File(response.body_path.clone()),
-        };
+        let response = script_response(response, ResponseBody::File(response.body_path.clone()));
         // An error of a test script stays in the report: the response is the result all the same.
-        run.run_phase(&tests, ScriptPhase::Test, Some(response)).await;
+        run.run_phase(engine, &tests, ScriptPhase::Test, Some(response)).await;
     }
     SendOutcome { result, warnings, request, scripts: run.map(|run| run.report).unwrap_or_default() }
 }

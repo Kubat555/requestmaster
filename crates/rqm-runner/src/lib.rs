@@ -7,6 +7,7 @@ mod body_view;
 mod cookies_state;
 mod prepare;
 mod scope;
+mod script_host;
 mod scripts;
 mod send;
 

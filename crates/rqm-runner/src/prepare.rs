@@ -258,7 +258,7 @@ fn compact_json(text: &str) -> Option<String> {
 
 /// `application/x-www-form-urlencoded` form of a key or a value: letters, digits and `*-._` stay, a space
 /// becomes `+`, every other byte of the UTF-8 text is percent-encoded.
-fn form_encode(text: &str) -> String {
+pub(crate) fn form_encode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         match byte {
