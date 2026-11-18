@@ -1,0 +1,10 @@
+[package]
+name = "rqm-script"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "RequestMaster: runs Postman scripts in QuickJS under time, memory and stack limits."
+
+[dependencies]
+rquickjs = { workspace = true }
+tokio-util = { workspace = true }

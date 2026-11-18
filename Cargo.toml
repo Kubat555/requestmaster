@@ -36,6 +36,9 @@ http = "=1.5.0"
 # Features are listed by the crates that use it.
 tokio = "=1.54.1"
 tokio-util = "=0.7.20"
+# Script engine of `rqm-script`: QuickJS-NG 0.16.2. Default features only (`std`): no `parallel`, `futures`,
+# `loader`, `macro`, `bindgen`, `disable-assertions`, `rust-alloc`.
+rquickjs = "=0.14.0"
 # Tests only: local HTTP server on 127.0.0.1.
 wiremock = "=0.6.5"
 # Tests only: HTTPS server with a self-signed certificate, same versions and features as in
@@ -55,3 +58,8 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# The C code of QuickJS is optimised in dev and test builds too: unoptimised, its stack frames are four times
+# deeper and it runs 2-4 times slower, so the tests of the script limits would not see what the product does.
+[profile.dev.package.rquickjs-sys]
+opt-level = 3
