@@ -235,6 +235,28 @@ fn queued_requests_are_capped() {
     assert!(seen.len() <= 4);
 }
 
+/// The queue is shared by the scripts of a job: what a script stopped by a host limit left there must
+/// not be sent by the next script, nor answered into its callback.
+#[test]
+fn requests_of_a_script_stopped_by_a_host_limit_go_nowhere() {
+    let job = Job::new(
+        Phase::Test,
+        vec![
+            "pm.sendRequest('http://first/1', function () {}); \
+             for (;;) pm.globals.set('k', 'x'.repeat(1 << 20))"
+                .to_string(),
+            "pm.sendRequest('http://second/1', function (err, res) { console.log(res.text()) })"
+                .to_string(),
+        ],
+    );
+    let echo: Answer = Box::new(|request| Ok(response(200, "OK", &request.url)));
+    let (report, seen) = send_job(job, echo, &CancellationToken::new());
+    assert_eq!(report.errors.len(), 1);
+    assert_eq!(report.errors[0].kind, ScriptErrorKind::Memory);
+    assert_eq!(seen, vec![get("http://second/1")]);
+    assert_eq!(console(&report), vec!["http://second/1"]);
+}
+
 #[test]
 fn abandoned_script_does_not_reach_the_host() {
     let mut job = Job::new(

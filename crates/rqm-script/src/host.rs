@@ -640,13 +640,19 @@ impl Primitives {
         let _ = self.log(ConsoleLevel::Network, text);
     }
 
-    /// The script has ended: the requests it left in the queue go nowhere.
+    /// The script has ended: the requests it left in the queue go nowhere. Does not go through
+    /// `with_state`: a script stopped by a host limit must not leave its requests to the next script of
+    /// the job, which shares the queue. An abandoned script has no state to clean.
     pub(crate) fn discard_requests(&self) {
-        let _ = self.with_state(|state| {
+        let mut guard = match self.state.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return,
+        };
+        if let Some(state) = guard.as_mut() {
             state.requests.clear();
             state.queued_bytes = 0;
-            Ok(())
-        });
+        }
     }
 
     fn test(
