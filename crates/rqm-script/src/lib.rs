@@ -17,8 +17,19 @@
 )]
 
 mod budget;
+mod bundle;
 mod engine;
+mod host;
 mod text;
+mod variables;
+
+pub use host::{
+    ConsoleLevel, ConsoleLine, CONSOLE_LINE_CHARS, CONSOLE_MAX_BYTES, CONSOLE_MAX_LINES,
+};
+pub use variables::{
+    StoredScope, Var, VariableChange, VariableOp, Variables, MAX_CHANGES, MAX_CHANGES_BYTES,
+    MAX_VALUE_BYTES, MAX_VARIABLES_BYTES,
+};
 
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -63,6 +74,13 @@ pub enum Phase {
     Test,
 }
 
+/// The request the scripts belong to, as `pm.info` shows it.
+#[derive(Debug, Clone, Default)]
+pub struct Info {
+    pub request_id: String,
+    pub request_name: String,
+}
+
 /// The scripts of one phase of one send, in the order they run.
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -71,6 +89,9 @@ pub struct Job {
     pub limits: Limits,
     /// The start of the send: console lines are timed from it.
     pub epoch: Instant,
+    pub info: Info,
+    /// What the scripts see; what they leave comes back in `Report::variables`.
+    pub variables: Variables,
 }
 
 impl Job {
@@ -81,6 +102,8 @@ impl Job {
             scripts,
             limits: Limits::default(),
             epoch: Instant::now(),
+            info: Info::default(),
+            variables: Variables::default(),
         }
     }
 }
@@ -88,6 +111,13 @@ impl Job {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Report {
     pub errors: Vec<ScriptError>,
+    pub console: Vec<ConsoleLine>,
+    /// Lines were dropped: the console of a job holds `CONSOLE_MAX_LINES` lines and `CONSOLE_MAX_BYTES` bytes.
+    pub console_truncated: bool,
+    /// The variables after the last script that ran.
+    pub variables: Variables,
+    /// What the scripts changed in the stored scopes, in the order they did it.
+    pub changes: Vec<VariableChange>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

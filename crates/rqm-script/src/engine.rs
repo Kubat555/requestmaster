@@ -2,9 +2,11 @@
 //! wrapper a script runs in, and the reading of its error.
 
 use crate::budget::{lock, Budget, Stop, Watch};
+use crate::bundle::{self, Bundle};
+use crate::host::{self, Host, State};
 use crate::text;
 use crate::{
-    Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, MAX_ABANDONED_THREADS,
+    Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, Variables, MAX_ABANDONED_THREADS,
     MAX_STACK_BYTES, MIN_STACK_BYTES, THREAD_STACK_BYTES,
 };
 use rquickjs::context::EvalOptions;
@@ -44,21 +46,22 @@ pub(crate) fn abandoned_threads() -> usize {
 
 /// What `run` shares with the script thread.
 struct Shared {
-    /// The report so far. `None` once `run` has taken it: what the thread writes later is dropped.
-    report: Mutex<Option<Report>>,
+    /// What the scripts have produced so far; the primitives of a script write here too. `None` once `run`
+    /// has taken it: what the thread writes later is dropped.
+    state: Arc<Mutex<Option<State>>>,
     watch: Arc<Watch>,
     /// Index of the script the thread is at.
     current: AtomicUsize,
     /// The thread went through all its scripts (it did not panic on the way).
     completed: AtomicBool,
-    /// The thread has ended. Written under the lock of `report`.
+    /// The thread has ended. Written under the lock of `state`.
     ended: AtomicBool,
 }
 
 impl Shared {
     fn push(&self, error: ScriptError) {
-        if let Some(report) = lock(&self.report).as_mut() {
-            report.errors.push(error);
+        if let Some(state) = lock(&self.state).as_mut() {
+            state.errors.push(error);
         }
     }
 }
@@ -72,10 +75,10 @@ struct ThreadEnd {
 
 impl Drop for ThreadEnd {
     fn drop(&mut self) {
-        let report = lock(&self.shared.report);
+        let state = lock(&self.shared.state);
         self.shared.ended.store(true, Ordering::SeqCst);
-        // The report is taken from a living thread only when the thread is abandoned.
-        if report.is_none() {
+        // The state is taken from a living thread only when the thread is abandoned.
+        if state.is_none() {
             let _ = ABANDONED_THREADS.try_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
                 count.checked_sub(1)
             });
@@ -83,16 +86,20 @@ impl Drop for ThreadEnd {
     }
 }
 
-pub(crate) fn run(job: Job, cancel: &CancellationToken) -> Report {
+pub(crate) fn run(mut job: Job, cancel: &CancellationToken) -> Report {
+    let variables = std::mem::take(&mut job.variables);
     if job.scripts.is_empty() {
-        return Report::default();
+        return Report {
+            variables,
+            ..Report::default()
+        };
     }
     if abandoned_threads() >= MAX_ABANDONED_THREADS {
-        return internal_report(TOO_MANY_ABANDONED);
+        return internal_report(TOO_MANY_ABANDONED, variables);
     }
     let limits = job.limits;
     let shared = Arc::new(Shared {
-        report: Mutex::new(Some(Report::default())),
+        state: Arc::new(Mutex::new(Some(State::new(variables)))),
         watch: Arc::new(Watch::default()),
         current: AtomicUsize::new(0),
         completed: AtomicBool::new(false),
@@ -113,7 +120,8 @@ pub(crate) fn run(job: Job, cancel: &CancellationToken) -> Report {
             run_scripts(&job, &token, &end.shared);
         });
     if spawned.is_err() {
-        return internal_report(THREAD_FAILED);
+        // The closure, and `end` in it, is dropped: the state is free to take.
+        return failed_report(&shared);
     }
 
     let mut cancelled_since: Option<Instant> = None;
@@ -137,13 +145,22 @@ pub(crate) fn run(job: Job, cancel: &CancellationToken) -> Report {
 
 /// The report of a thread that has ended.
 fn finished_report(shared: &Shared) -> Report {
-    let report = lock(&shared.report).take();
     if shared.completed.load(Ordering::SeqCst) {
-        report.unwrap_or_default()
+        let state = lock(&shared.state).take();
+        state.map(State::into_report).unwrap_or_default()
     } else {
         // The thread panicked. Reachable in the dev and test profiles only: release aborts on panic.
-        internal_report(THREAD_FAILED)
+        failed_report(shared)
     }
+}
+
+/// The report of a thread that did not start or did not get through its scripts: one error of the engine;
+/// the console, the variables and their changes stay as far as they got.
+fn failed_report(shared: &Shared) -> Report {
+    let state = lock(&shared.state).take();
+    let mut report = state.map(State::into_report).unwrap_or_default();
+    report.errors = internal_report(THREAD_FAILED, Variables::default()).errors;
+    report
 }
 
 /// Gives up on the thread when its deadline has passed or a cancel has waited too long: takes the report,
@@ -159,11 +176,11 @@ fn abandon(
     if !cancel_overdue && !deadline.is_some_and(|deadline| now >= deadline) {
         return None;
     }
-    let mut slot = lock(&shared.report);
+    let mut slot = lock(&shared.state);
     if shared.ended.load(Ordering::SeqCst) {
         return None;
     }
-    let mut report = slot.take().unwrap_or_default();
+    let mut report = slot.take().map(State::into_report).unwrap_or_default();
     shared.watch.abandon();
     ABANDONED_THREADS.fetch_add(1, Ordering::SeqCst);
     drop(slot);
@@ -181,7 +198,8 @@ fn abandon(
     Some(report)
 }
 
-fn internal_report(message: &str) -> Report {
+/// No script ran: the variables go back as they came.
+fn internal_report(message: &str, variables: Variables) -> Report {
     Report {
         errors: vec![ScriptError {
             script: 0,
@@ -190,6 +208,8 @@ fn internal_report(message: &str) -> Report {
             line: None,
             column: None,
         }],
+        variables,
+        ..Report::default()
     }
 }
 
@@ -203,7 +223,7 @@ fn run_scripts(job: &Job, cancel: &CancellationToken, shared: &Shared) {
         let failure = if cancel.is_cancelled() {
             Some(Failure::stopped(Stop::Cancelled, &job.limits))
         } else {
-            run_script(code, &job.limits, cancel, &shared.watch)
+            run_script(index, code, job, cancel, shared)
         };
         if let Some(failure) = failure {
             let kind = failure.kind;
@@ -237,6 +257,9 @@ impl Failure {
     fn stopped(stop: Stop, limits: &Limits) -> Self {
         match stop {
             Stop::Cancelled => Failure::new(ScriptErrorKind::Cancelled, "cancelled".to_string()),
+            Stop::Memory(limit) => {
+                Failure::new(ScriptErrorKind::Memory, limit.message().to_string())
+            }
             // The watchdog has already reported an abandoned script: what its thread says is dropped.
             Stop::Timeout | Stop::Abandoned => Failure::new(
                 ScriptErrorKind::Timeout,
@@ -279,12 +302,22 @@ impl Failure {
 
 /// One script: a `Runtime` and a `Context` of its own, both created and dropped on this thread.
 fn run_script(
+    index: usize,
     code: &str,
-    limits: &Limits,
+    job: &Job,
     cancel: &CancellationToken,
-    watch: &Arc<Watch>,
+    shared: &Shared,
 ) -> Option<Failure> {
+    let limits = &job.limits;
+    let watch = &shared.watch;
     let budget = Rc::new(Budget::new(limits, cancel.clone(), Arc::clone(watch)));
+    let host = Rc::new(Host::new(
+        Arc::clone(&shared.state),
+        Arc::clone(watch),
+        Rc::clone(&budget),
+        index,
+        job,
+    ));
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => return Some(Failure::engine(&error, limits)),
@@ -305,6 +338,13 @@ fn run_script(
             budget: &budget,
             well_formed: text::well_formed_function(&ctx),
         };
+        // `__host`, then the prelude, then the text of the script. The stopwatch of the script stands
+        // while the prelude loads.
+        let prepared =
+            host::install(&ctx, &host).and_then(|()| bundle::load(&ctx, Bundle::Prelude));
+        if let Err(error) = prepared {
+            return Some(script.failure(error, Origin::Engine));
+        }
         budget.resume();
         let failure = script.execute();
         budget.pause();
@@ -329,7 +369,7 @@ impl<'js> Script<'_, 'js> {
         let wrapped = format!("{WRAPPER_START}{}{WRAPPER_END}", self.code);
         let value: Value<'js> = match self.ctx.eval_with_options(wrapped, options) {
             Ok(value) => value,
-            Err(error) => return Some(self.failure(error)),
+            Err(error) => return Some(self.failure(error, Origin::Script)),
         };
         let promise = value.into_promise()?;
         while self.budget.stop().is_none() && self.ctx.execute_pending_job() {}
@@ -339,7 +379,7 @@ impl<'js> Script<'_, 'js> {
         match promise.state() {
             PromiseState::Resolved => None,
             PromiseState::Rejected => match promise.result::<Value<'js>>() {
-                Some(Err(error)) => Some(self.failure(error)),
+                Some(Err(error)) => Some(self.failure(error, Origin::Script)),
                 _ => None,
             },
             // No job is left that could settle it.
@@ -351,7 +391,7 @@ impl<'js> Script<'_, 'js> {
     }
 
     /// What kind of error it is, is told by the flags first and by the error itself last.
-    fn failure(&self, error: Error) -> Failure {
+    fn failure(&self, error: Error, origin: Origin) -> Failure {
         let thrown = matches!(error, Error::Exception).then(|| self.ctx.catch());
         if let Some(stop) = self.budget.stop() {
             return Failure::stopped(stop, self.limits);
@@ -366,6 +406,12 @@ impl<'js> Script<'_, 'js> {
         }
         if read.name.as_deref() == Some("InternalError") && read.text.contains("out of memory") {
             return Failure::memory(self.limits);
+        }
+        if origin == Origin::Engine {
+            return Failure::new(
+                ScriptErrorKind::Internal,
+                format!("script engine failed: {}", read.text),
+            );
         }
         let (line, column) = position(read.stack.as_deref(), self.code);
         Failure {
@@ -424,6 +470,15 @@ impl<'js> Script<'_, 'js> {
             }
         }
     }
+}
+
+/// Whose code threw.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// The text of the script.
+    Script,
+    /// The code of the application that prepares the context: its error is not the user's.
+    Engine,
 }
 
 /// What was thrown, as text.

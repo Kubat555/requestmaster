@@ -1,6 +1,7 @@
 //! The time budget of one script — a stopwatch that runs only while JavaScript is executing — and what the
 //! script thread shares with the watchdog in `run`: the deadline and the "abandoned" flag.
 
+use crate::host::HostLimit;
 use crate::Limits;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,6 +44,8 @@ impl Watch {
 pub(crate) enum Stop {
     Cancelled,
     Timeout,
+    /// The script went over a limit of the memory of the host.
+    Memory(HostLimit),
     /// The watchdog gave up on the thread: whatever it reports now is dropped.
     Abandoned,
 }
@@ -53,6 +56,8 @@ pub(crate) struct Budget {
     used: Cell<Duration>,
     running_since: Cell<Option<Instant>>,
     expired: Cell<bool>,
+    /// Set by a primitive; the interrupt handler stops the script by it.
+    host_limit: Cell<Option<HostLimit>>,
     cancel: CancellationToken,
     watch: Arc<Watch>,
 }
@@ -65,6 +70,7 @@ impl Budget {
             used: Cell::new(Duration::ZERO),
             running_since: Cell::new(None),
             expired: Cell::new(false),
+            host_limit: Cell::new(None),
             cancel,
             watch,
         }
@@ -95,10 +101,23 @@ impl Budget {
             Some(Stop::Cancelled)
         } else if self.is_expired() {
             Some(Stop::Timeout)
+        } else if let Some(limit) = self.host_limit.get() {
+            Some(Stop::Memory(limit))
         } else if self.watch.is_abandoned() {
             Some(Stop::Abandoned)
         } else {
             None
+        }
+    }
+
+    pub(crate) fn host_limit(&self) -> Option<HostLimit> {
+        self.host_limit.get()
+    }
+
+    /// Latches: the first limit crossed names the error.
+    pub(crate) fn set_host_limit(&self, limit: HostLimit) {
+        if self.host_limit.get().is_none() {
+            self.host_limit.set(Some(limit));
         }
     }
 

@@ -1,0 +1,13 @@
+{
+  "name": "rqm-prelude",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RequestMaster: the JavaScript side of pm.*, bundled into built/ and embedded by rqm-script.",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

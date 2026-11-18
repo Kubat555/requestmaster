@@ -3085,7 +3085,9 @@ dependencies = [
 name = "rqm-script"
 version = "0.1.0"
 dependencies = [
+ "rqm-vars",
  "rquickjs",
+ "serde_json",
  "tokio-util",
 ]
 
