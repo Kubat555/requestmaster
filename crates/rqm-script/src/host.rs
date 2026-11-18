@@ -7,10 +7,15 @@
 use crate::budget::{Budget, Watch};
 use crate::text;
 use crate::variables::{self, Book, Target, View};
-use crate::{Info, Job, Phase, Report, ScriptError, StoredScope, Variables, MAX_VALUE_BYTES};
+use crate::{
+    Info, Job, Phase, Report, ResponseBody, ScriptError, ScriptResponse, StoredScope, TestResult,
+    Variables, MAX_VALUE_BYTES,
+};
 use rquickjs::function::{IntoJsFunc, Opt};
 use rquickjs::{Ctx, Exception, Function, Object, Value};
 use std::cell::Cell;
+use std::fs::File;
+use std::io::Read;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::Instant;
@@ -19,14 +24,33 @@ pub const CONSOLE_MAX_LINES: usize = 1000;
 pub const CONSOLE_MAX_BYTES: usize = 1_048_576;
 pub const CONSOLE_LINE_CHARS: usize = 10_000;
 
+/// The most of a response body a script can get: 10 MiB.
+pub const BODY_LIMIT: u64 = 10 * 1024 * 1024;
+/// The most tests one job records.
+pub const MAX_TESTS: usize = 1000;
+/// The longest name and error text of a test, in characters.
+pub const TEST_NAME_CHARS: usize = 1000;
+pub const TEST_ERROR_CHARS: usize = 10_000;
+/// The most text (UTF-8 bytes of the names and the errors) the tests of one job hold.
+pub const MAX_TEST_TEXT_BYTES: usize = 256 * 1024;
+
 /// The longest text `log` reads out of JavaScript, in UTF-8 bytes: what the prelude sends at most —
 /// `2 * CONSOLE_LINE_CHARS` UTF-16 units of three bytes each.
 const CONSOLE_TEXT_BYTES: usize = 6 * CONSOLE_LINE_CHARS;
+/// The same for the name and the error of a test.
+const TEST_NAME_BYTES: usize = 6 * TEST_NAME_CHARS;
+const TEST_ERROR_BYTES: usize = 6 * TEST_ERROR_CHARS;
+
+/// Dropped from the start of a response body.
+const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 const NO_ENVIRONMENT: &str =
     "pm.environment.set: no environment is selected, the value is not saved";
 const NOT_RUNNING: &str = "the script is not running any more";
 const BUSY: &str = "the script host is busy";
+const NO_RESPONSE: &str = "there is no response";
+const TOO_MANY_TESTS: &str = "too many tests: more than 1000";
+const TOO_MUCH_TEST_TEXT: &str = "too many tests: their results are larger than 256 KB";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleLevel {
@@ -92,6 +116,9 @@ pub(crate) struct State {
     console_truncated: bool,
     console_bytes: usize,
     book: Book,
+    tests: Vec<TestResult>,
+    /// UTF-8 bytes of the names and the errors in `tests`.
+    test_bytes: usize,
 }
 
 impl State {
@@ -102,6 +129,8 @@ impl State {
             console_truncated: false,
             console_bytes: 0,
             book: Book::new(variables),
+            tests: Vec::new(),
+            test_bytes: 0,
         }
     }
 
@@ -112,7 +141,41 @@ impl State {
             console_truncated: self.console_truncated,
             variables: self.book.variables,
             changes: self.book.changes,
+            tests: self.tests,
         }
+    }
+
+    /// Records a test: the name cut to `TEST_NAME_CHARS`, the error to `TEST_ERROR_CHARS`. Refuses a test
+    /// over `MAX_TESTS` and one whose text does not fit into `MAX_TEST_TEXT_BYTES`; what is recorded stays.
+    fn test(
+        &mut self,
+        script: usize,
+        name: &str,
+        passed: bool,
+        skipped: bool,
+        error: Option<&str>,
+    ) -> Result<(), Refusal> {
+        if self.tests.len() >= MAX_TESTS {
+            return Err(Refusal::Error(TOO_MANY_TESTS.to_string()));
+        }
+        let name = text::clip(name, TEST_NAME_CHARS);
+        let error = error.map(|error| text::clip(error, TEST_ERROR_CHARS));
+        let bytes = self
+            .test_bytes
+            .saturating_add(name.len())
+            .saturating_add(error.map_or(0, str::len));
+        if bytes > MAX_TEST_TEXT_BYTES {
+            return Err(Refusal::Error(TOO_MUCH_TEST_TEXT.to_string()));
+        }
+        self.test_bytes = bytes;
+        self.tests.push(TestResult {
+            script,
+            name: name.to_string(),
+            passed,
+            skipped,
+            error: error.map(str::to_string),
+        });
+        Ok(())
     }
 
     /// Adds a line cut to `CONSOLE_LINE_CHARS`. Once the console of the job is full, lines are dropped.
@@ -151,6 +214,8 @@ pub(crate) struct Host {
     phase: Phase,
     info: Info,
     epoch: Instant,
+    /// The response of the request; the scripts of a job share it.
+    response: Option<Arc<ScriptResponse>>,
     /// The script has been told that `pm.environment.set` has nowhere to store.
     warned_no_environment: Cell<bool>,
 }
@@ -162,6 +227,7 @@ impl Host {
         budget: Rc<Budget>,
         script: usize,
         job: &Job,
+        response: Option<Arc<ScriptResponse>>,
     ) -> Self {
         Host {
             state,
@@ -171,6 +237,7 @@ impl Host {
             phase: job.phase,
             info: job.info.clone(),
             epoch: job.epoch,
+            response,
             warned_no_environment: Cell::new(false),
         }
     }
@@ -289,6 +356,70 @@ impl Host {
     fn var_clear(&self, target: Target) -> Result<(), Refusal> {
         self.with_state(|state| state.book.clear(target))
     }
+
+    /// JSON of what the prelude builds `pm.response` from, without the body; `None` — there is no response.
+    fn response(&self) -> Result<Option<String>, Refusal> {
+        self.with_state(|_| {
+            Ok(self.response.as_ref().map(|response| {
+                serde_json::json!({
+                    "code": response.code,
+                    "status": response.status,
+                    "headers": response.headers,
+                    "time": response.time_ms,
+                    "size": response.size,
+                })
+                .to_string()
+            }))
+        })
+    }
+
+    /// The body of the response as text; `None` — it is larger than `BODY_LIMIT`. Read anew on every call
+    /// (the prelude remembers the text), with the stopwatch of the script standing and the state not locked.
+    fn response_body(&self) -> Result<Option<String>, Refusal> {
+        self.with_state(|_| Ok(()))?;
+        let Some(response) = &self.response else {
+            return Err(Refusal::Error(NO_RESPONSE.to_string()));
+        };
+        self.budget.pause();
+        let text = body_text(&response.body);
+        self.budget.resume();
+        text
+    }
+
+    fn test(
+        &self,
+        name: &str,
+        passed: bool,
+        skipped: bool,
+        error: Option<&str>,
+    ) -> Result<(), Refusal> {
+        self.with_state(|state| state.test(self.script, name, passed, skipped, error))
+    }
+}
+
+/// At most `BODY_LIMIT + 1` bytes of the body are taken into memory. The text is UTF-8: bytes that are not
+/// become U+FFFD, a BOM at the start is dropped.
+fn body_text(body: &ResponseBody) -> Result<Option<String>, Refusal> {
+    let mut read = Vec::new();
+    let bytes: &[u8] = match body {
+        ResponseBody::Bytes(bytes) => bytes,
+        ResponseBody::File(path) => {
+            File::open(path)
+                .and_then(|file| {
+                    file.take(BODY_LIMIT.saturating_add(1))
+                        .read_to_end(&mut read)
+                })
+                .map_err(|error| {
+                    Refusal::Error(format!("response body cannot be read: {error}"))
+                })?;
+            &read
+        }
+    };
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > BODY_LIMIT {
+        return Ok(None);
+    }
+    let text = bytes.strip_prefix(&BOM).unwrap_or(bytes);
+    Ok(Some(String::from_utf8_lossy(text).into_owned()))
 }
 
 /// Puts the object `__host` into the global scope. The prelude takes it away first thing.
@@ -420,14 +551,7 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Host>) -> rquickjs::Result<
               typed: Opt<Value<'js>>|
               -> rquickjs::Result<()> {
             let target = target_of(&ctx, target)?;
-            let typed = match typed.0 {
-                None => None,
-                Some(value) if value.is_undefined() => None,
-                Some(value) => match value.into_string() {
-                    Some(string) => Some(string),
-                    None => return Err(Exception::throw_type(&ctx, "typed is not a string")),
-                },
-            };
+            let typed = optional_string(&ctx, typed, "typed is not a string")?;
             // The sizes are asked before anything is copied out of JavaScript.
             let key_bytes = byte_length(&key)?;
             let sizes = (
@@ -476,7 +600,71 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Host>) -> rquickjs::Result<
         },
     )?;
 
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "response",
+        move |ctx: Ctx<'js>| -> rquickjs::Result<Option<String>> {
+            this.response().map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "response_body",
+        move |ctx: Ctx<'js>| -> rquickjs::Result<Option<String>> {
+            this.response_body()
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "test",
+        move |ctx: Ctx<'js>,
+              name: rquickjs::String<'js>,
+              passed: bool,
+              skipped: bool,
+              error: Opt<Value<'js>>|
+              -> rquickjs::Result<()> {
+            let error = optional_string(&ctx, error, "error is not a string")?;
+            let name = read(&ctx, name, TEST_NAME_BYTES, || {
+                "pm.test: the name is too long".to_string()
+            })?;
+            let error = error
+                .map(|error| {
+                    read(&ctx, error, TEST_ERROR_BYTES, || {
+                        "pm.test: the error text is too long".to_string()
+                    })
+                })
+                .transpose()?;
+            this.test(&name, passed, skipped, error.as_deref())
+                .map_err(|refusal| throw(&ctx, &refusal))
+        },
+    )?;
+
     ctx.globals().set("__host", object)
+}
+
+/// An argument that may be left out: a string, or nothing.
+fn optional_string<'js>(
+    ctx: &Ctx<'js>,
+    value: Opt<Value<'js>>,
+    not_a_string: &str,
+) -> rquickjs::Result<Option<rquickjs::String<'js>>> {
+    match value.0 {
+        None => Ok(None),
+        Some(value) if value.is_undefined() => Ok(None),
+        Some(value) => match value.into_string() {
+            Some(string) => Ok(Some(string)),
+            None => Err(Exception::throw_type(ctx, not_a_string)),
+        },
+    }
 }
 
 /// Every primitive is named `rqm_host_<name>`: by that name a test tells a primitive that leaked to the script.
@@ -565,6 +753,7 @@ mod tests {
             budget,
             0,
             &job,
+            None,
         )
     }
 
@@ -604,6 +793,46 @@ mod tests {
         assert_eq!(report_of_big.console.len(), CONSOLE_MAX_BYTES / 5000);
         assert!(bytes <= CONSOLE_MAX_BYTES);
         assert!(report_of_big.console_truncated);
+    }
+
+    #[test]
+    fn test_primitive_enforces_its_limits() {
+        // A name is cut by characters, not by bytes.
+        let long = host(Variables::default());
+        long.test(&"я".repeat(5000), true, false, None).unwrap();
+        assert_eq!(report(&long).tests[0].name, "я".repeat(TEST_NAME_CHARS));
+
+        let many = host(Variables::default());
+        for _ in 0..MAX_TESTS {
+            many.test("t", true, false, None).unwrap();
+        }
+        assert_eq!(
+            many.test("t", true, false, None),
+            Err(Refusal::Error(TOO_MANY_TESTS.to_string()))
+        );
+        assert_eq!(report(&many).tests.len(), MAX_TESTS);
+
+        // Exactly the limit fits; one byte more does not, and what is recorded stays.
+        let big = host(Variables::default());
+        let error = "e".repeat(TEST_ERROR_CHARS);
+        let whole = MAX_TEST_TEXT_BYTES / (1 + TEST_ERROR_CHARS);
+        for _ in 0..whole {
+            big.test("t", false, false, Some(&error)).unwrap();
+        }
+        let left = MAX_TEST_TEXT_BYTES - whole * (1 + TEST_ERROR_CHARS);
+        assert_eq!(
+            big.test("t", false, false, Some(&"e".repeat(left))),
+            Err(Refusal::Error(TOO_MUCH_TEST_TEXT.to_string()))
+        );
+        big.test("t", false, false, Some(&"e".repeat(left - 1)))
+            .unwrap();
+        let tests = report(&big).tests;
+        assert_eq!(tests.len(), whole + 1);
+        let bytes: usize = tests
+            .iter()
+            .map(|test| test.name.len() + test.error.as_ref().map_or(0, String::len))
+            .sum();
+        assert_eq!(bytes, MAX_TEST_TEXT_BYTES);
     }
 
     #[test]
@@ -650,6 +879,9 @@ mod tests {
         assert!(host
             .var_clear(Target::Stored(StoredScope::Globals))
             .is_err());
+        assert!(host.response().is_err());
+        assert!(host.response_body().is_err());
+        assert!(host.test("t", true, false, None).is_err());
     }
 
     fn with_a_global() -> Variables {

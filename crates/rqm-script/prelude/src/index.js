@@ -8,6 +8,9 @@
 //   object the script can reach;
 // - the built-in functions this code needs are saved below, before the text of the script runs.
 import { installConsole } from "./console.js";
+import { installLegacyResponse } from "./legacy.js";
+import { createResponse } from "./response.js";
+import { createTest } from "./test.js";
 import { createVariables } from "./variables.js";
 
 const host = globalThis.__host;
@@ -38,4 +41,15 @@ const info = safe.parse(host.info());
 info.iteration = 0;
 info.iterationCount = 1;
 
-globalThis.pm = { info, ...createVariables(host, safe) };
+const pm = { info, ...createVariables(host, safe) };
+
+// Only the scripts that run after the request have a response.
+const response = createResponse(host, safe);
+if (response !== undefined) {
+  pm.response = response.api;
+  installLegacyResponse(response);
+}
+
+pm.test = createTest(host, safe, pm);
+
+globalThis.pm = pm;

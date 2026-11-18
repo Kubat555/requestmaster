@@ -24,13 +24,15 @@ mod text;
 mod variables;
 
 pub use host::{
-    ConsoleLevel, ConsoleLine, CONSOLE_LINE_CHARS, CONSOLE_MAX_BYTES, CONSOLE_MAX_LINES,
+    ConsoleLevel, ConsoleLine, BODY_LIMIT, CONSOLE_LINE_CHARS, CONSOLE_MAX_BYTES,
+    CONSOLE_MAX_LINES, MAX_TESTS, MAX_TEST_TEXT_BYTES, TEST_ERROR_CHARS, TEST_NAME_CHARS,
 };
 pub use variables::{
     StoredScope, Var, VariableChange, VariableOp, Variables, MAX_CHANGES, MAX_CHANGES_BYTES,
     MAX_VALUE_BYTES, MAX_VARIABLES_BYTES,
 };
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
@@ -81,6 +83,26 @@ pub struct Info {
     pub request_name: String,
 }
 
+/// The response of the request, as `pm.response` shows it.
+#[derive(Debug, Clone)]
+pub struct ScriptResponse {
+    pub code: u16,
+    /// Reason phrase.
+    pub status: String,
+    pub headers: Vec<(String, String)>,
+    pub time_ms: f64,
+    /// Size of the decoded body in bytes.
+    pub size: u64,
+    pub body: ResponseBody,
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseBody {
+    /// Read from the file when a script asks for the body; the file is not deleted.
+    File(PathBuf),
+    Bytes(Vec<u8>),
+}
+
 /// The scripts of one phase of one send, in the order they run.
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -92,6 +114,8 @@ pub struct Job {
     pub info: Info,
     /// What the scripts see; what they leave comes back in `Report::variables`.
     pub variables: Variables,
+    /// `Some` only in `Phase::Test`: without it a script has no `pm.response`.
+    pub response: Option<ScriptResponse>,
 }
 
 impl Job {
@@ -104,6 +128,7 @@ impl Job {
             epoch: Instant::now(),
             info: Info::default(),
             variables: Variables::default(),
+            response: None,
         }
     }
 }
@@ -118,6 +143,18 @@ pub struct Report {
     pub variables: Variables,
     /// What the scripts changed in the stored scopes, in the order they did it.
     pub changes: Vec<VariableChange>,
+    /// What `pm.test` recorded, in the order the tests ran.
+    pub tests: Vec<TestResult>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestResult {
+    /// Index in `Job::scripts`.
+    pub script: usize,
+    pub name: String,
+    pub passed: bool,
+    pub skipped: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

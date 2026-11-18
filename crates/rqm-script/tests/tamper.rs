@@ -4,7 +4,8 @@
 //! Extended by the later tasks, each time with the API of that task.
 
 use rqm_script::{
-    run, Job, Phase, ScriptErrorKind, Variables, CONSOLE_LINE_CHARS, CONSOLE_MAX_LINES, MAX_CHANGES,
+    run, Job, Phase, ResponseBody, ScriptErrorKind, ScriptResponse, Variables, CONSOLE_LINE_CHARS,
+    CONSOLE_MAX_LINES, MAX_CHANGES, MAX_TESTS, TEST_NAME_CHARS,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -14,6 +15,14 @@ fn job(script: &str) -> Job {
         environment_name: Some("Dev".to_string()),
         ..Variables::default()
     };
+    job.response = Some(ScriptResponse {
+        code: 200,
+        status: "OK".to_string(),
+        headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+        time_ms: 1.0,
+        size: 7,
+        body: ResponseBody::Bytes(br#"{"a":1}"#.to_vec()),
+    });
     job
 }
 
@@ -36,6 +45,9 @@ fn tampered_builtins_do_not_lift_limits() {
         Reflect.apply = function () { return true };
         Promise.prototype.then = function () { return this };
         for (let i = 0; i < 5000; i++) console.log('x'.repeat(20000));
+        for (let i = 0; i < 1001; i++) {
+            try { pm.test('n'.repeat(5000), function () {}) } catch (error) {}
+        }
         for (;;) pm.environment.set('i', 1)";
     let report = run(job(script), &CancellationToken::new());
 
@@ -48,6 +60,12 @@ fn tampered_builtins_do_not_lift_limits() {
         .iter()
         .all(|line| line.text.chars().count() <= CONSOLE_LINE_CHARS + 1));
     assert_eq!(report.changes.len(), MAX_CHANGES);
+    assert!(!report.tests.is_empty());
+    assert!(report.tests.len() <= MAX_TESTS);
+    assert!(report
+        .tests
+        .iter()
+        .all(|test| test.name.chars().count() <= TEST_NAME_CHARS));
 }
 
 #[test]
@@ -93,6 +111,17 @@ fn host_primitives_do_not_leak() {
             scope.clear();
         }
         const info = [pm.info.eventName, pm.info.requestName, pm.info.requestId, pm.environment.name];
+        const response = [pm.response.code, pm.response.status, pm.response.reason(), pm.response.responseTime,
+                          pm.response.responseSize, pm.response.text(), pm.response.json()];
+        const headers = pm.response.headers;
+        headers.get('content-type'); headers.has('x'); headers.all(); headers.count(); headers.toObject();
+        headers.each(function () {});
+        const legacy = [responseBody, responseCode, responseHeaders, responseTime];
+        pm.test('ok', function () {});
+        pm.test('bad', function () { throw new Error('boom') });
+        pm.test('no function');
+        pm.test.skip('later');
+        pm.test.index();
 
         let leaked = 0;
         for (let i = 0; i < seen.length; i++) {

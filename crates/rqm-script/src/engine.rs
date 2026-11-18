@@ -6,8 +6,8 @@ use crate::bundle::{self, Bundle};
 use crate::host::{self, Host, State};
 use crate::text;
 use crate::{
-    Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, Variables, MAX_ABANDONED_THREADS,
-    MAX_STACK_BYTES, MIN_STACK_BYTES, THREAD_STACK_BYTES,
+    Job, Limits, Phase, Report, ScriptError, ScriptErrorKind, ScriptResponse, Variables,
+    MAX_ABANDONED_THREADS, MAX_STACK_BYTES, MIN_STACK_BYTES, THREAD_STACK_BYTES,
 };
 use rquickjs::context::EvalOptions;
 use rquickjs::convert::Coerced;
@@ -98,6 +98,8 @@ pub(crate) fn run(mut job: Job, cancel: &CancellationToken) -> Report {
         return internal_report(TOO_MANY_ABANDONED, variables);
     }
     let limits = job.limits;
+    // Shared by the hosts of all the scripts: the body may be large and is never copied.
+    let response = job.response.take().map(Arc::new);
     let shared = Arc::new(Shared {
         state: Arc::new(Mutex::new(Some(State::new(variables)))),
         watch: Arc::new(Watch::default()),
@@ -117,7 +119,7 @@ pub(crate) fn run(mut job: Job, cancel: &CancellationToken) -> Report {
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let end = end;
-            run_scripts(&job, &token, &end.shared);
+            run_scripts(&job, response.as_ref(), &token, &end.shared);
         });
     if spawned.is_err() {
         // The closure, and `end` in it, is dropped: the state is free to take.
@@ -214,7 +216,12 @@ fn internal_report(message: &str, variables: Variables) -> Report {
 }
 
 /// The body of the script thread.
-fn run_scripts(job: &Job, cancel: &CancellationToken, shared: &Shared) {
+fn run_scripts(
+    job: &Job,
+    response: Option<&Arc<ScriptResponse>>,
+    cancel: &CancellationToken,
+    shared: &Shared,
+) {
     for (index, code) in job.scripts.iter().enumerate() {
         if shared.watch.is_abandoned() {
             break;
@@ -223,7 +230,7 @@ fn run_scripts(job: &Job, cancel: &CancellationToken, shared: &Shared) {
         let failure = if cancel.is_cancelled() {
             Some(Failure::stopped(Stop::Cancelled, &job.limits))
         } else {
-            run_script(index, code, job, cancel, shared)
+            run_script(index, code, job, response, cancel, shared)
         };
         if let Some(failure) = failure {
             let kind = failure.kind;
@@ -305,6 +312,7 @@ fn run_script(
     index: usize,
     code: &str,
     job: &Job,
+    response: Option<&Arc<ScriptResponse>>,
     cancel: &CancellationToken,
     shared: &Shared,
 ) -> Option<Failure> {
@@ -317,6 +325,7 @@ fn run_script(
         Rc::clone(&budget),
         index,
         job,
+        response.cloned(),
     ));
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
