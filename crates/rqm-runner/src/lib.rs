@@ -1,11 +1,13 @@
-//! RequestMaster "Send" scenario without scripts: reads a request with its surroundings from the store,
-//! turns it into an [`rqm_http::HttpRequest`] (variables, authorization, body) and sends it.
+//! RequestMaster "Send" scenario: reads a request with its surroundings from the store, runs the pre-request
+//! scripts, turns the request into an [`rqm_http::HttpRequest`] (variables, authorization, body), sends it and
+//! runs the test scripts.
 
 mod auth;
 mod body_view;
 mod cookies_state;
 mod prepare;
 mod scope;
+mod scripts;
 mod send;
 
 use std::time::Duration;
@@ -18,6 +20,10 @@ pub use body_view::{body_view, format_json, BodyView, INLINE_BODY_LIMIT, TRUNCAT
 pub use cookies_state::{load_cookies, save_cookies, COOKIE_JAR_KEY};
 pub use prepare::{prepare, PrepareError, Prepared, SendWarning};
 pub use scope::{variables_in_scope, ScopeSources, ScopeVariable, VariableOrigin};
+pub use scripts::{
+    script_steps, ConsoleEntry, ConsoleLevel, ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptSource, ScriptStep,
+    ScriptsReport, StoredScope, TestOutcome, VariableChange, VariableOp,
+};
 pub use send::{send, PreparedSummary, SendError, SendOutcome};
 
 /// Application-wide settings of a send; a request may override `verify_tls` with its own `strict_ssl`.
@@ -38,10 +44,30 @@ impl Default for AppSettings {
     }
 }
 
-/// Everything [`prepare`] needs to build the HTTP request; gathered by [`load_send_input`].
+/// Whether the scripts of a send run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptsMode {
+    /// They run.
+    Run,
+    /// They do not, and why.
+    Off(ScriptsOff),
+}
+
+/// Why the scripts of a send do not run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptsOff {
+    /// Switched off in the settings.
+    Disabled,
+    /// The collection has no consent; holds its name.
+    NotAllowed { collection: String },
+}
+
+/// Everything [`send`] needs to run the scripts and build the HTTP request; gathered by [`load_send_input`].
 #[derive(Debug, Clone)]
 pub struct SendInput {
-    /// Name of the request node; used to name the node in [`SendWarning::ScriptsNotExecuted`].
+    /// Id of the request node: `pm.info.requestId`, the source of its scripts.
+    pub request_id: String,
+    /// Name of the request node: `pm.info.requestName`, and the name of the node in what its scripts report.
     pub request_name: String,
     /// Content to send: the stored one or the unsaved draft from the editor.
     pub request: RequestContent,
@@ -53,6 +79,8 @@ pub struct SendInput {
     pub globals: Environment,
     /// Application-wide settings at the moment of the send.
     pub settings: AppSettings,
+    /// Whether the scripts of this send run.
+    pub scripts: ScriptsMode,
 }
 
 /// The environment `id`; an unknown id is `StoreError::NotFound`.
@@ -63,6 +91,7 @@ fn environment_by_id(store: &Store, id: &str) -> Result<Environment, StoreError>
 
 /// Reads the request (or uses `draft` instead of the stored content), its ancestors, globals and the environment.
 /// A node that is not a request, or an unknown environment id, yields `StoreError::NotFound`.
+/// The scripts are declared switched off: who may run them is decided by the caller.
 pub fn load_send_input(
     store: &Store,
     request_id: &str,
@@ -76,11 +105,13 @@ pub fn load_send_input(
     };
     let environment = environment_id.map(|id| environment_by_id(store, id)).transpose()?;
     Ok(SendInput {
+        request_id: request_id.to_string(),
         request_name: node.name,
         request: draft.unwrap_or(stored),
         ancestors: store.ancestors(request_id)?,
         environment,
         globals: store.globals()?,
         settings,
+        scripts: ScriptsMode::Off(ScriptsOff::Disabled),
     })
 }

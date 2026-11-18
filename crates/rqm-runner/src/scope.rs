@@ -53,7 +53,8 @@ impl ScopeSources {
     }
 
     /// Enabled variables only, the widest scope first — the resolver of a send.
-    /// The local scope is empty at this stage (it is filled by scripts).
+    /// Without the local scope: it lives for one send and stays out of the highlighting; a send gets it
+    /// through `prepare_with`.
     pub fn resolver(&self) -> Resolver {
         self.resolver_with(|variable| variable.value.clone())
     }
@@ -134,7 +135,8 @@ pub fn variables_in_scope(sources: &ScopeSources) -> Vec<ScopeVariable> {
             let origin = match kind {
                 ScopeKind::Global => VariableOrigin::Global,
                 ScopeKind::Collection => VariableOrigin::Collection,
-                // `ScopeSources::resolver` has no local scope.
+                // Local lives for one send and stays out of the highlighting (a send gets it through
+                // `prepare_with`): `ScopeSources::resolver` has no local scope.
                 ScopeKind::Environment | ScopeKind::Local => VariableOrigin::Environment,
             };
             ScopeVariable { name: name.to_string(), origin, value: (!secret).then_some(value), secret }

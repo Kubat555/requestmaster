@@ -285,6 +285,9 @@ pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
             };
             (kind, Vec::new())
         }
+        // Until the window learns the kinds of its own for scripts.
+        SendError::Script(_) => (SendErrorKind::Other, Vec::new()),
+        SendError::Cancelled => (SendErrorKind::Cancelled, Vec::new()),
     };
     SendErrorDto { kind, message, fields }
 }
@@ -292,7 +295,8 @@ pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
 /// The core's send warning under the kind the window knows.
 pub(crate) fn warning_dto(warning: SendWarning) -> Warning {
     let (kind, items) = match warning {
-        SendWarning::ScriptsNotExecuted { nodes } => (WarningKind::ScriptsNotExecuted, nodes),
+        // Until the window learns the kinds of its own for scripts.
+        SendWarning::ScriptsNotRun { nodes, .. } => (WarningKind::ScriptsNotExecuted, nodes),
         SendWarning::UnsupportedAuth { auth_type } => (WarningKind::UnsupportedAuth, vec![auth_type]),
         SendWarning::BodyPruned { method } => (WarningKind::BodyPruned, vec![method]),
         SendWarning::UnresolvedVariables { names } => (WarningKind::UnresolvedVariables, names),

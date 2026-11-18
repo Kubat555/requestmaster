@@ -22,10 +22,12 @@
         let (mut prepared, mut blocked, mut with_script_warning, mut unresolved) = (0, 0, 0, 0);
         for node in stored.iter().filter(|x| x.kind == rqm_model::NodeKind::Request) {
             let input = rqm_runner::load_send_input(&store, &node.id, None, None, rqm_runner::AppSettings::default()).unwrap();
+            let has_scripts = [rqm_runner::ScriptPhase::PreRequest, rqm_runner::ScriptPhase::Test].into_iter()
+                .any(|phase| !rqm_runner::script_steps(&input, phase).is_empty());
             match rqm_runner::prepare(&input, &mut |_| None) {
                 Ok(p) => {
                     prepared += 1;
-                    if p.warnings.iter().any(|w| matches!(w, rqm_runner::SendWarning::ScriptsNotExecuted { .. })) { with_script_warning += 1; }
+                    if has_scripts { with_script_warning += 1; }
                     if p.warnings.iter().any(|w| matches!(w, rqm_runner::SendWarning::UnresolvedVariables { .. })) { unresolved += 1; }
                 }
                 Err(_) => blocked += 1,

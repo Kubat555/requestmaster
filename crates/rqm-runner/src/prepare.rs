@@ -3,11 +3,11 @@
 use std::path::PathBuf;
 
 use rqm_http::{HttpBody, HttpRequest, MultipartPart, PartValue, SendOptions};
-use rqm_model::{Body, FormValue, NodeContent, Param, RawLanguage};
+use rqm_model::{Body, FormValue, Param, RawLanguage};
 use rqm_vars::{apply_path_variables, Resolver};
 
 use crate::auth::{auth_effect, effective_auth, AuthEffect};
-use crate::{ScopeSources, SendInput};
+use crate::{ScopeSources, ScriptsOff, SendInput};
 
 /// Methods whose body is not sent unless the request disables body pruning (the list of postman-runtime).
 const BODYLESS_METHODS: [&str; 5] = ["GET", "HEAD", "COPY", "PURGE", "UNLOCK"];
@@ -15,9 +15,9 @@ const BODYLESS_METHODS: [&str; 5] = ["GET", "HEAD", "COPY", "PURGE", "UNLOCK"];
 /// Something the user should know about a send; never blocks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SendWarning {
-    /// Scripts exist but are not run at this stage; names of the nodes that have one, from the collection
-    /// down to the request.
-    ScriptsNotExecuted { nodes: Vec<String> },
+    /// Scripts exist but did not run; names of the nodes that have one, from the collection down.
+    /// Given by [`crate::send`], never by [`prepare`].
+    ScriptsNotRun { reason: ScriptsOff, nodes: Vec<String> },
     /// The effective authorization has a type the application does not apply; holds Postman's `auth.type`.
     UnsupportedAuth { auth_type: String },
     /// The body was not sent because of the method; holds the method as typed.
@@ -43,7 +43,7 @@ pub enum PrepareError {
 pub struct Prepared {
     /// Ready for [`rqm_http::HttpEngine::send`].
     pub http: HttpRequest,
-    /// In the order: scripts, authorization, body pruning, unresolved variables.
+    /// In the order: authorization, body pruning, unresolved variables.
     pub warnings: Vec<SendWarning>,
 }
 
@@ -74,9 +74,18 @@ impl Vars<'_> {
     }
 }
 
-/// Pure: no network, no disk. Uses `dynamic` for `{{$...}}`.
+/// Pure: no network, no disk. Uses `dynamic` for `{{$...}}`. The variables are the stored ones: no script runs.
 pub fn prepare(
     input: &SendInput,
+    dynamic: &mut dyn FnMut(&str) -> Option<String>,
+) -> Result<Prepared, PrepareError> {
+    prepare_with(input, ScopeSources::of_input(input).resolver(), dynamic)
+}
+
+/// [`prepare`] with the resolver given by the caller.
+pub(crate) fn prepare_with(
+    input: &SendInput,
+    resolver: Resolver,
     dynamic: &mut dyn FnMut(&str) -> Option<String>,
 ) -> Result<Prepared, PrepareError> {
     let request = &input.request;
@@ -86,12 +95,7 @@ pub fn prepare(
     }
 
     let mut warnings = Vec::new();
-    let script_nodes = nodes_with_scripts(input);
-    if !script_nodes.is_empty() {
-        warnings.push(SendWarning::ScriptsNotExecuted { nodes: script_nodes });
-    }
-
-    let mut vars = Vars { resolver: ScopeSources::of_input(input).resolver(), dynamic, unresolved: Vec::new() };
+    let mut vars = Vars { resolver, dynamic, unresolved: Vec::new() };
 
     let substituted_url = vars.substitute(&request.url);
     let mut url = substituted_url.trim().to_string();
@@ -152,26 +156,8 @@ pub fn prepare(
     Ok(Prepared { http, warnings })
 }
 
-/// Names of the nodes that have a non-blank script, from the collection down to the request.
-fn nodes_with_scripts(input: &SendInput) -> Vec<String> {
-    let mut nodes: Vec<String> = input
-        .ancestors
-        .iter()
-        .filter(|node| match &node.content {
-            NodeContent::Collection(content) => !content.scripts.is_empty(),
-            NodeContent::Folder(content) => !content.scripts.is_empty(),
-            NodeContent::Request(content) => !content.scripts.is_empty(),
-        })
-        .map(|node| node.name.clone())
-        .collect();
-    if !input.request.scripts.is_empty() {
-        nodes.push(input.request_name.clone());
-    }
-    nodes
-}
-
 /// Names of the enabled form fields (or `"binary"`) that refer to a file not confirmed on this computer.
-fn unconfirmed_file_fields(body: &Body) -> Vec<String> {
+pub(crate) fn unconfirmed_file_fields(body: &Body) -> Vec<String> {
     match body {
         Body::FormData(parts) => parts
             .iter()

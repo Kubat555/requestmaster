@@ -18,7 +18,7 @@ fn folder(name: &str, auth: Option<Auth>) -> Node {
         content: NodeContent::Folder(FolderContent { auth, scripts: Scripts::default(), postman_extra: Extra::new() }) }
 }
 fn input(request: RequestContent, ancestors: Vec<Node>) -> SendInput {
-    SendInput { request_name: "Req".into(), request, ancestors, environment: None, globals: Environment::empty_globals(), settings: AppSettings::default() }
+    SendInput { request_id: new_id(), request_name: "Req".into(), request, ancestors, environment: None, globals: Environment::empty_globals(), settings: AppSettings::default(), scripts: ScriptsMode::Off(ScriptsOff::Disabled) }
 }
 fn prep(i: &SendInput) -> Prepared { prepare(i, &mut |_| None).unwrap() }
 fn header<'a>(h: &'a Prepared, name: &str) -> Option<&'a str> { h.http.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str()) }
@@ -125,10 +125,11 @@ fn bytes(h: &Prepared) -> (String, Option<String>) { match &h.http.body { HttpBo
     let o = prep(&i).http.options;
     assert_eq!((o.follow_redirects, o.max_redirects, o.verify_tls), (false, 2, true));
 }
-#[test] fn scripts_produce_a_warning_naming_the_nodes() {
+/// The warning about scripts is given by `send` (tests/scripts.rs), not by `prepare`.
+#[test] fn scripts_produce_no_warning_of_prepare() {
     let mut r = base_request(); r.scripts.test = "pm.test('x', () => {})".into();
     let out = prep(&input(r, vec![collection(None, vec![], "console.log(1)"), folder("F", None)]));
-    assert!(matches!(&out.warnings[..], [SendWarning::ScriptsNotExecuted { nodes }] if nodes == &vec!["Col".to_string(), "Req".to_string()]));
+    assert_eq!(out.warnings, vec![]);
 }
 #[test] fn url_rules() {
     let mut r = base_request(); r.url = "h.test/a b#frag".into(); r.query = vec![p("q", "")];

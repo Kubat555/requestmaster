@@ -114,8 +114,8 @@ fn environment(name: &str, vars: Vec<Variable>) -> Environment { Environment { i
 #[test] fn scope_and_send_agree() {
     let collection = Node { id: new_id(), parent_id: None, kind: NodeKind::Collection, name: "Col".into(), sort_order: 0, content: collection_content(vec![var("a", "c"), off("b", "disabled")]) };
     let mut globals = Environment::empty_globals(); globals.variables.push(var("a", "h.test"));
-    let input = SendInput { request_name: "Req".into(), request: request_content("{{a}}/{{b}}"), ancestors: vec![collection],
-        environment: Some(environment("E", vec![var("a", "env.test")])), globals, settings: AppSettings::default() };
+    let input = SendInput { request_id: new_id(), request_name: "Req".into(), request: request_content("{{a}}/{{b}}"), ancestors: vec![collection],
+        environment: Some(environment("E", vec![var("a", "env.test")])), globals, settings: AppSettings::default(), scripts: ScriptsMode::Off(ScriptsOff::Disabled) };
     let out = prepare(&input, &mut |_| None).unwrap();
     assert_eq!(out.http.url, "http://env.test/{{b}}");
     assert!(matches!(&out.warnings[..], [SendWarning::UnresolvedVariables { names }] if names == &vec!["b".to_string()]));

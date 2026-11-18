@@ -1,10 +1,15 @@
-//! Sending: [`prepare`] with the system dynamic values, then the HTTP engine.
+//! Sending: the pre-request scripts, [`prepare_with`] with the variables they left and the system dynamic
+//! values, the HTTP engine, the test scripts.
+
+use std::time::Instant;
 
 use rqm_http::{HttpBody, HttpEngine, HttpError, HttpRequest, HttpResponse, PartValue};
+use rqm_script::{ResponseBody, ScriptResponse};
 use tokio_util::sync::CancellationToken;
 
-use crate::prepare::{prepare, PrepareError, Prepared, SendWarning};
-use crate::SendInput;
+use crate::prepare::{prepare, prepare_with, unconfirmed_file_fields, PrepareError, Prepared, SendWarning};
+use crate::scripts::{nodes_with_scripts, script_steps, ScriptRun};
+use crate::{ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptsMode, ScriptsReport, SendInput};
 
 /// Why a send produced no response.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -15,6 +20,12 @@ pub enum SendError {
     /// The request was built but the exchange failed.
     #[error(transparent)]
     Http(#[from] HttpError),
+    /// A pre-request script failed; nothing was sent.
+    #[error("script error: {}", .0.message)]
+    Script(ScriptFailure),
+    /// The send was cancelled while a pre-request script ran.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// Result of [`send`].
@@ -22,10 +33,12 @@ pub enum SendError {
 pub struct SendOutcome {
     /// The response, or why there is none.
     pub result: Result<HttpResponse, SendError>,
-    /// Warnings of [`prepare`]; present on a network error too, empty when `prepare` itself failed.
+    /// Present on a network error too; empty when nothing was built: a pre-request script or `prepare` failed.
     pub warnings: Vec<SendWarning>,
-    /// What was prepared for sending, for the history. `None` only when `prepare` failed.
+    /// What was prepared for sending, for the history. `None` when nothing was built.
     pub request: Option<PreparedSummary>,
+    /// What the scripts left: both phases in the order they ran. Kept whatever `result` is.
+    pub scripts: ScriptsReport,
 }
 
 /// The request [`prepare`] built, in the form the history keeps: variables are already substituted.
@@ -64,16 +77,75 @@ impl PreparedSummary {
     }
 }
 
-/// Builds the HTTP request from `input` (dynamic values from the system clock and random generator) and
-/// sends it with `engine`. `cancel` aborts the exchange.
+/// The scripts of `input` (when they are on) and its HTTP request, in the order of Postman: the pre-request
+/// scripts, the request built with the variables they left (dynamic values from the system clock and random
+/// generator), the exchange through `engine`, the test scripts. `cancel` stops a script and the exchange.
 pub async fn send(engine: &dyn HttpEngine, input: &SendInput, cancel: CancellationToken) -> SendOutcome {
-    let prepared = prepare(input, &mut |name| rqm_vars::system_dynamic(name));
-    let Prepared { http, warnings } = match prepared {
-        Ok(prepared) => prepared,
-        Err(error) => return SendOutcome { result: Err(error.into()), warnings: Vec::new(), request: None },
+    let epoch = Instant::now();
+    let failed = |error: SendError, scripts: ScriptsReport| SendOutcome {
+        result: Err(error),
+        warnings: Vec::new(),
+        request: None,
+        scripts,
     };
+    // Before any script: a send that cannot happen must not change variables.
+    let unconfirmed = unconfirmed_file_fields(&input.request.body);
+    if !unconfirmed.is_empty() {
+        return failed(PrepareError::UnconfirmedFiles { fields: unconfirmed }.into(), ScriptsReport::default());
+    }
+
+    let pre = script_steps(input, ScriptPhase::PreRequest);
+    let tests = script_steps(input, ScriptPhase::Test);
+    let has_scripts = !pre.is_empty() || !tests.is_empty();
+    let mut warnings = Vec::new();
+    // `None` — no script runs: they are off or there is none.
+    let mut run = match &input.scripts {
+        ScriptsMode::Run => has_scripts.then(|| ScriptRun::new(input, epoch, cancel.clone())),
+        ScriptsMode::Off(reason) => {
+            if has_scripts {
+                let nodes = nodes_with_scripts(input);
+                warnings.push(SendWarning::ScriptsNotRun { reason: reason.clone(), nodes });
+            }
+            None
+        }
+    };
+
+    if let Some(run) = run.as_mut().filter(|_| !pre.is_empty()) {
+        if let Some(failure) = run.run_phase(&pre, ScriptPhase::PreRequest, None).await {
+            let error = match failure.kind {
+                ScriptErrorKind::Cancelled => SendError::Cancelled,
+                _ => SendError::Script(failure),
+            };
+            return failed(error, std::mem::take(&mut run.report));
+        }
+    }
+
+    let mut dynamic = |name: &str| rqm_vars::system_dynamic(name);
+    let prepared = match &run {
+        // With what the pre-request scripts left, the local variables included.
+        Some(run) => prepare_with(input, run.variables.resolver(), &mut dynamic),
+        None => prepare(input, &mut dynamic),
+    };
+    let Prepared { http, warnings: prepare_warnings } = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => return failed(error.into(), run.map(|run| run.report).unwrap_or_default()),
+    };
+    warnings.extend(prepare_warnings);
     // The engine takes the request by value, so it is described first.
     let request = Some(PreparedSummary::of(&http));
     let result = engine.send(http, cancel).await.map_err(SendError::from);
-    SendOutcome { result, warnings, request }
+
+    if let (Some(run), Ok(response)) = (run.as_mut().filter(|_| !tests.is_empty()), &result) {
+        let response = ScriptResponse {
+            code: response.status,
+            status: response.status_text.clone(),
+            headers: response.headers.clone(),
+            time_ms: response.timings.total.as_secs_f64() * 1000.0,
+            size: response.decoded_size,
+            body: ResponseBody::File(response.body_path.clone()),
+        };
+        // An error of a test script stays in the report: the response is the result all the same.
+        run.run_phase(&tests, ScriptPhase::Test, Some(response)).await;
+    }
+    SendOutcome { result, warnings, request, scripts: run.map(|run| run.report).unwrap_or_default() }
 }

@@ -3070,6 +3070,7 @@ dependencies = [
  "rqm-http",
  "rqm-model",
  "rqm-postman",
+ "rqm-script",
  "rqm-store",
  "rqm-vars",
  "serde",

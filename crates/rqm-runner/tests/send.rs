@@ -63,12 +63,12 @@ fn settings() -> AppSettings { AppSettings { proxy: rqm_http::ProxySetting::Off,
 #[tokio::test] async fn warnings_survive_a_network_error_and_prepare_errors_are_reported() {
     let (e, _dir) = engine(Arc::new(CookieJar::new()));
     let mut r = request("http://127.0.0.1:1/x"); r.scripts.pre_request = "x".into(); r.body = Body::None;
-    let input = SendInput { request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings() };
+    let input = SendInput { request_id: new_id(), request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings(), scripts: ScriptsMode::Off(ScriptsOff::Disabled) };
     let out = send(&e, &input, CancellationToken::new()).await;
     assert!(matches!(out.result, Err(SendError::Http(rqm_http::HttpError::Connect(_)))));
-    assert!(matches!(&out.warnings[..], [SendWarning::ScriptsNotExecuted { .. }]));
+    assert!(matches!(&out.warnings[..], [SendWarning::ScriptsNotRun { reason: ScriptsOff::Disabled, .. }]));
     let mut r = request(""); r.body = Body::None;
-    let input = SendInput { request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings() };
+    let input = SendInput { request_id: new_id(), request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings(), scripts: ScriptsMode::Off(ScriptsOff::Disabled) };
     assert!(matches!(send(&e, &input, CancellationToken::new()).await.result, Err(SendError::Prepare(PrepareError::InvalidUrl(_)))));
 }
 #[test] fn load_send_input_errors_and_cookie_fallback() {
@@ -111,7 +111,7 @@ fn settings() -> AppSettings { AppSettings { proxy: rqm_http::ProxySetting::Off,
 }
 
 fn bare_input(r: RequestContent) -> SendInput {
-    SendInput { request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings() }
+    SendInput { request_id: new_id(), request_name: "R".into(), request: r, ancestors: vec![], environment: None, globals: Environment::empty_globals(), settings: settings(), scripts: ScriptsMode::Off(ScriptsOff::Disabled) }
 }
 fn param(key: &str, value: &str) -> Param { Param { key: key.into(), value: value.into(), enabled: true, postman_extra: Extra::new() } }
 
