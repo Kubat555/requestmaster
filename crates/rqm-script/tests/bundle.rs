@@ -1,5 +1,5 @@
-//! The prelude: the built file matches its sources, loads into every script, and keeps the primitives of the
-//! host out of reach.
+//! The prelude: the built files match their sources, the prelude loads into every script and keeps the
+//! primitives of the host out of reach.
 
 use rqm_script::{run, Job, Phase};
 use std::fs;
@@ -18,7 +18,7 @@ impl Fnv {
 }
 
 #[test]
-fn built_prelude_matches_its_sources() {
+fn built_files_match_their_sources() {
     let prelude = Path::new(env!("CARGO_MANIFEST_DIR")).join("prelude");
     let mut sources: Vec<String> = fs::read_dir(prelude.join("src"))
         .unwrap()
@@ -44,12 +44,20 @@ fn built_prelude_matches_its_sources() {
         sum.feed([0x0a]);
     }
 
-    let built = fs::read_to_string(prelude.join("built/prelude.js")).unwrap();
-    assert_eq!(
-        built.lines().next().unwrap(),
-        format!("// rqm-prelude-hash: {:016x}", sum.0),
-        "the sources of the prelude changed: run `npm run build` in crates/rqm-script/prelude"
-    );
+    // Every file in `built/` carries the sum of the same sources.
+    let mut checked = 0;
+    for entry in fs::read_dir(prelude.join("built")).unwrap() {
+        let path = entry.unwrap().path();
+        let built = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            built.lines().next().unwrap(),
+            format!("// rqm-prelude-hash: {:016x}", sum.0),
+            "{}: the sources of the prelude changed: run `npm run build` in crates/rqm-script/prelude",
+            path.display()
+        );
+        checked += 1;
+    }
+    assert!(checked >= 2, "built/ holds the prelude and chai");
 }
 
 #[test]

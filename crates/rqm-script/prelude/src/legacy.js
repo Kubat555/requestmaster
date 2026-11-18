@@ -23,6 +23,29 @@ export function lazyGlobal(name, compute) {
   });
 }
 
+/**
+ * The global `tests` of old scripts: `tests["name"] = value`. Returns what turns its pairs into tests when
+ * the script has ended — the object is read then, so a script may also put another object under the name.
+ */
+export function installLegacyTests(safe, record) {
+  globalThis.tests = {};
+  return function collect() {
+    const results = globalThis.tests;
+    if (results === null || typeof results !== "object") return;
+    const names = safe.keys(results);
+    for (let i = 0; i < names.length; i++) {
+      const value = results[names[i]];
+      if (value) {
+        record(names[i], true, false, undefined);
+      } else {
+        // Only a primitive is falsy: `String` cannot throw here.
+        const shown = value === "" ? "''" : safe.String(value);
+        record(names[i], false, false, "AssertionError: expected " + shown + " to be truthy");
+      }
+    }
+  };
+}
+
 /** `responseBody`, `responseCode`, `responseHeaders`, `responseTime`. */
 export function installLegacyResponse(response) {
   const data = response.data;

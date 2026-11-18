@@ -4,8 +4,18 @@ import { PairList } from "./lists.js";
 
 const TOO_LARGE = "response body is larger than 10 MB and is not available to scripts";
 
-/** `undefined` when the scripts run before the request. */
-export function createResponse(host, safe) {
+/** Every object the factory below has made: by this an assertion tells a response from anything else. */
+const responses = new WeakSet();
+
+export function isResponse(value) {
+  return typeof value === "object" && value !== null && responses.has(value);
+}
+
+/**
+ * `undefined` when the scripts run before the request. `chai()` gives chai with the assertions of a
+ * response and loads it on first use.
+ */
+export function createResponse(host, safe, chai) {
   const described = host.response();
   if (typeof described !== "string") return undefined;
   const data = safe.parse(described);
@@ -53,6 +63,16 @@ export function createResponse(host, safe) {
       }
     },
   };
+
+  // `pm.response.to.have.status(200)`. Not enumerable: printing the response does not load chai.
+  Object.defineProperty(api, "to", {
+    configurable: true,
+    enumerable: false,
+    get() {
+      return chai().expect(api).to;
+    },
+  });
+  responses.add(api);
 
   return { api, data, body };
 }

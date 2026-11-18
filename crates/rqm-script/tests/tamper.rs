@@ -7,6 +7,7 @@ use rqm_script::{
     run, Job, Phase, ResponseBody, ScriptErrorKind, ScriptResponse, Variables, CONSOLE_LINE_CHARS,
     CONSOLE_MAX_LINES, MAX_CHANGES, MAX_TESTS, TEST_NAME_CHARS,
 };
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 fn job(script: &str) -> Job {
@@ -45,6 +46,10 @@ fn tampered_builtins_do_not_lift_limits() {
         Reflect.apply = function () { return true };
         Promise.prototype.then = function () { return this };
         for (let i = 0; i < 5000; i++) console.log('x'.repeat(20000));
+        // chai is loaded into a realm that is already broken: whatever comes of it, the limits hold.
+        try { pm.expect(1).to.equal(1) } catch (error) {}
+        try { pm.response.to.have.status(200) } catch (error) {}
+        try { pm.test('later', function (done) {}) } catch (error) {}
         for (let i = 0; i < 1001; i++) {
             try { pm.test('n'.repeat(5000), function () {}) } catch (error) {}
         }
@@ -122,6 +127,26 @@ fn host_primitives_do_not_leak() {
         pm.test('no function');
         pm.test.skip('later');
         pm.test.index();
+        // chai is loaded here, after the spies are in place, and uses them a lot.
+        pm.test('expect', function () {
+            pm.expect({ a: [1] }).to.deep.equal({ a: [1] });
+            pm.expect([1, 2]).to.include(2).and.have.lengthOf(2);
+            pm.expect(function () { throw new Error('x') }).to.throw('x');
+        });
+        pm.test('response', function () {
+            pm.response.to.have.status(200);
+            pm.response.to.be.ok;
+            pm.response.to.be.success;
+            pm.response.to.not.be.error;
+            pm.response.to.have.header('Content-Type', 'application/json');
+            pm.response.to.be.json;
+            pm.response.to.be.withBody;
+            pm.response.to.have.body({ a: 1 });
+            pm.response.to.have.jsonBody('a', 1);
+        });
+        pm.test('done', function (done) { done() });
+        pm.test('promise', function () { return Promise.resolve() });
+        tests['old'] = true;
 
         let leaked = 0;
         for (let i = 0; i < seen.length; i++) {
@@ -131,4 +156,34 @@ fn host_primitives_do_not_leak() {
     let report = run(job(script), &CancellationToken::new());
     assert_eq!(report.errors, vec![]);
     assert_eq!(report.console.last().unwrap().text, "0 true");
+    // The API did its job under the spies: only the test that throws has failed.
+    let failed: Vec<&str> = report
+        .tests
+        .iter()
+        .filter(|test| !test.passed)
+        .map(|test| test.name.as_str())
+        .collect();
+    assert_eq!(failed, vec!["bad"], "{:?}", report.tests);
+    assert_eq!(report.tests.len(), 9);
+}
+
+#[test]
+fn chai_loading_into_a_tampered_realm_is_on_the_clock() {
+    // chai runs in the realm of the script when it loads: a built-in function the script has replaced
+    // with an endless loop is stopped by the time limit like any other code of the script.
+    let script = "
+        const loop = function () { for (;;) {} };
+        Object.defineProperty = loop;
+        Object.create = loop;
+        Object.keys = loop;
+        Array.prototype.forEach = loop;
+        pm.expect(1).to.equal(1)";
+    let mut job = job(script);
+    job.limits.time = Duration::from_millis(300);
+    let started = Instant::now();
+    let report = run(job, &CancellationToken::new());
+    assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
+    assert_eq!(report.errors[0].kind, ScriptErrorKind::Timeout);
+    // The interrupt handler stopped it, not the watchdog two seconds later.
+    assert!(started.elapsed() < Duration::from_millis(1500));
 }

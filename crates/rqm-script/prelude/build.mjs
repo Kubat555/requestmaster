@@ -1,12 +1,16 @@
 // Bundles the prelude into `built/`. Run with `npm run build` inside this folder; `cargo` never calls Node.
 //
 // The first line of every built file is `// rqm-prelude-hash: <16 hex digits>` — FNV-1a 64 over the sources.
-// The Rust test `built_prelude_matches_its_sources` computes the same sum, so a source that was changed
+// The Rust test `built_files_match_their_sources` computes the same sum, so a source that was changed
 // and not rebuilt is caught without Node.
 import { build } from "esbuild";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
-const BUNDLES = [{ entry: "src/index.js", out: "built/prelude.js" }];
+const BUNDLES = [
+  { entry: "src/index.js", out: "built/prelude.js" },
+  // chai 4.4.1 and the assertions of a response; loaded into a context on first use.
+  { entry: "src/chai-entry.js", out: "built/chai.js" },
+];
 
 /** The files the sum covers: the build itself, then everything in `src/` by name. */
 function hashedFiles() {

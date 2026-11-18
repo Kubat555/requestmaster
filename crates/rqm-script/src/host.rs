@@ -5,6 +5,7 @@
 //! here, never in JavaScript. A primitive never panics: a bad argument is a JavaScript exception.
 
 use crate::budget::{Budget, Watch};
+use crate::bundle::{self, Bundle};
 use crate::text;
 use crate::variables::{self, Book, Target, View};
 use crate::{
@@ -51,6 +52,12 @@ const BUSY: &str = "the script host is busy";
 const NO_RESPONSE: &str = "there is no response";
 const TOO_MANY_TESTS: &str = "too many tests: more than 1000";
 const TOO_MUCH_TEST_TEXT: &str = "too many tests: their results are larger than 256 KB";
+const UNKNOWN_BUNDLE: &str = "unknown bundle";
+
+/// The bundles `load_bundle` knows, by the names the prelude asks for them.
+const LOADABLE: [(&str, Bundle); 1] = [("chai", Bundle::Chai)];
+/// No name in `LOADABLE` is longer, in UTF-8 bytes.
+const BUNDLE_NAME_BYTES: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleLevel {
@@ -218,6 +225,8 @@ pub(crate) struct Host {
     response: Option<Arc<ScriptResponse>>,
     /// The script has been told that `pm.environment.set` has nowhere to store.
     warned_no_environment: Cell<bool>,
+    /// Which of `LOADABLE` this context has been asked for already: bit `n` — entry `n`.
+    asked_bundles: Cell<u32>,
 }
 
 impl Host {
@@ -239,6 +248,7 @@ impl Host {
             epoch: job.epoch,
             response,
             warned_no_environment: Cell::new(false),
+            asked_bundles: Cell::new(0),
         }
     }
 
@@ -395,6 +405,27 @@ impl Host {
     ) -> Result<(), Refusal> {
         self.with_state(|state| state.test(self.script, name, passed, skipped, error))
     }
+
+    /// The bundle of that name when this context has to load it now; `None` — it was asked for before.
+    /// A bundle counts as asked from here on, so a load that calls back into the script cannot start itself
+    /// again. The lock of the state is not held when this returns: the caller runs JavaScript next.
+    fn claim_bundle(&self, name: &str) -> Result<Option<Bundle>, Refusal> {
+        self.with_state(|_| Ok(()))?;
+        let known = LOADABLE
+            .iter()
+            .zip(0u32..)
+            .find(|((known, _), _)| *known == name);
+        let Some(((_, bundle), index)) = known else {
+            return Err(Refusal::Error(format!("{UNKNOWN_BUNDLE}: {name}")));
+        };
+        let bit = 1u32.checked_shl(index).unwrap_or(0);
+        let asked = self.asked_bundles.get();
+        if asked & bit != 0 {
+            return Ok(None);
+        }
+        self.asked_bundles.set(asked | bit);
+        Ok(Some(*bundle))
+    }
 }
 
 /// At most `BODY_LIMIT + 1` bytes of the body are taken into memory. The text is UTF-8: bytes that are not
@@ -422,8 +453,9 @@ fn body_text(body: &ResponseBody) -> Result<Option<String>, Refusal> {
     Ok(Some(String::from_utf8_lossy(text).into_owned()))
 }
 
-/// Puts the object `__host` into the global scope. The prelude takes it away first thing.
-pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Host>) -> rquickjs::Result<()> {
+/// Puts the object `__host` into the global scope and returns it. The prelude takes it away from there
+/// first thing and leaves on it the function `finish` (see `finish` below).
+pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Host>) -> rquickjs::Result<Object<'js>> {
     let object = Object::new(ctx.clone())?;
 
     let this = Rc::clone(host);
@@ -648,7 +680,39 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, host: &Rc<Host>) -> rquickjs::Result<
         },
     )?;
 
-    ctx.globals().set("__host", object)
+    let this = Rc::clone(host);
+    add(
+        ctx,
+        &object,
+        "load_bundle",
+        move |ctx: Ctx<'js>, name: rquickjs::String<'js>| -> rquickjs::Result<()> {
+            let name = read(&ctx, name, BUNDLE_NAME_BYTES, || UNKNOWN_BUNDLE.to_string())?;
+            let Some(bundle) = this
+                .claim_bundle(&name)
+                .map_err(|refusal| throw(&ctx, &refusal))?
+            else {
+                return Ok(());
+            };
+            // Compiling runs no code of the script: the stopwatch stands. Running the bundle does — the
+            // script may have replaced the built-in objects the bundle uses — so that is on the clock.
+            this.budget.pause();
+            let compiled = bundle::compile(&ctx, bundle);
+            this.budget.resume();
+            compiled?;
+            bundle::load(&ctx, bundle)
+        },
+    )?;
+
+    ctx.globals().set("__host", object.clone())?;
+    Ok(object)
+}
+
+/// Tells the prelude that the text of the script has ended: the tests that are still waiting fail, the
+/// pairs of the old `tests` object become tests. `hooks` is the object `install` returned; it lives
+/// inside one `Context::with`, as every JavaScript value does. Runs code of the script (getters of `tests`).
+pub(crate) fn finish<'js>(hooks: &Object<'js>) -> rquickjs::Result<()> {
+    let finish: Function<'js> = hooks.get("finish")?;
+    finish.call(())
 }
 
 /// An argument that may be left out: a string, or nothing.
@@ -882,6 +946,7 @@ mod tests {
         assert!(host.response().is_err());
         assert!(host.response_body().is_err());
         assert!(host.test("t", true, false, None).is_err());
+        assert!(host.claim_bundle("chai").is_err());
     }
 
     fn with_a_global() -> Variables {
@@ -889,6 +954,30 @@ mod tests {
             globals: vec![Var::new("g", "G")],
             ..Variables::default()
         }
+    }
+
+    #[test]
+    fn load_bundle_refuses_unknown_names() {
+        use rquickjs::{Context, Runtime};
+
+        let host = Rc::new(host(Variables::default()));
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            install(&ctx, &host).unwrap();
+            let refused: String = ctx
+                .eval("try { __host.load_bundle('fs'); 'loaded' } catch (error) { String(error.message) }")
+                .unwrap();
+            assert_eq!(refused, "unknown bundle: fs");
+            // The context is whole: the next call loads a known bundle, and only once.
+            let loaded: String = ctx
+                .eval(
+                    "__host.load_bundle('chai'); const first = typeof __rqm_chai; delete globalThis.__rqm_chai;
+                     __host.load_bundle('chai'); first + ' ' + typeof __rqm_chai",
+                )
+                .unwrap();
+            assert_eq!(loaded, "function undefined");
+        });
     }
 
     #[test]

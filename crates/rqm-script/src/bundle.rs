@@ -7,30 +7,36 @@ use rquickjs::promise::PromiseState;
 use rquickjs::{Context, Ctx, Error, Exception, FromJs, Module, Runtime, Value};
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Bundle {
     /// `console` and `pm.*`.
     Prelude,
+    /// chai 4.4.1 with the assertions of a response; loaded when a script first asks for it.
+    Chai,
 }
 
 static PRELUDE_BYTECODE: OnceLock<Vec<u8>> = OnceLock::new();
+static CHAI_BYTECODE: OnceLock<Vec<u8>> = OnceLock::new();
 
 impl Bundle {
     fn name(self) -> &'static str {
         match self {
             Bundle::Prelude => "rqm:prelude",
+            Bundle::Chai => "rqm:chai",
         }
     }
 
     fn source(self) -> &'static str {
         match self {
             Bundle::Prelude => include_str!("../prelude/built/prelude.js"),
+            Bundle::Chai => include_str!("../prelude/built/chai.js"),
         }
     }
 
     fn cell(self) -> &'static OnceLock<Vec<u8>> {
         match self {
             Bundle::Prelude => &PRELUDE_BYTECODE,
+            Bundle::Chai => &CHAI_BYTECODE,
         }
     }
 
@@ -68,13 +74,24 @@ fn thrown_text(ctx: &Ctx<'_>) -> String {
         .unwrap_or_else(|_| "unknown error".to_string())
 }
 
+/// Makes sure the bytecode of the bundle is there. No code of a script runs here (the compiling engine is
+/// a fresh one), so a caller may do it with the stopwatch of the script standing; `load` then only runs
+/// the bundle.
+pub(crate) fn compile(ctx: &Ctx<'_>, bundle: Bundle) -> rquickjs::Result<()> {
+    bytecode(ctx, bundle).map(|_| ())
+}
+
+fn bytecode(ctx: &Ctx<'_>, bundle: Bundle) -> rquickjs::Result<&'static [u8]> {
+    bundle.bytecode().map_err(|error| {
+        Exception::throw_message(ctx, &format!("{} does not compile: {error}", bundle.name()))
+    })
+}
+
 /// Runs the bundle in the context. The job queue is not driven here: a bundle may be loaded in the middle
 /// of a script, and the microtasks of the script must not run ahead of their time. A bundle has no top-level
 /// `await`, so the promise of its evaluation is settled at once.
 pub(crate) fn load(ctx: &Ctx<'_>, bundle: Bundle) -> rquickjs::Result<()> {
-    let bytes = bundle.bytecode().map_err(|error| {
-        Exception::throw_message(ctx, &format!("{} does not compile: {error}", bundle.name()))
-    })?;
+    let bytes = bytecode(ctx, bundle)?;
     // SAFETY: `Module::load` trusts its bytes blindly. These were written by `Module::write` of this very
     // engine in this very process (`Bundle::bytecode`) and are never read from a disk or from anywhere else.
     let module = unsafe { Module::load(ctx.clone(), bytes) }?;

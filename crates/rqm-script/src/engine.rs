@@ -349,13 +349,15 @@ fn run_script(
         };
         // `__host`, then the prelude, then the text of the script. The stopwatch of the script stands
         // while the prelude loads.
-        let prepared =
-            host::install(&ctx, &host).and_then(|()| bundle::load(&ctx, Bundle::Prelude));
-        if let Err(error) = prepared {
-            return Some(script.failure(error, Origin::Engine));
-        }
+        let prepared = host::install(&ctx, &host)
+            .and_then(|hooks| bundle::load(&ctx, Bundle::Prelude).map(|()| hooks));
+        let hooks = match prepared {
+            Ok(hooks) => hooks,
+            Err(error) => return Some(script.failure(error, Origin::Engine)),
+        };
         budget.resume();
         let failure = script.execute();
+        let failure = script.finish(&hooks, failure);
         budget.pause();
         failure
     })
@@ -396,6 +398,28 @@ impl<'js> Script<'_, 'js> {
                 ScriptErrorKind::Exception,
                 NEVER_FINISHES.to_string(),
             )),
+        }
+    }
+
+    /// The text of the script has ended, by itself or with an exception: the prelude records the tests that
+    /// are left (`host::finish`). Not after a timeout, a memory limit or a cancel. Still on the clock of the
+    /// script — it runs getters of the script. An exception here is the error of the script when it has
+    /// none yet; a stop always is.
+    fn finish(&self, hooks: &Object<'js>, failure: Option<Failure>) -> Option<Failure> {
+        let ended = failure
+            .as_ref()
+            .is_none_or(|failure| failure.kind == ScriptErrorKind::Exception);
+        if !ended || self.budget.stop().is_some() {
+            return failure;
+        }
+        let Err(error) = host::finish(hooks) else {
+            return failure;
+        };
+        let late = self.failure(error, Origin::Script);
+        if failure.is_none() || late.kind != ScriptErrorKind::Exception {
+            Some(late)
+        } else {
+            failure
         }
     }
 

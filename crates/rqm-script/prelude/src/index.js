@@ -8,8 +8,8 @@
 //   object the script can reach;
 // - the built-in functions this code needs are saved below, before the text of the script runs.
 import { installConsole } from "./console.js";
-import { installLegacyResponse } from "./legacy.js";
-import { createResponse } from "./response.js";
+import { installLegacyResponse, installLegacyTests } from "./legacy.js";
+import { createResponse, isResponse } from "./response.js";
 import { createTest } from "./test.js";
 import { createVariables } from "./variables.js";
 
@@ -43,13 +43,47 @@ info.iterationCount = 1;
 
 const pm = { info, ...createVariables(host, safe) };
 
+/**
+ * chai with the assertions of a response. Its bundle is loaded into the context when a script first reads
+ * `pm.expect` or `pm.response.to`: it leaves one function under a global name, taken away here at once.
+ */
+let chai;
+function loadChai() {
+  if (chai === undefined) {
+    host.load_bundle("chai");
+    const install = globalThis.__rqm_chai;
+    delete globalThis.__rqm_chai;
+    if (typeof install !== "function") throw new Error("chai is not available");
+    chai = install(isResponse);
+  }
+  return chai;
+}
+
+Object.defineProperty(pm, "expect", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return loadChai().expect;
+  },
+});
+
 // Only the scripts that run after the request have a response.
-const response = createResponse(host, safe);
+const response = createResponse(host, safe, loadChai);
 if (response !== undefined) {
   pm.response = response.api;
   installLegacyResponse(response);
 }
 
-pm.test = createTest(host, safe, pm);
+const tests = createTest(host, safe, pm);
+pm.test = tests.test;
+const collectLegacyTests = installLegacyTests(safe, tests.record);
+
+// The engine calls this when the text of the script has ended, with an exception too (not after a timeout,
+// a memory limit or a cancel): first the tests of `pm.test` that are still waiting, then the pairs of `tests`.
+// The object of the primitives is out of the reach of the script, so the function is too.
+host.finish = function () {
+  tests.finish();
+  collectLegacyTests();
+};
 
 globalThis.pm = pm;
