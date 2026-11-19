@@ -22,5 +22,7 @@ tokio = { workspace = true, features = ["rt", "sync"] }
 wiremock = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tempfile = { workspace = true }
+# Only for tests/variable_changes.rs: reads a row of the database byte for byte.
+rusqlite = { workspace = true }
 # Only for tests/owner_end_to_end.rs (import → store → export on the owner's samples); not a regular dependency.
 rqm-postman = { path = "../rqm-postman" }

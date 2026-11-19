@@ -382,7 +382,12 @@ fn settings_of_a_build_without_the_motion_level_stay_readable() {
     // and the send still takes them
     assert_eq!(
         AppSettings::from(core.get_settings().unwrap()),
-        AppSettings { timeout: Some(Duration::from_millis(1500)), verify_tls: false, proxy: ProxySetting::Off }
+        AppSettings {
+            timeout: Some(Duration::from_millis(1500)),
+            verify_tls: false,
+            proxy: ProxySetting::Off,
+            ..AppSettings::default()
+        }
     );
 }
 
@@ -458,7 +463,12 @@ fn settings_dto_maps_to_app_settings() {
     let settings = SettingsDto { timeout_ms: 1500, verify_tls: false, proxy: ProxyDto::Off, motion: MotionLevel::Normal };
     assert_eq!(
         AppSettings::from(settings),
-        AppSettings { timeout: Some(Duration::from_millis(1500)), verify_tls: false, proxy: ProxySetting::Off }
+        AppSettings {
+            timeout: Some(Duration::from_millis(1500)),
+            verify_tls: false,
+            proxy: ProxySetting::Off,
+            ..AppSettings::default()
+        }
     );
     let manual = SettingsDto { proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() }, ..default_settings_value() };
     assert_eq!(AppSettings::from(manual).proxy, ProxySetting::Manual("http://127.0.0.1:8888".to_string()));

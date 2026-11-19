@@ -347,6 +347,8 @@ pub(crate) struct ScriptRun {
     cancel: CancellationToken,
     /// The settings of the requests the scripts send: those of the application, not of the request.
     options: SendOptions,
+    /// The limits of each script: the time is the one of the settings.
+    limits: Limits,
 }
 
 impl ScriptRun {
@@ -380,6 +382,7 @@ impl ScriptRun {
             epoch,
             cancel,
             options,
+            limits: Limits { time: input.settings.script_timeout, ..Limits::default() },
         }
     }
 
@@ -400,7 +403,7 @@ impl ScriptRun {
                 ScriptPhase::Test => Phase::Test,
             },
             scripts: steps.iter().map(|step| step.code.clone()).collect(),
-            limits: Limits::default(),
+            limits: self.limits,
             epoch: self.epoch,
             info: self.info.clone(),
             // Moved, not copied: after a failure of the thread nothing reads the variables any more.

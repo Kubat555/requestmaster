@@ -10,6 +10,8 @@ mod scope;
 mod script_host;
 mod scripts;
 mod send;
+mod trust;
+mod variable_changes;
 
 use std::time::Duration;
 
@@ -26,6 +28,8 @@ pub use scripts::{
     ScriptsReport, StoredScope, TestOutcome, VariableChange, VariableOp,
 };
 pub use send::{send, PreparedSummary, SendError, SendOutcome};
+pub use trust::{collection_of, forget_deleted_collections, scripts_allowed, set_scripts_allowed, SCRIPTS_ALLOWED_KEY};
+pub use variable_changes::{apply_to_variables, apply_variable_changes, AppliedChange};
 
 /// Application-wide settings of a send; a request may override `verify_tls` with its own `strict_ssl`.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,12 +40,22 @@ pub struct AppSettings {
     pub verify_tls: bool,
     /// Which proxy to use.
     pub proxy: ProxySetting,
+    /// Whether scripts run at all.
+    pub scripts_enabled: bool,
+    /// JavaScript execution time of one script.
+    pub script_timeout: Duration,
 }
 
 impl Default for AppSettings {
-    /// No timeout, verify TLS, system proxy.
+    /// No timeout, verify TLS, system proxy; scripts run, each for 10 s at most.
     fn default() -> Self {
-        AppSettings { timeout: None, verify_tls: true, proxy: ProxySetting::System }
+        AppSettings {
+            timeout: None,
+            verify_tls: true,
+            proxy: ProxySetting::System,
+            scripts_enabled: true,
+            script_timeout: Duration::from_secs(10),
+        }
     }
 }
 
@@ -92,7 +106,8 @@ fn environment_by_id(store: &Store, id: &str) -> Result<Environment, StoreError>
 
 /// Reads the request (or uses `draft` instead of the stored content), its ancestors, globals and the environment.
 /// A node that is not a request, or an unknown environment id, yields `StoreError::NotFound`.
-/// The scripts are declared switched off: who may run them is decided by the caller.
+/// The scripts run when the settings switch them on and the collection of the request has the consent
+/// ([`scripts_allowed`]).
 pub fn load_send_input(
     store: &Store,
     request_id: &str,
@@ -105,14 +120,22 @@ pub fn load_send_input(
         return Err(StoreError::NotFound(request_id.to_string()));
     };
     let environment = environment_id.map(|id| environment_by_id(store, id)).transpose()?;
+    let ancestors = store.ancestors(request_id)?;
+    let scripts = match ancestors.first() {
+        _ if !settings.scripts_enabled => ScriptsMode::Off(ScriptsOff::Disabled),
+        Some(collection) if scripts_allowed(store, &collection.id)? => ScriptsMode::Run,
+        Some(collection) => ScriptsMode::Off(ScriptsOff::NotAllowed { collection: collection.name.clone() }),
+        // The tree rules give every request a collection; without one nobody gave a consent.
+        None => ScriptsMode::Off(ScriptsOff::NotAllowed { collection: String::new() }),
+    };
     Ok(SendInput {
         request_id: request_id.to_string(),
         request_name: node.name,
         request: draft.unwrap_or(stored),
-        ancestors: store.ancestors(request_id)?,
+        ancestors,
         environment,
         globals: store.globals()?,
         settings,
-        scripts: ScriptsMode::Off(ScriptsOff::Disabled),
+        scripts,
     })
 }

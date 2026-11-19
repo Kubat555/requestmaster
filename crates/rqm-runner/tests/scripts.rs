@@ -307,7 +307,6 @@ async fn draft_script_of_the_request_runs() {
     let draft = get(&server.uri(), scripts("", "console.log('from the draft')"));
     let settings = AppSettings { proxy: ProxySetting::Off, ..Default::default() };
     let mut input = load_send_input(&tree.store, &tree.req, Some(draft), None, settings).unwrap();
-    assert_eq!(input.scripts, ScriptsMode::Off(ScriptsOff::Disabled), "scripts are off until Task 10");
     input.scripts = ScriptsMode::Run;
 
     let (outcome, _dir) = sent(&input).await;
@@ -704,4 +703,72 @@ async fn script_cannot_turn_the_body_into_a_file() {
     let (outcome, _dir) = sent(&input(&tree, false)).await;
     assert_eq!(outcome.scripts.errors, vec![]);
     assert_eq!(String::from_utf8_lossy(&the_request(&server).await.body), "as typed");
+}
+
+// ---- the limits of a script as a send meets them ----
+
+/// The tree with a pre-request script of the request and the input of its send with a script time limit
+/// of 200 ms.
+fn short_timeout(server: &MockServer, pre_request: &str) -> (Tree, SendInput) {
+    let tree = tree(vec![], Scripts::default(), Scripts::default(), Scripts::default(),
+        get(&server.uri(), scripts(pre_request, "")));
+    let mut input = input(&tree, false);
+    input.settings.script_timeout = Duration::from_millis(200);
+    (tree, input)
+}
+fn script_failure(outcome: &SendOutcome) -> &ScriptFailure {
+    let Err(SendError::Script(failure)) = &outcome.result else { panic!("{:?}", outcome.result) };
+    failure
+}
+
+#[tokio::test]
+async fn script_timeout_comes_from_the_settings() {
+    let server = any_server().await;
+    let (_tree, input) = short_timeout(&server, "while (true) {}");
+
+    let started = Instant::now();
+    let (outcome, _dir) = sent(&input).await;
+    assert_eq!(script_failure(&outcome).kind, ScriptErrorKind::Timeout);
+    // Far below the default limit of 10 s.
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+}
+
+/// The only test of this file that leaves an abandoned thread behind until the test process ends.
+#[tokio::test]
+async fn native_loop_in_pre_request_ends_the_send() {
+    let server = any_server().await;
+    let (_tree, input) =
+        short_timeout(&server, "pm.globals.set('a', '1'); [].reverse.call({ length: 2 ** 53 - 1 })");
+
+    let started = Instant::now();
+    let (outcome, _dir) = sent(&input).await;
+    let limit = Duration::from_millis(200) + rqm_script::WATCHDOG_GRACE + Duration::from_secs(1);
+    assert!(started.elapsed() <= limit, "{:?}", started.elapsed());
+    assert_eq!(script_failure(&outcome).kind, ScriptErrorKind::Timeout);
+    assert!(outcome.scripts.changes.contains(&set(StoredScope::Globals, "a", "1")), "{:?}", outcome.scripts.changes);
+    assert!(server.received_requests().await.unwrap().is_empty(), "nothing may be sent");
+
+    // The abandoned thread does not stand in the way of the next send.
+    let plain = tree(vec![], Scripts::default(), Scripts::default(), Scripts::default(),
+        get(&server.uri(), Scripts::default()));
+    let (outcome, _dir) = sent(&self::input(&plain, false)).await;
+    assert_eq!(outcome.result.as_ref().unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn host_memory_limit_ends_the_send_and_keeps_the_store_small() {
+    let server = any_server().await;
+    let pre = "try { while (true) pm.globals.set('k', 'x'.repeat(1 << 19)) } catch (e) {}";
+    let mut tree = tree(vec![], Scripts::default(), Scripts::default(), Scripts::default(),
+        get(&server.uri(), scripts(pre, "")));
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(script_failure(&outcome).kind, ScriptErrorKind::Memory);
+
+    let col = tree.col.clone();
+    apply_variable_changes(&mut tree.store, &col, None, &outcome.scripts.changes).unwrap();
+    let globals = tree.store.globals().unwrap();
+    let [k] = &globals.variables[..] else { panic!("{} variables", globals.variables.len()) };
+    assert!(k.key == "k" && k.value.len() <= rqm_script::MAX_VALUE_BYTES, "{} bytes", k.value.len());
+    assert!(globals.content_json().len() < 2 * MIB, "{} bytes", globals.content_json().len());
 }

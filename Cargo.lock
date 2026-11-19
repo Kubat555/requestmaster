@@ -3073,6 +3073,7 @@ dependencies = [
  "rqm-script",
  "rqm-store",
  "rqm-vars",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

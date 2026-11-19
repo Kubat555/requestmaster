@@ -58,6 +58,7 @@ impl From<SettingsDto> for AppSettings {
                 ProxyDto::Off => ProxySetting::Off,
                 ProxyDto::Manual { url } => ProxySetting::Manual(url),
             },
+            ..AppSettings::default()
         }
     }
 }
