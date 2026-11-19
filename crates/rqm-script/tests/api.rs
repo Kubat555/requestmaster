@@ -349,6 +349,30 @@ fn stubs_do_not_break_printing() {
     assert_eq!(lines[3], "{\"name\":\"Dev\"}");
 }
 
+/// chai prints the subject of a failed assertion and reads every own property of it: the stubs must not
+/// take the place of the reason of the failure.
+#[test]
+fn stubs_do_not_replace_assertion_failures() {
+    let report = run_in(
+        Phase::Test,
+        "pm.test('response', () => pm.expect(pm.response).to.have.property('code', 201));
+         pm.test('request', () => pm.expect(pm.request).to.equal(1));
+         pm.test('free chain', () => pm.response.to.be.an('array'));
+         try { pm.response.cookies } catch (err) { console.log(err.message) }",
+    );
+    assert_eq!(report.errors, vec![]);
+    assert_eq!(report.tests.len(), 3);
+    for test in &report.tests {
+        let error = test.error.as_deref().unwrap_or_default();
+        assert!(!test.passed, "{}", test.name);
+        assert!(error.starts_with("AssertionError:"), "{}: {error}", test.name);
+    }
+    assert_eq!(
+        lines(&report),
+        vec!["pm.response.cookies is not supported in RequestMaster"]
+    );
+}
+
 #[test]
 fn stubs_survive_url_assignment() {
     let report = run_in(

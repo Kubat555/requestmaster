@@ -74,7 +74,7 @@ function loadChai() {
       const install = globalThis.__rqm_chai;
       delete globalThis.__rqm_chai;
       if (typeof install !== "function") throw new Error("chai is not available");
-      return install(isResponse);
+      return install(isResponse, withoutStubs);
     });
   }
   return chai;

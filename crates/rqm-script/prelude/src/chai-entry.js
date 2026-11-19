@@ -7,8 +7,24 @@
 import chai from "chai";
 import { createAssertions } from "./assertions.js";
 
-/** `isResponse(value)` tells an object made by the response factory of the prelude. */
-globalThis.__rqm_chai = function (isResponse) {
+const apply = Reflect.apply;
+
+/**
+ * `isResponse(value)` tells an object made by the response factory of the prelude. `quietly(run)` runs
+ * `run()` with the stubs of the names for later silent (`withoutStubs` of the prelude).
+ */
+globalThis.__rqm_chai = function (isResponse, quietly) {
+  // chai builds the text of a failed assertion by printing its subject, and the printer reads every own
+  // property, the ones that are not enumerable too. A stub read there would throw its own text in place
+  // of the `AssertionError`, so the stubs keep silent while an assertion is checked.
+  const assert = chai.Assertion.prototype.assert;
+  chai.Assertion.prototype.assert = function () {
+    const self = this;
+    const given = arguments;
+    return quietly(function () {
+      return apply(assert, self, given);
+    });
+  };
   chai.use(createAssertions(isResponse));
   return chai;
 };
