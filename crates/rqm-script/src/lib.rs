@@ -16,6 +16,7 @@
     )
 )]
 
+mod api;
 mod budget;
 mod bundle;
 mod engine;
@@ -23,6 +24,7 @@ mod host;
 mod text;
 mod variables;
 
+pub use api::unsupported_api;
 pub use host::{
     ConsoleLevel, ConsoleLine, OutgoingBody, OutgoingRequest, BODY_LIMIT, CONSOLE_LINE_CHARS,
     CONSOLE_MAX_BYTES, CONSOLE_MAX_LINES, MAX_TESTS, MAX_TEST_TEXT_BYTES, TEST_ERROR_CHARS,

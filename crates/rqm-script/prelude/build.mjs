@@ -10,6 +10,8 @@ const BUNDLES = [
   { entry: "src/index.js", out: "built/prelude.js" },
   // chai 4.4.1 and the assertions of a response; loaded into a context on first use.
   { entry: "src/chai-entry.js", out: "built/chai.js" },
+  // lodash 4.18.1; loaded into a context on first use.
+  { entry: "src/lodash-entry.js", out: "built/lodash.js" },
 ];
 
 /** The files the sum covers: the build itself, then everything in `src/` by name. */
@@ -49,6 +51,9 @@ for (const bundle of BUNDLES) {
     target: "es2020",
     minify: true,
     legalComments: "none",
+    // The global `Buffer` is a stub that throws when read (`src/stubs.js`), and chai asks
+    // `typeof Buffer` every time it prints a value: for the bundled libraries the name is not there.
+    define: { Buffer: "undefined" },
     write: false,
   });
   writeFileSync(bundle.out, `// rqm-prelude-hash: ${hash}\n${result.outputFiles[0].text}`);

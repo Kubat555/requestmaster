@@ -75,7 +75,7 @@ const MAX_REQUEST_FIELDS: usize = 10_000;
 const MAX_DELAY_MS: f64 = 2_147_483_647.0;
 
 /// The bundles `load_bundle` knows, by the names the prelude asks for them.
-const LOADABLE: [(&str, Bundle); 1] = [("chai", Bundle::Chai)];
+const LOADABLE: [(&str, Bundle); 2] = [("chai", Bundle::Chai), ("lodash", Bundle::Lodash)];
 /// No name in `LOADABLE` is longer, in UTF-8 bytes.
 const BUNDLE_NAME_BYTES: usize = 16;
 

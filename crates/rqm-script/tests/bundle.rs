@@ -57,7 +57,7 @@ fn built_files_match_their_sources() {
         );
         checked += 1;
     }
-    assert!(checked >= 2, "built/ holds the prelude and chai");
+    assert_eq!(checked, 3, "built/ holds the prelude, chai and lodash");
 }
 
 #[test]

@@ -1,5 +1,6 @@
 // `console.log / info / warn / error / debug`: turns the arguments into one line of text. The exact cut of
 // the line and the limits of the console are the business of the primitive.
+import { withoutStubs } from "./stubs.js";
 
 /** Twice `CONSOLE_LINE_CHARS`, in UTF-16 units: a rough cut, so that no text of any length crosses the border. */
 const LINE_UNITS = 20000;
@@ -45,7 +46,11 @@ export function installConsole(host, safe) {
 
   function part(value) {
     try {
-      return format(value);
+      // Printing reads `name` and `message`, and `JSON.stringify` calls `toJSON`: on the request and on a
+      // scope of variables these are stubs of what is not supported, and they keep silent here.
+      return withoutStubs(function () {
+        return format(value);
+      });
     } catch (error) {
       try {
         return safe.String(value);

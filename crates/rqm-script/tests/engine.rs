@@ -281,8 +281,12 @@ fn a_cancelled_token_runs_nothing() {
 
 #[test]
 fn no_ambient_io_globals() {
-    let script = "for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'process', 'require', 'module', 'std', \
-                  'os']) { if (typeof globalThis[name] !== 'undefined') throw new Error(name + ' is defined') }";
+    // `require` is there and gives only what the prelude has: no file is read.
+    let script = "for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'process', 'module', 'std', 'os']) { \
+                  if (typeof globalThis[name] !== 'undefined') throw new Error(name + ' is defined') }\n\
+                  let found = 'nothing';\n\
+                  try { require('fs') } catch (error) { found = error.message }\n\
+                  if (found !== \"Cannot find module 'fs' (not supported in RequestMaster)\") throw new Error(found)";
     assert_eq!(
         run_scripts(Phase::Test, &[script], Limits::default()).errors,
         vec![]

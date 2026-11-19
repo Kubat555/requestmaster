@@ -139,6 +139,21 @@ const REQUEST_API: &str = "
         pm.execution.setNextRequest('x');
         const old = [environment, globals, request, data, iteration];";
 
+/// lodash through `require` and through `_`, the other modules, and the stubs of what is not supported;
+/// nothing here needs a response.
+const LIBRARIES_AND_STUBS: &str = "
+        try {
+            const lodash = require('lodash');
+            lodash.chunk([1, 2, 3], 2); _.map([1], function (x) { return x }); _.get({ a: [1] }, 'a[0]');
+            require('chai').expect(1).to.equal(1); require('atob')('YQ=='); require('btoa')('a');
+        } catch (error) {}
+        try { require('fs') } catch (error) {}
+        try { pm.vault } catch (error) {}
+        try { pm.request.url.host } catch (error) {}
+        try { pm.request.clone() } catch (error) {}
+        try { Buffer } catch (error) {}
+        try { pm.iterationData.get('a'); pm.visualizer.set('t') } catch (error) {}";
+
 /// Answers every request and counts them.
 struct CountingHost(Arc<AtomicUsize>);
 
@@ -180,8 +195,12 @@ fn tampered_builtins_do_not_lift_limits() {
         try { pm.request.body.update('x') } catch (error) {}
         try { postman.setEnvironmentVariable('old', 1) } catch (error) {}
         try { pm.execution.setNextRequest('x'); pm.execution.skipRequest() } catch (error) {}
+        try { pm.response.cookies } catch (error) {}
+        try { pm.response.to.have.jsonSchema({}) } catch (error) {}
+        {LIBRARIES_AND_STUBS}
         // The requests go first, then the timer: the limits of the host hold in a callback too.
-        setTimeout(function () { for (;;) pm.environment.set('i', 1) }, 0)";
+        setTimeout(function () { for (;;) pm.environment.set('i', 1) }, 0)"
+        .replace("{LIBRARIES_AND_STUBS}", LIBRARIES_AND_STUBS);
     let (report, requests) = run_counting(&format!("{TAMPERED}{script}"));
 
     assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
@@ -275,6 +294,8 @@ fn host_primitives_do_not_leak() {
         pm.test('done', function (done) { done() });
         pm.test('promise', function () { return Promise.resolve() });
         tests['old'] = true;
+        try { pm.response.cookies } catch (error) {}
+        try { pm.response.to.have.jsonSchema({}) } catch (error) {}
         setTimeout(function (a, b) {}, 1, 1, 2);
         const interval = setInterval(function () { clearInterval(interval) }, 1);
         setImmediate(function () {});
@@ -294,7 +315,9 @@ fn host_primitives_do_not_leak() {
 
         // After the requests and the other timers: their callbacks have been through the spies too.
         setTimeout(function () { console.log(leaks(), seen.length > 0) }, 30);";
-    let (report, requests) = run_counting(&format!("{SPIES}{script}{REQUEST_API}"));
+    let (report, requests) = run_counting(&format!(
+        "{SPIES}{script}{REQUEST_API}{LIBRARIES_AND_STUBS}"
+    ));
     assert_eq!(report.errors, vec![]);
     assert_eq!(requests, 4);
     assert_eq!(report.console.last().unwrap().text, "0 true");
@@ -314,7 +337,9 @@ fn host_primitives_do_not_leak() {
         console.log(leaks(), seen.length > 0);
         pm.execution.skipRequest();";
     let report = run(
-        pre_request_job(&format!("{SPIES}{REQUEST_API}{script}")),
+        pre_request_job(&format!(
+            "{SPIES}{REQUEST_API}{LIBRARIES_AND_STUBS}{script}"
+        )),
         &CancellationToken::new(),
     );
     assert_eq!(report.errors, vec![]);

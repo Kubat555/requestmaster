@@ -13,16 +13,20 @@ pub(crate) enum Bundle {
     Prelude,
     /// chai 4.4.1 with the assertions of a response; loaded when a script first asks for it.
     Chai,
+    /// lodash 4.18.1: the global `_` and `require('lodash')`; loaded when a script first asks for it.
+    Lodash,
 }
 
 static PRELUDE_BYTECODE: OnceLock<Vec<u8>> = OnceLock::new();
 static CHAI_BYTECODE: OnceLock<Vec<u8>> = OnceLock::new();
+static LODASH_BYTECODE: OnceLock<Vec<u8>> = OnceLock::new();
 
 impl Bundle {
     fn name(self) -> &'static str {
         match self {
             Bundle::Prelude => "rqm:prelude",
             Bundle::Chai => "rqm:chai",
+            Bundle::Lodash => "rqm:lodash",
         }
     }
 
@@ -30,6 +34,7 @@ impl Bundle {
         match self {
             Bundle::Prelude => include_str!("../prelude/built/prelude.js"),
             Bundle::Chai => include_str!("../prelude/built/chai.js"),
+            Bundle::Lodash => include_str!("../prelude/built/lodash.js"),
         }
     }
 
@@ -37,6 +42,7 @@ impl Bundle {
         match self {
             Bundle::Prelude => &PRELUDE_BYTECODE,
             Bundle::Chai => &CHAI_BYTECODE,
+            Bundle::Lodash => &LODASH_BYTECODE,
         }
     }
 

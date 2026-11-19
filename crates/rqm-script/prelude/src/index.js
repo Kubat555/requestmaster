@@ -16,8 +16,10 @@ import {
   installLegacyVariables,
 } from "./legacy.js";
 import { createExecution, createRequest } from "./request.js";
+import { createRequire } from "./require.js";
 import { createResponse, isResponse, makeResponse } from "./response.js";
 import { createSendRequest } from "./send-request.js";
+import { installStubs, withoutStubs } from "./stubs.js";
 import { createTest } from "./test.js";
 import { createVariables } from "./variables.js";
 
@@ -27,6 +29,9 @@ delete globalThis.__host;
 const apply = Reflect.apply;
 const toWellFormed = String.prototype.toWellFormed;
 const sliceString = String.prototype.slice;
+// The functions of the engine itself: `require('atob')` gives them whatever the script did to the globals.
+const engineAtob = globalThis.atob;
+const engineBtoa = globalThis.btoa;
 
 const safe = {
   String,
@@ -63,14 +68,54 @@ const pm = { info, ...createVariables(host, safe) };
 let chai;
 function loadChai() {
   if (chai === undefined) {
-    host.load_bundle("chai");
-    const install = globalThis.__rqm_chai;
-    delete globalThis.__rqm_chai;
-    if (typeof install !== "function") throw new Error("chai is not available");
-    chai = install(isResponse);
+    // A library asks the global object what is there (`Buffer`): the stubs keep silent while it loads.
+    chai = withoutStubs(function () {
+      host.load_bundle("chai");
+      const install = globalThis.__rqm_chai;
+      delete globalThis.__rqm_chai;
+      if (typeof install !== "function") throw new Error("chai is not available");
+      return install(isResponse);
+    });
   }
   return chai;
 }
+
+/** lodash 4.18.1: `_` and `require('lodash')`. Loaded like chai, on first use. */
+let lodash;
+let lodashLoading = false;
+function loadLodash() {
+  if (lodash === undefined) {
+    lodashLoading = true;
+    let loaded;
+    try {
+      loaded = withoutStubs(function () {
+        host.load_bundle("lodash");
+        const left = globalThis.__rqm_lodash;
+        delete globalThis.__rqm_lodash;
+        return left;
+      });
+    } finally {
+      lodashLoading = false;
+    }
+    if (typeof loaded !== "function") throw new Error("lodash is not available");
+    lodash = loaded;
+  }
+  return lodash;
+}
+
+// The global `_`. A getter with a setter, as the old global names are: a script may put its own value
+// under the name. lodash itself reads the name while it loads (what it would give back in `noConflict`):
+// there is nothing under it then.
+Object.defineProperty(globalThis, "_", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return lodashLoading ? undefined : loadLodash();
+  },
+  set(value) {
+    Object.defineProperty(globalThis, "_", { value, writable: true, enumerable: true, configurable: true });
+  },
+});
 
 Object.defineProperty(pm, "expect", {
   configurable: true,
@@ -110,6 +155,32 @@ pm.sendRequest = createSendRequest(host, safe, pm, later, function (data, number
 
 const tests = createTest(host, safe, pm);
 pm.test = tests.test;
+
+// Both belong to a collection run: here they are empty.
+pm.iterationData = {
+  get() {},
+  has() {
+    return false;
+  },
+  toObject() {
+    return {};
+  },
+};
+pm.visualizer = {
+  set() {},
+  clear() {},
+};
+
+globalThis.require = createRequire(safe.String, {
+  lodash: loadLodash,
+  chai: loadChai,
+  atob() {
+    return engineAtob;
+  },
+  btoa() {
+    return engineBtoa;
+  },
+});
 const collectLegacyTests = installLegacyTests(safe, tests.record);
 
 // The engine calls this when the script has ended — its text, its requests and its timers — with an exception
@@ -121,3 +192,5 @@ host.finish = function () {
 };
 
 globalThis.pm = pm;
+// After everything above is in place: the names for later go onto the objects that exist.
+installStubs(info.eventName);

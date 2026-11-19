@@ -1,6 +1,7 @@
 // `pm.response`. The body stays on the Rust side until a script asks for it: the primitive reads it, checks
 // its size and turns it into text (`src/host.rs`).
 import { PairList } from "./lists.js";
+import { stubResponse } from "./stubs.js";
 
 const TOO_LARGE = "response body is larger than 10 MB and is not available to scripts";
 
@@ -80,6 +81,7 @@ export function makeResponse(safe, chai, data, read) {
       return chai().expect(api).to;
     },
   });
+  stubResponse(api);
   responses.add(api);
 
   return { api, data, body };

@@ -30,6 +30,12 @@ const NAMED = [
   ["rateLimited", 429, "Too Many Requests"],
 ];
 
+/**
+ * Assertions of `pm.response.to.have` for later. The table of the API (`api.json`) is not part of this
+ * bundle, so the names stand here; a test compares them with the table.
+ */
+const LATER = ["jsonSchema", "responseTime", "responseSize"];
+
 const hasOwn = Object.prototype.hasOwnProperty;
 
 /** A path as lodash reads it: names separated by dots, indexes and quoted names in brackets. */
@@ -151,6 +157,13 @@ export function createAssertions(isResponse) {
       const parsed = parse(target);
       validJson(new Assertion(target), parsed);
       return parsed.value;
+    }
+
+    // A plain `Error`, not a failed assertion; without these chai would say "Invalid Chai property".
+    for (const name of LATER) {
+      Assertion.addMethod(name, function () {
+        throw new Error("pm.response.to.have." + name + " is not supported in RequestMaster");
+      });
     }
 
     Assertion.addMethod("statusCode", function (code) {

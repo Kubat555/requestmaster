@@ -2,6 +2,7 @@
 // (`src/host.rs`): it goes from script to script there, and the primitives refuse to change it once it has
 // been sent. In a test script this code changes only its own copy.
 import { PairList, cutAt } from "./lists.js";
+import { stubRequest } from "./stubs.js";
 
 // How the host lays the body out. The numbers are the ones `src/host.rs` expects.
 const NONE = 0;
@@ -314,6 +315,8 @@ export function createRequest(host, safe, info) {
         if (writable) host.req_url(text(raw));
       },
     });
+    // The object of the address is the same after an assignment: its stubs stay.
+    stubRequest(api, url);
     return api;
   }
 
