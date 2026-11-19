@@ -8,8 +8,8 @@ use rqm_runner::{SendInput, SendOutcome};
 use rqm_store::{HistoryRow, Store, StoreError};
 
 use crate::core::{message, AppCore};
-use crate::dto::{HistoryDetail, HistoryEntry, HistoryItem, HistorySummary};
-use crate::send::{error_dto, milliseconds, warning_dto};
+use crate::dto::{HistoryDetail, HistoryEntry, HistoryItem, HistorySummary, Warning};
+use crate::send::{error_dto, milliseconds};
 
 /// The most of a request or response body an entry keeps: 1 MiB.
 const BODY_LIMIT: usize = 1_048_576;
@@ -47,9 +47,17 @@ impl AppCore {
     }
 
     /// Writes the entry of one send, whatever its outcome was. Must be called while the file of the response
-    /// body is still in place. A failure is ignored: the history must never cost the user the response.
-    pub(crate) fn record_history(&self, request_id: &str, input: &SendInput, sent_at: &str, outcome: &SendOutcome) {
-        let (summary, detail) = history_record(request_id, input, outcome);
+    /// body is still in place; `warnings` are the ones the window gets. A failure is ignored: the history
+    /// must never cost the user the response.
+    pub(crate) fn record_history(
+        &self,
+        request_id: &str,
+        input: &SendInput,
+        sent_at: &str,
+        outcome: &SendOutcome,
+        warnings: &[Warning],
+    ) {
+        let (summary, detail) = history_record(request_id, input, outcome, warnings);
         let (Ok(summary), Ok(detail)) = (serde_json::to_string(&summary), serde_json::to_string(&detail)) else {
             return;
         };
@@ -68,7 +76,15 @@ impl AppCore {
 /// but with a prepared request (network error, timeout, cancellation) they are the prepared ones as well:
 /// variables substituted. When the request could not be prepared, the method and the address are the ones
 /// typed and there are no headers and no body.
-fn history_record(request_id: &str, input: &SendInput, outcome: &SendOutcome) -> (HistorySummary, HistoryDetail) {
+///
+/// Of the scripts the entry keeps the tests and the errors. The console is not kept: it holds whatever
+/// a script printed, secrets included.
+fn history_record(
+    request_id: &str,
+    input: &SendInput,
+    outcome: &SendOutcome,
+    warnings: &[Warning],
+) -> (HistorySummary, HistoryDetail) {
     let prepared = outcome.request.as_ref();
     let (method, url, request_headers) = match (&outcome.result, prepared) {
         (Ok(response), Some(request)) if !response.redirects.is_empty() => {
@@ -101,7 +117,9 @@ fn history_record(request_id: &str, input: &SendInput, outcome: &SendOutcome) ->
         response_body_truncated: false,
         response_body_binary: false,
         error_message: None,
-        warnings: outcome.warnings.iter().cloned().map(warning_dto).collect(),
+        warnings: warnings.to_vec(),
+        tests: outcome.scripts.tests.iter().cloned().map(Into::into).collect(),
+        script_errors: outcome.scripts.errors.iter().cloned().map(Into::into).collect(),
     };
     match &outcome.result {
         Ok(response) => {

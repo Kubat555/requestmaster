@@ -9,7 +9,7 @@ import { motion } from "../lib/motion.svelte";
 import { Sending } from "../lib/sending.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
-import { createFakeApi, type SendHandler } from "../lib/testing/fakeApi";
+import { createFakeApi, noScriptResults, type SendHandler } from "../lib/testing/fakeApi";
 import { toasts } from "../lib/toasts.svelte";
 import { normalizeContent, type MotionLevel, type RequestDraft, type ResponseDto, type SendResult } from "../lib/types";
 import { Workspace } from "../lib/workspace.svelte";
@@ -35,7 +35,7 @@ function answered(id = "b1"): SendResult {
     sent: { method: "GET", url: "https://api.example.test/users", headers: [] },
     body: { id, total: 7, truncated: false, json: true },
   };
-  return { response, error: null, warnings: [] };
+  return { response, error: null, warnings: [], ...noScriptResults() };
 }
 
 /** Renders the window at the motion level and opens the request "List users" of the default tree in a tab. */

@@ -6,7 +6,7 @@ import { layout } from "./lib/layout.svelte";
 import { session } from "./lib/session.svelte";
 import { strings } from "./lib/strings";
 import { tabs } from "./lib/tabs.svelte";
-import { createFakeApi, type StoredHistoryEntry } from "./lib/testing/fakeApi";
+import { createFakeApi, noScriptResults, type StoredHistoryEntry } from "./lib/testing/fakeApi";
 import { toasts } from "./lib/toasts.svelte";
 import type { SendResult } from "./lib/types";
 
@@ -322,6 +322,7 @@ describe("App", () => {
       },
       error: null,
       warnings: [],
+      ...noScriptResults(),
     };
 
     /** Presses the combination on the element and returns the event. */
@@ -495,6 +496,8 @@ describe("App", () => {
       response_body_binary: false,
       error_message: null,
       warnings: [],
+      tests: [],
+      script_errors: [],
     };
     const api = createFakeApi({ history: [entry] });
     render(App, { context: new Map([["api", api]]) });

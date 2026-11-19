@@ -207,6 +207,8 @@ async fn connection_error_is_recorded_with_the_substituted_address() {
     item["event"] = json!([{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["var a = 1;"] } }]);
     item["request"]["header"] = json!([{ "key": "X-Mine", "value": "{{base}}" }]);
     import_items(&core, json!([item]));
+    // the user forbade the scripts of this collection
+    core.set_scripts_allowed(&id_by_name(&core, "Synthetic"), false).unwrap();
     let environment = core.create_environment("Local").unwrap();
     let base = serde_json::from_value(json!([{ "key": "base", "value": CLOSED_PORT }])).unwrap();
     core.save_environment(&environment, "Local", base).unwrap();
@@ -227,7 +229,7 @@ async fn connection_error_is_recorded_with_the_substituted_address() {
     assert_eq!(entry["response_headers"], json!([]));
     assert!(entry["response_body"].is_null());
     assert_eq!(entry["response_body_binary"], false);
-    assert_eq!(entry["warnings"], json!([{ "kind": "scripts_not_executed", "items": ["Scripted"] }]));
+    assert_eq!(entry["warnings"], json!([{ "kind": "scripts_not_allowed", "items": ["Synthetic"] }]));
 }
 
 #[tokio::test]
@@ -460,4 +462,101 @@ async fn copy_response_body_in_both_views() {
 
     core.release_body(&response.body.id);
     assert_eq!(core.copy_response_body(&response.body.id, false), Err("response body is gone".to_string()));
+}
+
+/// A collection created in the application with the request `R`: a `GET <server>/x` with this test script.
+/// Returns the id of the request.
+fn request_with_test_script(core: &AppCore, server: &MockServer, test: &str) -> String {
+    let collection = core.create_node(None, NodeKind::Collection, "Made here").unwrap();
+    let request = core.create_node(Some(&collection), NodeKind::Request, "R").unwrap();
+    let mut content = core.get_node(&request).unwrap().content;
+    content["url"] = json!(format!("{}/x", server.uri()));
+    content["scripts"] = json!({ "test": test });
+    core.save_node_content(&request, content).unwrap();
+    request
+}
+
+#[tokio::test]
+async fn entry_keeps_tests_and_script_errors() {
+    let server = server_with_body(b"ok".to_vec()).await;
+    let (core, _dir) = core();
+    let script = "pm.test('good', () => {}); pm.test('bad', () => { throw new Error('boom') });\nnoSuchFunction();";
+    let request = request_with_test_script(&core, &server, script);
+    let result = core.send_request("send-1", &request, None).await.unwrap();
+    assert!(result.response.is_some(), "{:?}", result.error);
+
+    let entry = newest_entry(&core);
+    let source = json!({ "node_id": request, "node_name": "R", "node_kind": "request", "phase": "test" });
+    assert_eq!(
+        entry["tests"],
+        json!([
+            { "source": source, "name": "good", "passed": true, "skipped": false, "error": null },
+            { "source": source, "name": "bad", "passed": false, "skipped": false, "error": "Error: boom" }
+        ])
+    );
+    let errors = entry["script_errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["source"], source);
+    assert_eq!(errors[0]["kind"], "exception");
+    assert_eq!(errors[0]["line"], 2);
+    assert!(errors[0]["message"].as_str().unwrap().contains("noSuchFunction"), "{}", errors[0]["message"]);
+    // a failed test script is not a failed send
+    assert_eq!(entry["status"], 200);
+    assert!(entry["error_kind"].is_null());
+}
+
+/// An entry of a build that could not run scripts: no tests, no script errors, the warning of that build.
+#[test]
+fn entries_written_before_stage_2_are_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("requestmaster.db");
+    let core = core_with(&dir, Some(db_path.clone()), None);
+    let summary = json!({
+        "node_id": null, "name": "Scripted", "method": "GET", "url": "http://127.0.0.1/x",
+        "status": 200, "error_kind": null, "total_ms": 12.5, "size": 2
+    });
+    let detail = json!({
+        "request_headers": [], "request_body": null, "request_body_truncated": false,
+        "response_headers": [], "response_body": "ok", "response_body_truncated": false,
+        "response_body_binary": false, "error_message": null,
+        "warnings": [{ "kind": "scripts_not_executed", "items": ["Scripted"] }]
+    });
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute(
+            "INSERT INTO history (sent_at, summary, detail) VALUES (?1, ?2, ?3)",
+            ["2026-11-13T10:42:07.123Z", &summary.to_string(), &detail.to_string()],
+        )
+        .unwrap();
+
+    let items = core.history_list(10, None).unwrap();
+    assert_eq!(items.len(), 1);
+    let entry = as_json(&core.history_get(items[0].id).unwrap());
+    assert_eq!(entry["name"], "Scripted");
+    assert_eq!(entry["tests"], json!([]));
+    assert_eq!(entry["script_errors"], json!([]));
+    assert_eq!(entry["warnings"], json!([{ "kind": "scripts_not_executed", "items": ["Scripted"] }]));
+}
+
+/// The console holds whatever a script printed, secrets included: it goes to the window and nowhere else.
+#[tokio::test]
+async fn console_is_not_stored() {
+    let server = server_with_body(b"ok".to_vec()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("requestmaster.db");
+    let core = core_with(&dir, Some(db_path.clone()), None);
+    let request = request_with_test_script(&core, &server, "console.log('s3cr3t-console');");
+
+    let result = as_json(&core.send_request("send-1", &request, None).await.unwrap());
+    let console = result["console"].as_array().unwrap();
+    assert!(console.iter().any(|line| line["text"] == "s3cr3t-console"), "the window gets the line: {console:?}");
+
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    let (summary, detail): (String, String) = connection
+        .query_row("SELECT summary, detail FROM history ORDER BY id DESC LIMIT 1", [], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap();
+    assert!(!summary.contains("s3cr3t-console") && !detail.contains("s3cr3t-console"));
+    let detail: Value = serde_json::from_str(&detail).unwrap();
+    assert!(detail.get("console").is_none());
+    assert!(detail.get("tests").is_some(), "the entry is the one of this send");
 }

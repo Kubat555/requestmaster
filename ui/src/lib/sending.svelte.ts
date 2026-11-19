@@ -9,9 +9,21 @@ import type { RequestDraft, SendResult } from "./types";
 /** What a send needs of a request tab. */
 type Sendable = Pick<Tab<RequestDraft>, "nodeId" | "draft" | "sending">;
 
-/** The result shown after the user cancelled: the answer of the core is not waited for. */
+/**
+ * The result shown after the user cancelled: the answer of the core is not waited for, so there is nothing
+ * of the scripts in it.
+ */
 function cancelledResult(): SendResult {
-  return { response: null, error: { kind: "cancelled", message: "", fields: [] }, warnings: [] };
+  return {
+    response: null,
+    error: { kind: "cancelled", message: "", fields: [] },
+    warnings: [],
+    tests: [],
+    console: [],
+    console_truncated: false,
+    script_errors: [],
+    variable_changes: [],
+  };
 }
 
 /**

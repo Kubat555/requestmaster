@@ -449,7 +449,11 @@ export type SendErrorKind =
   | "too_many_redirects"
   | "io"
   | "unconfirmed_files"
-  | "other";
+  | "other"
+  /** A pre-request script failed and the request was not sent; `message` is the text of its error. */
+  | "script"
+  /** A pre-request script called `pm.execution.skipRequest()`: the request was not sent. */
+  | "skipped";
 
 /** Why a send produced no response. */
 export interface SendErrorDto {
@@ -461,15 +465,82 @@ export interface SendErrorDto {
 
 /** Something the user should know about a send; never blocks it. */
 export interface Warning {
-  kind: "scripts_not_executed" | "unsupported_auth" | "body_pruned" | "unresolved_variables";
+  kind:
+    /** Only in entries of the history written before scripts could run; `items` — the nodes with a script. */
+    | "scripts_not_executed"
+    | "unsupported_auth"
+    | "body_pruned"
+    | "unresolved_variables"
+    /** Scripts are switched off in the settings; `items` is empty. */
+    | "scripts_disabled"
+    /** The collection has no consent to run scripts; `items` holds its name. */
+    | "scripts_not_allowed"
+    /** What the scripts changed in the variables could not be written; `items` holds the error of the storage. */
+    | "variables_not_saved";
   items: string[];
 }
 
-/** Outcome of a send: a response or an error, never both. */
+/** The script something came from: the node that holds it and which of its two scripts. */
+export interface ScriptSource {
+  node_id: string;
+  node_name: string;
+  node_kind: NodeKind;
+  phase: "pre_request" | "test";
+}
+
+/** What one `pm.test` recorded. */
+export interface TestResult {
+  source: ScriptSource;
+  name: string;
+  passed: boolean;
+  skipped: boolean;
+  /** Text of the error of a failed test. */
+  error: string | null;
+}
+
+/** One line of the console of a send. */
+export interface ConsoleLine {
+  /** `null` — a line of the application itself (the network). */
+  source: ScriptSource | null;
+  level: "log" | "info" | "warn" | "error" | "debug" | "network";
+  text: string;
+  /** Whole milliseconds since the start of the send. */
+  at_ms: number;
+}
+
+/** An error that stopped a script. */
+export interface ScriptError {
+  source: ScriptSource;
+  kind: "exception" | "timeout" | "memory" | "cancelled" | "internal";
+  message: string;
+  /** Line and column in the text of the script, from 1. */
+  line: number | null;
+  column: number | null;
+}
+
+/** One change a script made in the stored variables; the core has already written it. */
+export interface VariableChange {
+  scope: "global" | "collection" | "environment";
+  /** `globals`, the id of the environment or the id of the collection node. */
+  target_id: string;
+  op: "set" | "unset" | "clear";
+  /** Empty for `clear`. */
+  key: string;
+  /** A text only for `set`. */
+  value: string | null;
+}
+
+/** Outcome of a send: a response or an error, never both, and what the scripts of the send left. */
 export interface SendResult {
   response: ResponseDto | null;
   error: SendErrorDto | null;
   warnings: Warning[];
+  tests: TestResult[];
+  console: ConsoleLine[];
+  /** Lines of the console were dropped: it is limited. */
+  console_truncated: boolean;
+  script_errors: ScriptError[];
+  variable_changes: VariableChange[];
 }
 
 /** A send as the list of the history shows it. */
@@ -515,6 +586,10 @@ export interface HistoryEntry extends HistoryItem {
   error_message: string | null;
   /** Warnings of the send. */
   warnings: Warning[];
+  /** What every `pm.test` of the send recorded; empty in entries written before scripts could run. */
+  tests: TestResult[];
+  /** The errors that stopped scripts; empty in entries written before scripts could run. */
+  script_errors: ScriptError[];
   /** Whether the node `node_id` is in the tree now. */
   node_exists: boolean;
 }

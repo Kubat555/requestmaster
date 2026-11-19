@@ -175,6 +175,8 @@ fn main() {
                 commands::save_response_body,
                 commands::pick_files,
                 commands::report_timings,
+                commands::scripts_allowed,
+                commands::set_scripts_allowed,
             ])
             .run(tauri::generate_context!())
             .map_err(|e| e.to_string())

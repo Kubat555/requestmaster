@@ -42,6 +42,8 @@ function historyEntry(id: number): StoredHistoryEntry {
     response_body_binary: false,
     error_message: null,
     warnings: [],
+    tests: [],
+    script_errors: [],
   };
 }
 

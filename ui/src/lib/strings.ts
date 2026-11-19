@@ -123,6 +123,8 @@ export const strings = {
       unconfirmed_files: "файлы не выбраны",
       io: "ошибка отправки",
       other: "ошибка отправки",
+      script: "ошибка скрипта",
+      skipped: "пропущен",
     },
     /** Name of the tab of an entry. */
     tabName: (name: string) => `История · ${name}`,
@@ -271,7 +273,6 @@ export const strings = {
     prefix: "Префикс",
   },
   scripts: {
-    note: "Скрипты пока не выполняются: выполнение появится на следующем этапе",
     kind: "Скрипт",
     kinds: {
       pre_request: "Pre-request",
@@ -353,10 +354,16 @@ export const strings = {
       unconfirmed_files: "Файлы нужно выбрать заново",
       io: "Ошибка отправки",
       other: "Ошибка отправки",
+      script: "Ошибка в pre-request скрипте — запрос не отправлен",
+      skipped: "Запрос пропущен скриптом (pm.execution.skipRequest)",
     },
     warnings: {
+      /** Only entries of the history written before scripts could run have it. */
       scripts_not_executed: (nodes: string[]) =>
-        `Скрипты не выполнены: ${nodes.join(", ")}. Выполнение скриптов появится на следующем этапе`,
+        `Скрипты не выполнялись (${nodes.join(", ")}): отправка сделана до появления выполнения скриптов`,
+      scripts_disabled: () => "Скрипты не выполнены: выполнение скриптов выключено в настройках",
+      scripts_not_allowed: ([collection]: string[]) => `Скрипты не выполнены: для коллекции «${collection}» они не разрешены`,
+      variables_not_saved: ([reason]: string[]) => `Переменные, изменённые скриптом, не сохранены: ${reason}`,
       unresolved_variables: (names: string[]) => `Не найдены переменные: ${names.join(", ")}`,
       body_pruned: (methods: string[]) => `Тело не отправлено: метод ${methods.join(", ")} его не передаёт`,
       unsupported_auth: (types: string[]) => `Авторизация ${types.join(", ")} не поддерживается, запрос отправлен без неё`,

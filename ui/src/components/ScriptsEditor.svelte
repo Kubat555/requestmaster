@@ -21,11 +21,10 @@
   let kind = $state<Kind>("pre_request");
 </script>
 
-<!-- The two scripts of a node. They are only kept: nothing runs them yet. -->
+<!-- The two scripts of a node. -->
 <div class="scripts-editor">
   <div class="bar">
     <Segmented options={KINDS} bind:value={kind} label={strings.scripts.kind} />
-    <span class="note">{strings.scripts.note}</span>
   </div>
   <div class="code">
     <!-- A new editor for the other script: in one editor Ctrl+Z would bring the text of the script left
@@ -50,11 +49,6 @@
     align-items: center;
     gap: calc(var(--space) * 3);
     padding: calc(var(--space) * 2) calc(var(--space) * 3);
-  }
-
-  .note {
-    min-width: 0;
-    color: var(--text-muted);
   }
 
   .code {

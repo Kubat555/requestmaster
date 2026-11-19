@@ -140,7 +140,8 @@ pub struct EnvSummary {
     pub name: String,
 }
 
-/// Outcome of a send: a response or an error, never both, plus the warnings of the send.
+/// Outcome of a send: a response or an error, never both, plus the warnings of the send and what its
+/// scripts left.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SendResult {
     /// The response; `None` when the send failed.
@@ -149,6 +150,145 @@ pub struct SendResult {
     pub error: Option<SendErrorDto>,
     /// What the user should know about the send; present on a network error too.
     pub warnings: Vec<Warning>,
+    /// What every `pm.test` of the send recorded, in the order the scripts ran.
+    pub tests: Vec<TestResultDto>,
+    /// The console of the send: the lines of the scripts and the network lines of the application.
+    pub console: Vec<ConsoleLineDto>,
+    /// `true` when lines of the console were dropped: it is limited.
+    pub console_truncated: bool,
+    /// The errors that stopped scripts.
+    pub script_errors: Vec<ScriptErrorDto>,
+    /// What the scripts changed in the stored variables, already written to the store, in the order they
+    /// did it; the window applies it to its open editors.
+    pub variable_changes: Vec<VariableChangeDto>,
+}
+
+/// When a script of a send runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptPhaseDto {
+    /// Before the request is built.
+    PreRequest,
+    /// After the response has arrived.
+    Test,
+}
+
+/// The script something came from: the node that holds it and the phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptSourceDto {
+    /// Id of the node at the moment of the send.
+    pub node_id: String,
+    /// Name of the node at the moment of the send, at most 200 characters of it: the name is repeated in
+    /// every test.
+    pub node_name: String,
+    /// Kind of the node.
+    pub node_kind: NodeKind,
+    /// Which of the two scripts of the node.
+    pub phase: ScriptPhaseDto,
+}
+
+/// What one `pm.test` recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TestResultDto {
+    /// The script the test is in.
+    pub source: ScriptSourceDto,
+    /// Name of the test as the script gave it.
+    pub name: String,
+    /// Whether the test passed.
+    pub passed: bool,
+    /// `true` for `pm.test.skip`.
+    pub skipped: bool,
+    /// Text of the error of a failed test.
+    pub error: Option<String>,
+}
+
+/// Why a script stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptErrorKindDto {
+    /// An exception of the script.
+    Exception,
+    /// The time limit ran out.
+    Timeout,
+    /// A memory limit was reached.
+    Memory,
+    /// The send was cancelled.
+    Cancelled,
+    /// A failure of the script engine itself.
+    Internal,
+}
+
+/// An error that stopped a script.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptErrorDto {
+    /// The script that stopped.
+    pub source: ScriptSourceDto,
+    /// Which case it is.
+    pub kind: ScriptErrorKindDto,
+    /// Text of the error.
+    pub message: String,
+    /// Line in the text of the script as the editor numbers them, from 1.
+    pub line: Option<u32>,
+    /// Column in that line, from 1.
+    pub column: Option<u32>,
+}
+
+/// Level of a console line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleLevelDto {
+    /// `console.log`.
+    Log,
+    /// `console.info`.
+    Info,
+    /// `console.warn`.
+    Warn,
+    /// `console.error`.
+    Error,
+    /// `console.debug`.
+    Debug,
+    /// A request that went to the network and what came of it.
+    Network,
+}
+
+/// One line of the console of a send.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleLineDto {
+    /// The script that printed the line; `None` — a line of the application itself.
+    pub source: Option<ScriptSourceDto>,
+    /// Level of the line.
+    pub level: ConsoleLevelDto,
+    /// Text of the line.
+    pub text: String,
+    /// Whole milliseconds since the start of the send.
+    pub at_ms: u64,
+}
+
+/// What a script did to a variable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VariableOpDto {
+    /// Wrote the value of `key`.
+    Set,
+    /// Removed `key`.
+    Unset,
+    /// Removed every variable of the scope.
+    Clear,
+}
+
+/// One change a script made in the stored variables, already written to the store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariableChangeDto {
+    /// The scope that changed: `global`, `collection` or `environment`.
+    pub scope: VariableScope,
+    /// `globals`, the id of the environment or the id of the collection node.
+    pub target_id: String,
+    /// What was done.
+    pub op: VariableOpDto,
+    /// Name of the variable; empty for `clear`.
+    pub key: String,
+    /// The new value; only for `set`.
+    pub value: Option<String>,
 }
 
 /// A response as the response panel shows it; the body itself is fetched by `body.id`.
@@ -280,6 +420,10 @@ pub enum SendErrorKind {
     UnconfirmedFiles,
     /// Anything else.
     Other,
+    /// A pre-request script failed and the request was not sent; `message` is the text of its error.
+    Script,
+    /// A pre-request script called `pm.execution.skipRequest()`: the request was not sent.
+    Skipped,
 }
 
 /// Why a send produced no response.
@@ -297,7 +441,8 @@ pub struct SendErrorDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WarningKind {
-    /// Scripts exist but were not run; `items` are the names of the nodes that have one.
+    /// Only in history entries written before scripts could run; `items` are the names of the nodes that
+    /// have a script.
     ScriptsNotExecuted,
     /// The authorization type is not applied; `items` holds the Postman type.
     UnsupportedAuth,
@@ -305,6 +450,12 @@ pub enum WarningKind {
     BodyPruned,
     /// Variables that were not found; `items` are their names.
     UnresolvedVariables,
+    /// Scripts exist but did not run: they are switched off in the settings; `items` is empty.
+    ScriptsDisabled,
+    /// Scripts exist but did not run: the collection has no consent; `items` holds the name of the collection.
+    ScriptsNotAllowed,
+    /// What the scripts changed in the variables could not be written; `items` holds the error of the storage.
+    VariablesNotSaved,
 }
 
 /// Something the user should know about a send; never blocks it.
@@ -480,6 +631,12 @@ pub struct HistoryDetail {
     pub error_message: Option<String>,
     /// Warnings of the send.
     pub warnings: Vec<Warning>,
+    /// What every `pm.test` of the send recorded; entries written before scripts could run have none.
+    #[serde(default)]
+    pub tests: Vec<TestResultDto>,
+    /// The errors that stopped scripts; entries written before scripts could run have none.
+    #[serde(default)]
+    pub script_errors: Vec<ScriptErrorDto>,
 }
 
 /// A whole history entry: the list item, the detail and whether the request still exists.

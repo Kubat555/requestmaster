@@ -132,6 +132,10 @@ export interface Api {
   saveSettings(settings: SettingsDto): Promise<void>;
   /** Appends the measurements to the file of timings; a program that is not being measured does nothing. */
   reportTimings(samples: TimingSample[]): Promise<void>;
+  /** Whether the scripts of the collection of the node (a collection, a folder or a request) may run. */
+  scriptsAllowed(nodeId: string): Promise<boolean>;
+  /** Gives or takes back the consent to run the scripts of the collection of the node. */
+  setScriptsAllowed(nodeId: string, allowed: boolean): Promise<void>;
   /**
    * Calls `handler` when the user asks to close the window; the window closes only when the handler answers
    * `true`. Resolves to the function that stops the listening.
@@ -181,6 +185,8 @@ export const tauriApi: Api = {
   getSettings: () => invoke<SettingsDto>("get_settings"),
   saveSettings: (settings) => invoke<void>("save_settings", { settings }),
   reportTimings: (samples) => invoke<void>("report_timings", { samples }),
+  scriptsAllowed: (nodeId) => invoke<boolean>("scripts_allowed", { node_id: nodeId }),
+  setScriptsAllowed: (nodeId, allowed) => invoke<void>("set_scripts_allowed", { node_id: nodeId, allowed }),
   // `Window.onCloseRequested` waits for the handler, asynchronous or not, and then destroys the window itself
   // unless `preventDefault` was called; nothing has to be called afterwards. It needs the permissions
   // `core:event:allow-listen`, `core:event:allow-unlisten` and `core:window:allow-destroy` of the capability.

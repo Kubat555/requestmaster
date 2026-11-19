@@ -4,7 +4,7 @@ import App from "../App.svelte";
 import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
 import { toasts } from "../lib/toasts.svelte";
-import { createFakeApi } from "../lib/testing/fakeApi";
+import { createFakeApi, noScriptResults } from "../lib/testing/fakeApi";
 import type { NodeDto, RequestContent, RequestDraft } from "../lib/types";
 
 vi.mock("./CodeEditor.svelte", async () => ({ default: (await import("../lib/testing/CodeEditorStub.svelte")).default }));
@@ -697,15 +697,14 @@ describe("RequestEditor: Scripts and Settings", () => {
     expect(scriptEditor().value).toBe("before();");
   });
 
-  it("highlights a script as JavaScript and says that scripts are not run yet", async () => {
+  it("highlights a script as JavaScript and has no note that scripts are not run", async () => {
     await openRequest(SCRIPTED);
     await showSection(/^Scripts/);
 
     expect(scriptEditor().dataset.language).toBe("javascript");
     // A script has no `{{variables}}`: the editor neither marks nor offers them.
     expect(scriptEditor().dataset.variables).toBe("false");
-    expect(screen.getByText(strings.scripts.note)).toBeTruthy();
-    expect(strings.scripts.note).toBe("Скрипты пока не выполняются: выполнение появится на следующем этапе");
+    expect(document.querySelector(".scripts-editor .note")).toBeNull();
   });
 
   it("leaves a script with Windows line ends as it came until it is edited", async () => {
@@ -804,7 +803,7 @@ describe("RequestEditor: Scripts and Settings", () => {
   it("sends the draft with the settings and the scripts", async () => {
     const { api } = await openRequest(SCRIPTED);
     const onSend = vi.fn(() =>
-      Promise.resolve({ response: null, error: { kind: "other" as const, message: "no server", fields: [] }, warnings: [] }),
+      Promise.resolve({ response: null, error: { kind: "other" as const, message: "no server", fields: [] }, warnings: [], ...noScriptResults() }),
     );
     api.onSend = onSend;
     await showSection(/^Settings/);

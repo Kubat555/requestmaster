@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Tab, Tabs } from "./tabs.svelte";
 import { toasts } from "./toasts.svelte";
-import { createFakeApi, type FakeApi } from "./testing/fakeApi";
+import { createFakeApi, noScriptResults, type FakeApi } from "./testing/fakeApi";
 import { normalizeContent, type RequestContent, type RequestDraft, type ResponseDto, type SendResult } from "./types";
 
 /** A response whose body is stored under `bodyId`. */
@@ -24,7 +24,7 @@ function response(bodyId: string): ResponseDto {
 }
 
 function answered(bodyId: string): SendResult {
-  return { response: response(bodyId), error: null, warnings: [] };
+  return { response: response(bodyId), error: null, warnings: [], ...noScriptResults() };
 }
 
 /** One call of `sendRequest` that the test answers when it wants. */
@@ -145,6 +145,25 @@ describe("Sending", () => {
     expect(api.cancelled).toEqual([calls[0].sendId]);
   });
 
+  it("the cancelled result has nothing of the scripts: the answer of the core is not waited for", () => {
+    const { api, tab, sending } = setup();
+    void sending.send(api, tab);
+
+    sending.cancel(api);
+
+    // Written out, not taken from a helper: these are the keys the panels of the window read.
+    expect(sending.result).toEqual({
+      response: null,
+      error: { kind: "cancelled", message: "", fields: [] },
+      warnings: [],
+      tests: [],
+      console: [],
+      console_truncated: false,
+      script_errors: [],
+      variable_changes: [],
+    });
+  });
+
   it("drops a response that arrives after the cancel and releases its body", async () => {
     const { api, calls, tab, sending } = setup();
     const sent = sending.send(api, tab);
@@ -165,7 +184,7 @@ describe("Sending", () => {
     sending.cancel(api);
     const shown = sending.result;
 
-    calls[0].resolve({ response: null, error: { kind: "cancelled", message: "cancelled", fields: [] }, warnings: [] });
+    calls[0].resolve({ response: null, error: { kind: "cancelled", message: "cancelled", fields: [] }, warnings: [], ...noScriptResults() });
     await sent;
 
     expect(sending.result).toBe(shown);
@@ -239,7 +258,7 @@ describe("Sending", () => {
     await first;
 
     const second = sending.send(api, tab);
-    calls[1].resolve({ response: null, error: { kind: "connect", message: "refused", fields: [] }, warnings: [] });
+    calls[1].resolve({ response: null, error: { kind: "connect", message: "refused", fields: [] }, warnings: [], ...noScriptResults() });
     await second;
 
     expect(api.released).toEqual(["b1"]);

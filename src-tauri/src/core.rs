@@ -50,13 +50,15 @@ pub struct AppCore {
 
 impl AppCore {
     /// Opens the database, empties the folder of response bodies and creates the HTTP engine with the
-    /// cookies kept in the database.
+    /// cookies kept in the database. A database without the list of the collections whose scripts may run
+    /// gets it, with every collection it holds.
     pub fn new(config: CoreConfig) -> Result<Self, String> {
-        let store = match &config.db_path {
+        let mut store = match &config.db_path {
             Some(path) => Store::open(path),
             None => Store::open_in_memory(),
         }
         .map_err(message)?;
+        crate::scripts::allow_existing_collections(&mut store)?;
         match std::fs::remove_dir_all(&config.bodies_dir) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -119,14 +121,19 @@ impl AppCore {
     /// Creates a node as the last child of `parent_id` (`None` = as the last collection) and returns its id.
     /// The name is trimmed and must not be empty. A collection and a folder start empty; a request starts as
     /// `GET` with an empty address, no body and inherited authorization. A place the tree rules forbid is
-    /// the store's error.
+    /// the store's error. The scripts of a new collection may run at once.
     pub fn create_node(&self, parent_id: Option<&str>, kind: NodeKind, name: &str) -> Result<String, String> {
         let name = node_name(name)?;
-        self.store()?.create_node(parent_id, kind, name, &blank_content(kind)).map_err(|error| match error {
+        let mut store = self.store()?;
+        let id = store.create_node(parent_id, kind, name, &blank_content(kind)).map_err(|error| match error {
             // Nothing is moved here, so the window gets the broken rule itself: "a request cannot have children".
             StoreError::InvalidMove(rule) => rule,
             other => message(other),
-        })
+        })?;
+        if kind == NodeKind::Collection {
+            rqm_runner::set_scripts_allowed(&mut store, &id, true).map_err(message)?;
+        }
+        Ok(id)
     }
 
     /// Changes the name of the node; the name is trimmed and must not be empty.
@@ -136,8 +143,16 @@ impl AppCore {
     }
 
     /// Copies the node with its descendants right after the original; returns the id of the copy.
+    /// The copy of a collection whose scripts may run may run its scripts too.
     pub fn duplicate_node(&self, id: &str) -> Result<String, String> {
-        self.store()?.duplicate_node(id).map_err(message)
+        let mut store = self.store()?;
+        // Only a collection is ever on the list of the allowed ones.
+        let allowed = rqm_runner::scripts_allowed(&store, id).map_err(message)?;
+        let copy = store.duplicate_node(id).map_err(message)?;
+        if allowed {
+            rqm_runner::set_scripts_allowed(&mut store, &copy, true).map_err(message)?;
+        }
+        Ok(copy)
     }
 
     /// Moves the node under `parent_id` (`None` = among the collections) to position `index`, counted among
@@ -151,9 +166,14 @@ impl AppCore {
         })
     }
 
-    /// Deletes the node with its descendants.
+    /// Deletes the node with its descendants; a deleted collection leaves the list of the collections
+    /// whose scripts may run.
     pub fn delete_node(&self, id: &str) -> Result<(), String> {
-        self.store()?.delete_node(id).map_err(message)
+        let mut store = self.store()?;
+        store.delete_node(id).map_err(message)?;
+        // The node is deleted whatever happens to the list: an id left there names nothing and allows nothing.
+        let _ = rqm_runner::forget_deleted_collections(&mut store);
+        Ok(())
     }
 
     /// Imports Postman files. Every file is independent: one that cannot be imported gives a result of kind
@@ -286,7 +306,10 @@ impl AppCore {
                 // `import_collection` always returns the collection node first.
                 let root = imported.nodes.first().ok_or_else(|| import_error(ImportError::UnknownFormat))?;
                 let (name, root_id) = (root.name.clone(), root.id.clone());
-                self.store()?.insert_nodes(&imported.nodes).map_err(message)?;
+                let mut store = self.store()?;
+                store.insert_nodes(&imported.nodes).map_err(message)?;
+                // Scripts may run unless the user forbids them for the collection.
+                rqm_runner::set_scripts_allowed(&mut store, &root_id, true).map_err(message)?;
                 Ok(ImportResult {
                     name: Some(name),
                     root_id: Some(root_id),

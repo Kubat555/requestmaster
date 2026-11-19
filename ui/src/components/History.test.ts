@@ -5,7 +5,7 @@ import { formatBytes, formatMs } from "../lib/format";
 import { history } from "../lib/history.svelte";
 import { strings } from "../lib/strings";
 import { historyTabId, Tab, tabs } from "../lib/tabs.svelte";
-import { createFakeApi, type FakeApi, type StoredHistoryEntry } from "../lib/testing/fakeApi";
+import { createFakeApi, noScriptResults, type FakeApi, type StoredHistoryEntry } from "../lib/testing/fakeApi";
 import { pressEnter } from "../lib/testing/keys";
 import { toasts } from "../lib/toasts.svelte";
 import { normalizeContent, type RequestDraft, type SendResult } from "../lib/types";
@@ -46,6 +46,8 @@ function entry(id: number, overrides: Partial<StoredHistoryEntry> = {}): StoredH
     response_body_binary: false,
     error_message: null,
     warnings: [],
+    tests: [],
+    script_errors: [],
     ...overrides,
   };
 }
@@ -241,7 +243,7 @@ describe("the history section", () => {
     api.onSend = async () => {
       // The shell writes the entry before the command returns.
       api.history.push(entry(1));
-      return { response: null, error: { kind: "connect", message: "", fields: [] }, warnings: [] };
+      return { response: null, error: { kind: "connect", message: "", fields: [] }, warnings: [], ...noScriptResults() };
     };
     await tabs.open(api, "req-list-users");
     const tab = tabs.active as Tab<RequestDraft>;
@@ -284,7 +286,7 @@ describe("the history after a send", () => {
     return { api, list, tab, resolve: (result: SendResult) => resolve(result), reject: (error: string) => reject(error) };
   }
 
-  const cancelled: SendResult = { response: null, error: { kind: "cancelled", message: "", fields: [] }, warnings: [] };
+  const cancelled: SendResult = { response: null, error: { kind: "cancelled", message: "", fields: [] }, warnings: [], ...noScriptResults() };
 
   it("is not read on Cancel, and is read once when the command itself ends", async () => {
     const { api, list, tab, resolve } = setup();
@@ -313,7 +315,7 @@ describe("the history after a send", () => {
     const sent = tab.sending.send(api, tab);
     await settle();
     expect(list).not.toHaveBeenCalled();
-    resolve({ response: null, error: { kind: "timeout", message: "", fields: [] }, warnings: [] });
+    resolve({ response: null, error: { kind: "timeout", message: "", fields: [] }, warnings: [], ...noScriptResults() });
     await sent;
     await settle();
 
@@ -338,12 +340,12 @@ describe("the history after a send", () => {
     api.historyList = () => Promise.reject("database is locked");
 
     const sent = tab.sending.send(api, tab);
-    resolve({ response: null, error: { kind: "timeout", message: "late", fields: [] }, warnings: [] });
+    resolve({ response: null, error: { kind: "timeout", message: "late", fields: [] }, warnings: [], ...noScriptResults() });
     await sent;
     await settle();
 
     expect(tab.sending.state).toBe("idle");
-    expect(tab.sending.result).toEqual({ response: null, error: { kind: "timeout", message: "late", fields: [] }, warnings: [] });
+    expect(tab.sending.result).toEqual({ response: null, error: { kind: "timeout", message: "late", fields: [] }, warnings: [], ...noScriptResults() });
     expect(toastList()).toEqual([{ kind: "error", text: "database is locked" }]);
   });
 });

@@ -8,13 +8,15 @@
   }
 
   let { warnings }: Props = $props();
+
+  /** Scripts that did not run, and variables that were not saved, change what the send means: they stand out. */
+  const STRONG: Warning["kind"][] = ["scripts_disabled", "scripts_not_allowed", "variables_not_saved"];
 </script>
 
 {#if warnings.length > 0}
   <ul class="send-warnings">
     {#each warnings as warning, index (index)}
-      <!-- Scripts that did not run change what the request means, so their warning stands out. -->
-      <li class:strong={warning.kind === "scripts_not_executed"}>{strings.response.warnings[warning.kind](warning.items)}</li>
+      <li class:strong={STRONG.includes(warning.kind)}>{strings.response.warnings[warning.kind](warning.items)}</li>
     {/each}
   </ul>
 {/if}

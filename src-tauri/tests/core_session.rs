@@ -8,6 +8,7 @@ use std::time::Duration;
 use requestmaster_lib::dto::{DraftDto, ImportFile, MotionLevel, ProxyDto, SavedTab, SavedTabKind, SettingsDto, WindowState};
 use requestmaster_lib::{AppCore, CoreConfig, DRAFT_KEY_PREFIX, MAX_TIMEOUT_MS, SETTINGS_KEY, WINDOW_STATE_KEY};
 use rqm_http::ProxySetting;
+use rqm_model::NodeKind;
 use rqm_runner::AppSettings;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -473,4 +474,41 @@ fn settings_dto_maps_to_app_settings() {
     let manual = SettingsDto { proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() }, ..default_settings_value() };
     assert_eq!(AppSettings::from(manual).proxy, ProxySetting::Manual("http://127.0.0.1:8888".to_string()));
     assert_eq!(AppSettings::from(default_settings_value()).proxy, ProxySetting::System);
+}
+
+/// The ids on the list of the collections whose scripts may run, as the database holds it.
+fn allowed_list(dir: &TempDir) -> Vec<String> {
+    serde_json::from_str(&raw_get(&db_path(dir), "scripts_allowed").expect("the list is stored")).unwrap()
+}
+
+#[test]
+fn deleted_collection_leaves_the_allowed_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = open(&dir);
+    let first = core.create_node(None, NodeKind::Collection, "First").unwrap();
+    let second = core.create_node(None, NodeKind::Collection, "Second").unwrap();
+    assert_eq!(allowed_list(&dir), [first.clone(), second.clone()]);
+
+    core.delete_node(&first).unwrap();
+    assert_eq!(allowed_list(&dir), [second]);
+}
+
+/// A database of a build without scripts has no list: every collection it holds gets the consent, once.
+#[test]
+fn database_without_the_allowed_list_gets_every_collection_once() {
+    let (core, dir) = core();
+    let collection = node_id(&core, "Synthetic");
+    drop(core);
+    rusqlite::Connection::open(db_path(&dir)).unwrap().execute("DELETE FROM app_state WHERE key = 'scripts_allowed'", []).unwrap();
+
+    let core = open(&dir);
+    assert_eq!(allowed_list(&dir), std::slice::from_ref(&collection));
+    assert_eq!(core.scripts_allowed(&collection), Ok(true));
+
+    // the list exists now: what the user forbade stays forbidden after a restart
+    core.set_scripts_allowed(&collection, false).unwrap();
+    drop(core);
+    let core = open(&dir);
+    assert_eq!(core.scripts_allowed(&collection), Ok(false));
+    assert!(allowed_list(&dir).is_empty());
 }

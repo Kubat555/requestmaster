@@ -330,3 +330,15 @@ fn save_text_as(window: &tauri::WebviewWindow, file_name: &str, text: &str) -> R
     std::fs::write(&path, text).map_err(|error| format!("cannot write the file: {error}"))?;
     Ok(Some(path.to_string_lossy().into_owned()))
 }
+
+/// Whether the scripts of the collection of the node may run.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn scripts_allowed(core: State<'_, AppCore>, node_id: String) -> Result<bool, String> {
+    core.scripts_allowed(&node_id)
+}
+
+/// Gives or takes back the consent to run the scripts of the collection of the node.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_scripts_allowed(core: State<'_, AppCore>, node_id: String, allowed: bool) -> Result<(), String> {
+    core.set_scripts_allowed(&node_id, allowed)
+}

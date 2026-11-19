@@ -8,7 +8,7 @@ import { Sending } from "../lib/sending.svelte";
 import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
 import { toasts } from "../lib/toasts.svelte";
-import { createFakeApi, type SendHandler } from "../lib/testing/fakeApi";
+import { createFakeApi, noScriptResults, type SendHandler } from "../lib/testing/fakeApi";
 import {
   normalizeContent,
   type NodeDto,
@@ -54,11 +54,11 @@ function response(overrides: Partial<ResponseDto> = {}): ResponseDto {
 }
 
 function answered(overrides: Partial<ResponseDto> = {}, warnings: Warning[] = []): SendResult {
-  return { response: response(overrides), error: null, warnings };
+  return { response: response(overrides), error: null, warnings, ...noScriptResults() };
 }
 
 function failed(error: Partial<SendErrorDto> & Pick<SendErrorDto, "kind">, warnings: Warning[] = []): SendResult {
-  return { response: null, error: { message: "", fields: [], ...error }, warnings };
+  return { response: null, error: { message: "", fields: [], ...error }, warnings, ...noScriptResults() };
 }
 
 /** A send that stays unanswered until the test resolves it. */
@@ -570,9 +570,9 @@ describe("ResponsePanel", () => {
   });
 
   it("shows the scripts warning above a response and above an error", async () => {
-    const scripts: Warning[] = [{ kind: "scripts_not_executed", items: ["API", "List users"] }];
-    const text = strings.response.warnings.scripts_not_executed(["API", "List users"]);
-    expect(text).toContain("API, List users");
+    const scripts: Warning[] = [{ kind: "scripts_not_allowed", items: ["Demo API"] }];
+    const text = strings.response.warnings.scripts_not_allowed(["Demo API"]);
+    expect(text).toContain("Demo API");
     const api = await openRequest({ onSend: async () => answered({}, scripts) });
 
     await clickSend();

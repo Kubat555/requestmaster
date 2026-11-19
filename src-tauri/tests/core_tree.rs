@@ -735,3 +735,30 @@ fn empty_description_from_the_window_clears_it() {
     assert!(core.save_node_content(&collection, content).is_err());
     assert_eq!(exported(&core, &collection), out);
 }
+
+/// Scripts are allowed unless the user forbids them for a collection; a copy follows its original.
+#[test]
+fn created_and_duplicated_collections() {
+    let (core, _dir) = core();
+    let created = core.create_node(None, NodeKind::Collection, "Made here").unwrap();
+    let request = core.create_node(Some(&created), NodeKind::Request, "R").unwrap();
+    assert_eq!(core.scripts_allowed(&created), Ok(true));
+    assert_eq!(core.scripts_allowed(&request), Ok(true), "any node answers for its collection");
+    let copy = core.duplicate_node(&created).unwrap();
+    assert_eq!(core.scripts_allowed(&copy), Ok(true));
+
+    import(&core, &json!({ "info": { "name": "Imported", "schema": SCHEMA_V21 }, "item": [] }));
+    let imported = id_by_name(&core, "Imported");
+    assert_eq!(core.scripts_allowed(&imported), Ok(true));
+    // the copy of a collection the user forbade is forbidden too
+    core.set_scripts_allowed(&imported, false).unwrap();
+    let forbidden_copy = core.duplicate_node(&imported).unwrap();
+    assert_eq!(core.scripts_allowed(&forbidden_copy), Ok(false));
+    assert_eq!(core.scripts_allowed(&created), Ok(true), "the other collections are as they were");
+    // a copy of a request changes nothing
+    core.duplicate_node(&request).unwrap();
+    assert_eq!(core.scripts_allowed(&created), Ok(true));
+
+    assert!(core.scripts_allowed("no-such-node").is_err());
+    assert!(core.set_scripts_allowed("no-such-node", true).is_err());
+}

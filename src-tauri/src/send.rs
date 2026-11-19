@@ -7,12 +7,17 @@ use std::time::Duration;
 
 use rqm_http::{response_cookies, CookieJar, EngineConfig, HttpError, HttpResponse, ReqwestEngine};
 use rqm_model::{NodeContent, NodeKind, RequestContent};
-use rqm_runner::{body_view, load_cookies, load_send_input, save_cookies, PrepareError, SendError, SendWarning};
+use rqm_runner::{
+    apply_variable_changes, body_view, load_cookies, load_send_input, save_cookies, PrepareError, ScriptsOff,
+    SendError, SendInput, SendWarning, VariableChange,
+};
 use rqm_store::Store;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::{active_environment_in, message, AppCore};
-use crate::dto::{BodyInfo, ResponseDto, SendErrorDto, SendErrorKind, SendResult, SentDto, Warning, WarningKind};
+use crate::dto::{
+    BodyInfo, ResponseDto, SendErrorDto, SendErrorKind, SendResult, SentDto, VariableChangeDto, Warning, WarningKind,
+};
 use crate::settings::app_settings_in;
 
 /// What [`AppCore`] keeps for sending: the engine with its cookies, the sends in flight and the bodies
@@ -100,12 +105,37 @@ impl AppCore {
             let _running = RunningSend::register(&self.send.running, send_id, cancel.clone());
             rqm_runner::send(&self.send.engine, &input, cancel).await
         };
+        // What the scripts changed in the variables is written first: whatever happens next, the window
+        // must learn the values that are already in the store.
+        let mut warnings: Vec<Warning> = outcome.warnings.iter().cloned().map(warning_dto).collect();
+        let mut variable_changes = Vec::new();
+        if !outcome.scripts.changes.is_empty() {
+            match self.apply_script_changes(&input, &outcome.scripts.changes) {
+                Ok(applied) => variable_changes = applied,
+                // A failure of the storage must not cost the user the response.
+                Err(error) => warnings.push(Warning { kind: WarningKind::VariablesNotSaved, items: vec![error] }),
+            }
+        }
         // Whatever the outcome, the send goes to the history: now, while the body file is still in place.
-        self.record_history(request_id, &input, &sent_at, &outcome);
+        self.record_history(request_id, &input, &sent_at, &outcome, &warnings);
 
         // Cookies are saved after a failed send too: the redirects before the failure may have set some.
         let cookies_saved = self.store().and_then(|mut store| save_cookies(&mut store, &self.send.jar).map_err(message));
-        let warnings = outcome.warnings.into_iter().map(warning_dto).collect();
+        // A failure after the send is an error of the command only while the scripts wrote no variables.
+        // Otherwise the command answers with the changes: without them an open editor of the window would
+        // keep the old rows and write them over the values of the script.
+        let changes_written = !variable_changes.is_empty();
+        let scripts = outcome.scripts;
+        let result = |response: Option<ResponseDto>, error: Option<SendErrorDto>| SendResult {
+            response,
+            error,
+            warnings,
+            tests: scripts.tests.into_iter().map(Into::into).collect(),
+            console: scripts.console.into_iter().map(Into::into).collect(),
+            console_truncated: scripts.console_truncated,
+            script_errors: scripts.errors.into_iter().map(Into::into).collect(),
+            variable_changes,
+        };
         match outcome.result {
             Ok(response) => {
                 let body_path = response.body_path.clone();
@@ -114,20 +144,42 @@ impl AppCore {
                 // and are saved after the next send.
                 let _ = cookies_saved;
                 match self.response_dto(response) {
-                    Ok(response) => Ok(SendResult { response: Some(response), error: None, warnings }),
+                    Ok(response) => Ok(result(Some(response), None)),
                     Err(error) => {
                         // Nobody will ever ask for this body. A file that cannot be deleted now goes when
                         // the core empties its folder at the next start.
                         let _ = std::fs::remove_file(body_path);
-                        Err(error)
+                        if !changes_written {
+                            return Err(error);
+                        }
+                        let error = SendErrorDto { kind: SendErrorKind::Io, message: error, fields: Vec::new() };
+                        Ok(result(None, Some(error)))
                     }
                 }
             }
             Err(error) => {
-                cookies_saved?;
-                Ok(SendResult { response: None, error: Some(error_dto(error)), warnings })
+                if !changes_written {
+                    cookies_saved?;
+                }
+                Ok(result(None, Some(error_dto(error))))
             }
         }
+    }
+
+    /// Writes what the scripts of a send changed in the variables over what the store holds now — under
+    /// one lock, so that an edit saved while the send ran is kept — and returns what was written.
+    fn apply_script_changes(
+        &self,
+        input: &SendInput,
+        changes: &[VariableChange],
+    ) -> Result<Vec<VariableChangeDto>, String> {
+        // The tree rules give every request a collection; an id that names no node writes nothing.
+        let collection_id = input.ancestors.first().map(|collection| collection.id.as_str()).unwrap_or_default();
+        let environment_id = input.environment.as_ref().map(|environment| environment.id.as_str());
+        let mut store = self.store()?;
+        let applied =
+            apply_variable_changes(&mut store, collection_id, environment_id, changes).map_err(message)?;
+        Ok(applied.into_iter().map(Into::into).collect())
     }
 
     /// Stops the send registered under `send_id`; its `send_request` then returns the error `cancelled`.
@@ -266,9 +318,14 @@ pub(crate) fn milliseconds(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
-/// The core's send error under the kind the window knows; `message` is the core's own text.
+/// The core's send error under the kind the window knows; `message` is the core's own text — of a failed
+/// pre-request script the text of its error, of a skipped request nothing.
 pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
-    let message = error.to_string();
+    let message = match &error {
+        SendError::Script(failure) => failure.message.clone(),
+        SendError::Skipped => String::new(),
+        other => other.to_string(),
+    };
     let (kind, fields) = match error {
         SendError::Prepare(PrepareError::UnconfirmedFiles { fields }) => (SendErrorKind::UnconfirmedFiles, fields),
         SendError::Prepare(PrepareError::InvalidUrl(_)) => (SendErrorKind::InvalidUrl, Vec::new()),
@@ -285,18 +342,20 @@ pub(crate) fn error_dto(error: SendError) -> SendErrorDto {
             };
             (kind, Vec::new())
         }
-        // Until the window learns the kinds of its own for scripts.
-        SendError::Script(_) | SendError::Skipped => (SendErrorKind::Other, Vec::new()),
+        SendError::Script(_) => (SendErrorKind::Script, Vec::new()),
+        SendError::Skipped => (SendErrorKind::Skipped, Vec::new()),
         SendError::Cancelled => (SendErrorKind::Cancelled, Vec::new()),
     };
     SendErrorDto { kind, message, fields }
 }
 
 /// The core's send warning under the kind the window knows.
-pub(crate) fn warning_dto(warning: SendWarning) -> Warning {
+fn warning_dto(warning: SendWarning) -> Warning {
     let (kind, items) = match warning {
-        // Until the window learns the kinds of its own for scripts.
-        SendWarning::ScriptsNotRun { nodes, .. } => (WarningKind::ScriptsNotExecuted, nodes),
+        SendWarning::ScriptsNotRun { reason: ScriptsOff::Disabled, .. } => (WarningKind::ScriptsDisabled, Vec::new()),
+        SendWarning::ScriptsNotRun { reason: ScriptsOff::NotAllowed { collection }, .. } => {
+            (WarningKind::ScriptsNotAllowed, vec![collection])
+        }
         SendWarning::UnsupportedAuth { auth_type } => (WarningKind::UnsupportedAuth, vec![auth_type]),
         SendWarning::BodyPruned { method } => (WarningKind::BodyPruned, vec![method]),
         SendWarning::UnresolvedVariables { names } => (WarningKind::UnresolvedVariables, names),

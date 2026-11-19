@@ -26,6 +26,14 @@ export type StoredHistoryEntry = Omit<HistoryEntry, "node_exists">;
 /** Answers `sendRequest` in a test. */
 export type SendHandler = (sendId: string, requestId: string, draft: RequestContent | null) => Promise<SendResult>;
 
+/** The keys of a `SendResult` that hold what the scripts left, for a send without scripts. */
+export function noScriptResults(): Pick<
+  SendResult,
+  "tests" | "console" | "console_truncated" | "script_errors" | "variable_changes"
+> {
+  return { tests: [], console: [], console_truncated: false, script_errors: [], variable_changes: [] };
+}
+
 /** What a test can set instead of the defaults. */
 export interface FakeSeed {
   /** Nodes of the tree with their content; default — {@link defaultNodes}. */
@@ -49,6 +57,8 @@ export interface FakeSeed {
   session?: Omit<SessionDto, "measure"> & { measure?: boolean };
   /** The saved application settings; default — the ones of a new database. */
   settings?: SettingsDto;
+  /** Ids of the collections whose scripts may run; default — every collection of the seed. */
+  scriptsAllowed?: string[];
 }
 
 /** `Api` in memory plus what a test inspects or changes after creation. */
@@ -71,6 +81,8 @@ export interface FakeApi extends Api {
   draftCalls: [string, NodeContent | null][];
   /** What was passed to `reportTimings`, call by call, in order. */
   timingCalls: TimingSample[][];
+  /** What was passed to `setScriptsAllowed`, in order: the id of the node and the consent. */
+  allowCalls: [string, boolean][];
   /**
    * The user asks to close the window: calls what was given to `onCloseRequested` and resolves to whether the
    * window would close.
@@ -128,6 +140,9 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
   let settings: SettingsDto = structuredClone(
     seed.settings ?? { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal" },
   );
+  const allowed = new Set(
+    seed.scriptsAllowed ?? nodes.filter((node) => node.kind === "collection").map((node) => node.id),
+  );
   const closeHandlers: (() => Promise<boolean> | boolean)[] = [];
   let lastId = 0;
   const newId = () => `new-${++lastId}`;
@@ -142,6 +157,13 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     const environment = environments.find((candidate) => candidate.id === id);
     if (!environment) throw "environment not found";
     return environment;
+  };
+
+  /** The id of the collection of the node: the node itself or its topmost ancestor. */
+  const collectionOf = (id: string): string => {
+    let node = findNode(id);
+    while (node.parent_id !== null) node = findNode(node.parent_id);
+    return node.id;
   };
 
   /** The name as the core stores it: trimmed and not empty. */
@@ -171,6 +193,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     windowStates: [],
     draftCalls: [],
     timingCalls: [],
+    allowCalls: [],
 
     async tree() {
       // `sort_order` is the position among the siblings, 0..n, in the order of the seed.
@@ -204,6 +227,8 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       // The position among the siblings is the order of the list, so the last place is its end.
       const node = blankNode(parentId, kind, nodeName(name));
       nodes.push(node);
+      // The scripts of a collection made in the application may run at once.
+      if (kind === "collection") allowed.add(node.id);
       return node.id;
     },
     async renameNode(id, name) {
@@ -219,6 +244,8 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       const copy = { ...structuredClone(original), id: ids.get(id)!, name: `${original.name} Copy` };
       // Right after the original among its siblings; where the descendants stand in the list does not matter.
       nodes.splice(nodes.indexOf(original) + 1, 0, copy, ...copies);
+      // The copy of a collection whose scripts may run may run its scripts too.
+      if (allowed.has(id)) allowed.add(copy.id);
       return copy.id;
     },
     async moveNode(id, parentId, index) {
@@ -246,6 +273,7 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
       for (let index = nodes.length - 1; index >= 0; index--) {
         if (removed.has(nodes[index])) nodes.splice(index, 1);
       }
+      allowed.delete(id);
     },
     async importFiles() {
       return [];
@@ -404,6 +432,15 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
     },
     async reportTimings(samples) {
       api.timingCalls.push(structuredClone(samples));
+    },
+    async scriptsAllowed(nodeId) {
+      return allowed.has(collectionOf(nodeId));
+    },
+    async setScriptsAllowed(nodeId, consent) {
+      const collection = collectionOf(nodeId);
+      api.allowCalls.push([nodeId, consent]);
+      if (consent) allowed.add(collection);
+      else allowed.delete(collection);
     },
     async onCloseRequested(handler) {
       closeHandlers.push(handler);
