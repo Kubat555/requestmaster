@@ -13,8 +13,8 @@ use crate::{
 use rquickjs::context::EvalOptions;
 use rquickjs::convert::Coerced;
 use rquickjs::promise::PromiseState;
-use rquickjs::{Context, Ctx, Error, FromJs, Function, Object, Persistent, Runtime, Value};
-use std::cell::RefCell;
+use rquickjs::{qjs, Context, Ctx, Error, FromJs, Function, Object, Persistent, Runtime, Value};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -378,12 +378,45 @@ impl Drop for Untrack<'_> {
     }
 }
 
+/// Whether the memory of the runtime of `ctx` stands at its limit: nine tenths of it are taken, or more.
+fn memory_is_full(ctx: &Ctx<'_>, limits: &Limits) -> bool {
+    let mut usage = std::mem::MaybeUninit::<qjs::JSMemoryUsage>::uninit();
+    // SAFETY: `ctx` is alive, so its runtime is, and the caller is inside `Context::with` or a callback
+    // of the engine: the runtime is locked for this thread (which is why `Runtime::memory_usage` cannot
+    // be asked here). The call only reads the runtime and fills the whole of `usage`.
+    let taken = unsafe {
+        qjs::JS_ComputeMemoryUsage(
+            qjs::JS_GetRuntime(ctx.as_raw().as_ptr()),
+            usage.as_mut_ptr(),
+        );
+        usage.assume_init().malloc_size
+    };
+    usize::try_from(taken).unwrap_or(0) >= limits.memory_bytes / 10 * 9
+}
+
+/// When no memory is left even for the error object, the engine throws `null` instead of
+/// `InternalError: out of memory`.
+fn no_error_object(thrown: &Value<'_>) -> bool {
+    thrown.is_null() || thrown.is_undefined()
+}
+
 /// The engine tells of every promise that is rejected with no handler, and again when it gets one later;
-/// the prelude keeps the list.
-fn track_rejections(runtime: &Runtime, tracking: &Tracking) {
+/// the prelude keeps the list. `exhausted` is set when the promise is rejected with no error object while
+/// the memory is full ([`Script::thrown`]).
+fn track_rejections(
+    runtime: &Runtime,
+    tracking: &Tracking,
+    exhausted: &Rc<Cell<bool>>,
+    limits: &Limits,
+) {
     let slot = Rc::clone(tracking);
+    let exhausted = Rc::clone(exhausted);
+    let limits = *limits;
     runtime.set_host_promise_rejection_tracker(Some(Box::new(
         move |ctx, promise, reason, handled| {
+            if !handled && no_error_object(&reason) && memory_is_full(&ctx, &limits) {
+                exhausted.set(true);
+            }
             // The borrow ends before JavaScript runs.
             let saved = slot.try_borrow().ok().and_then(|slot| slot.clone());
             let Some(saved) = saved else {
@@ -430,7 +463,8 @@ fn run_script(
     let interrupt = Rc::clone(&budget);
     runtime.set_interrupt_handler(Some(Box::new(move || interrupt.stop().is_some())));
     let tracking: Tracking = Rc::new(RefCell::new(None));
-    track_rejections(&runtime, &tracking);
+    let exhausted = Rc::new(Cell::new(false));
+    track_rejections(&runtime, &tracking, &exhausted, limits);
     let context = match Context::full(&runtime) {
         Ok(context) => context,
         Err(error) => return Some(Failure::engine(&error, limits)),
@@ -442,6 +476,7 @@ fn run_script(
             limits,
             budget: &budget,
             primitives: &host,
+            exhausted: &exhausted,
             well_formed: text::well_formed_function(&ctx),
         };
         // `__host`, then the prelude, then the text of the script. The stopwatch of the script stands
@@ -484,6 +519,8 @@ struct Script<'a, 'js> {
     limits: &'a Limits,
     budget: &'a Budget,
     primitives: &'a Primitives,
+    /// The script was left with no memory for an error object ([`track_rejections`]).
+    exhausted: &'a Cell<bool>,
     well_formed: Option<Function<'js>>,
 }
 
@@ -640,6 +677,20 @@ impl<'js> Script<'_, 'js> {
             return Failure::stopped(stop, self.limits);
         }
         if read.name.as_deref() == Some("InternalError") && read.text.contains("out of memory") {
+            return Failure::memory(self.limits);
+        }
+        // Many small objects fill the memory to the last byte, and the engine throws `null`: it has no
+        // memory for the error object. The value alone does not tell that from a `throw null` of the
+        // script, so the memory is measured. Measuring here is often too late — the script is over and its
+        // variables are freed (0.3 MiB taken of 16 in the experiment; a probe allocation succeeds as
+        // well) — so the rejection tracker measures too: it is called while the variables of the top
+        // level of the script still live (16 MiB of 16). Here is caught what is still held, a global
+        // filled by a callback of a timer. Not caught, and still reported as the exception `null`: data
+        // that is freed on the way out — the local variables of a function the script calls, or of a
+        // callback. Only an allocator that sees the refused allocation would tell those.
+        if no_error_object(thrown)
+            && (self.exhausted.get() || memory_is_full(self.ctx, self.limits))
+        {
             return Failure::memory(self.limits);
         }
         if origin == Origin::Engine {

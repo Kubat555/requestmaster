@@ -174,6 +174,23 @@ fn memory_limit_is_a_memory_error() {
 }
 
 #[test]
+fn memory_filled_with_small_objects_is_a_memory_error() {
+    let limits = Limits {
+        memory_bytes: 16 << 20,
+        ..Limits::default()
+    };
+    // No memory is left for the error object: the engine throws `null`.
+    let error = one_error("const a = []; for (;;) a.push({})", limits);
+    assert_eq!(error.kind, ScriptErrorKind::Memory);
+    assert_eq!(error.message, "the script used more than 16 MiB of memory");
+
+    // The `null` of the script itself is its exception.
+    let error = one_error("throw null", limits);
+    assert_eq!(error.kind, ScriptErrorKind::Exception);
+    assert_eq!(error.message, "null");
+}
+
+#[test]
 fn infinite_recursion_is_an_error_of_the_script() {
     let still_works = || {
         assert_eq!(

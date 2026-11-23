@@ -30,6 +30,42 @@ function parseQuery(query) {
   return pairs;
 }
 
+/** How long the `{{name}}` token is that `text` holds at `at`, as the host understands a token; 0 — none. */
+function tokenLength(text, at) {
+  if (text[at] !== "{" || text[at + 1] !== "{") return 0;
+  for (let i = at + 2; i < text.length; i++) {
+    if (text[i] === "{") return 0;
+    if (text[i] === "}") return text[i + 1] === "}" ? i + 2 - at : 0;
+  }
+  return 0;
+}
+
+/**
+ * A name or a value of the query as it is written into the address: `&` and `#`, and `=` of a name, are
+ * percent-encoded everywhere but inside a `{{token}}` — the host cuts the address at them. The same as
+ * `query_encode` of the runner does for these characters; `%` stays, so what is encoded already does not
+ * change.
+ */
+function writeQuery(text, isKey) {
+  let out = "";
+  let at = 0;
+  while (at < text.length) {
+    const token = tokenLength(text, at);
+    if (token > 0) {
+      out += text.slice(at, at + token);
+      at += token;
+      continue;
+    }
+    const ch = text[at];
+    if (ch === "&") out += "%26";
+    else if (ch === "#") out += "%23";
+    else if (ch === "=" && isKey) out += "%3D";
+    else out += ch;
+    at++;
+  }
+  return out;
+}
+
 /** `[{ key, value, disabled }, …]`, or one such object, as `[[key, value, disabled], …]`. */
 function listPairs(list, isArray) {
   const items = isArray(list) ? list : [list];
@@ -103,15 +139,18 @@ export function createRequest(host, safe, info) {
     const query = new PairList([], {
       exact: true,
       divider: "=",
-      // An edit of the list rewrites the query in the string; the fragment stays at the end.
+      // An edit of the list rewrites the query in the string; the fragment stays at the end. What the
+      // script reads from the list is what it put there; the string holds it encoded.
       changed() {
         let out = base;
         let first = true;
         for (let i = 0; i < query.members.length; i++) {
           const member = query.members[i];
           if (member.disabled) continue;
-          out += (first ? "?" : "&") + safe.String(member.key);
-          if (member.value !== null && member.value !== undefined) out += "=" + safe.String(member.value);
+          out += (first ? "?" : "&") + writeQuery(safe.String(member.key), true);
+          if (member.value !== null && member.value !== undefined) {
+            out += "=" + writeQuery(safe.String(member.value), false);
+          }
           first = false;
         }
         raw = out + fragment;

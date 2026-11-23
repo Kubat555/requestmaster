@@ -609,6 +609,17 @@ async fn literal_query_characters_survive_a_script_edit() {
 }
 
 #[tokio::test]
+async fn query_characters_a_script_adds_are_sent_encoded() {
+    let server = any_server().await;
+    let pre = "pm.request.url.query.add({ key: 'f', value: 'a&b#c' }); pm.request.url.query.add({ key: 'k=1', value: 'v' })";
+    let tree = tree_of(&server, get("{{host}}/x", scripts(pre, "")));
+
+    let (outcome, _dir) = sent(&input(&tree, false)).await;
+    assert_eq!(outcome.scripts.errors, vec![]);
+    assert_eq!(the_request(&server).await.url.query(), Some("f=a%26b%23c&k%3D1=v"));
+}
+
+#[tokio::test]
 async fn api_key_in_the_query_still_replaces_the_row() {
     let server = any_server().await;
     let mut request = get("{{host}}/x", scripts("pm.request.url.query.add({ key: 'ts', value: '1' })", ""));
