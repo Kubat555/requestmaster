@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App.svelte";
 import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
-import { createFakeApi } from "../lib/testing/fakeApi";
+import { createFakeApi, type FakeApi } from "../lib/testing/fakeApi";
+import { requestTab, resultWithChanges } from "../lib/testing/scriptSend";
 import type { CollectionContent, CollectionDraft } from "../lib/types";
 
 vi.mock("./CodeEditor.svelte", async () => ({ default: (await import("../lib/testing/CodeEditorStub.svelte")).default }));
@@ -225,5 +226,59 @@ describe("CollectionEditor", () => {
     expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
     await fireEvent.click(screen.getByRole("tab", { name: strings.collection.description }));
     expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.collection.description }).value).toBe("");
+  });
+});
+
+describe("variables changed by a script with the tab of the collection open", () => {
+  const TOKEN = { key: "token", value: "T", secret: false, enabled: true, postman_extra: {} };
+
+  /** A send whose script sets the variable `token` of the collection to `T`. */
+  async function sendSettingToken(api: FakeApi) {
+    api.onSend = async () => resultWithChanges([{ scope: "collection", target_id: "col", op: "set", key: "token", value: "T" }]);
+    const sender = requestTab();
+    await sender.sending.send(api, sender);
+  }
+
+  it("script_change_reaches_a_clean_collection_tab", async () => {
+    const { api, saveNodeContent } = await openCollection();
+
+    await sendSettingToken(api);
+
+    await waitFor(() => expect(variableRows()).toHaveLength(4));
+    const row = variableRows()[2];
+    expect(within(row).getByRole<HTMLInputElement>("textbox", { name: strings.collection.name }).value).toBe("token");
+    expect(within(row).getByRole<HTMLInputElement>("textbox", { name: strings.table.value }).value).toBe("T");
+    // The core has written it already: the tab has nothing to save.
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+    expect((tabs.active as Tab<CollectionDraft>).saved.variables[2]).toEqual(TOKEN);
+    expect(saveNodeContent).not.toHaveBeenCalled();
+  });
+
+  it("script_change_keeps_unsaved_edits_of_a_dirty_tab", async () => {
+    const { api, saveNodeContent, draft } = await openCollection();
+    draft().description = "About";
+    await fireEvent.input(within(variableRows()[0]).getByRole("textbox", { name: strings.table.value }), {
+      target: { value: "staging.test" },
+    });
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+
+    await sendSettingToken(api);
+
+    await waitFor(() => expect(variableRows()).toHaveLength(4));
+    expect(screen.getByLabelText(strings.tabs.unsaved)).toBeTruthy();
+    await pressCtrlS();
+    await waitFor(() => expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull());
+
+    expect(saveNodeContent).toHaveBeenCalledTimes(1);
+    expect(saveNodeContent).toHaveBeenCalledWith("col", {
+      auth: null,
+      variables: [
+        { key: "host", value: "staging.test", secret: false, enabled: true, postman_extra: { type: "string", description: "server" } },
+        { key: "password", value: "hunter2", secret: true, enabled: true, postman_extra: {} },
+        TOKEN,
+      ],
+      scripts: { pre_request: "", test: "" },
+      description: "About",
+    });
   });
 });

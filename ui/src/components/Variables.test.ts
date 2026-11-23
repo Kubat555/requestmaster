@@ -7,7 +7,8 @@ import type { Api } from "../lib/api";
 import { motion } from "../lib/motion.svelte";
 import { strings } from "../lib/strings";
 import { tabs, type Tab } from "../lib/tabs.svelte";
-import { createFakeApi, type FakeSeed } from "../lib/testing/fakeApi";
+import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
+import { resultWithChanges } from "../lib/testing/scriptSend";
 import { toasts } from "../lib/toasts.svelte";
 import type { CollectionDraft, NodeDto, RequestContent, RequestDraft, ScopeVariable } from "../lib/types";
 import { bumpVariables, VariableScope } from "../lib/variableScope.svelte";
@@ -966,5 +967,28 @@ describe("the glow of typed letters in a field with variables", () => {
     await type(urlInput(), "ab");
 
     expect(typed(urlInput())).toEqual([]);
+  });
+});
+
+describe("variables changed by a script", () => {
+  it("highlight_is_refreshed_after_a_script_changed_variables", async () => {
+    const { api, variablesInScope } = await openRequest();
+    await tokenHasClass(urlInput, "{{host}}", "var-environment");
+    const tab = tabs.active as Tab<RequestDraft>;
+    const fake = api as FakeApi;
+
+    // Nothing was changed: what the editor has read is still right.
+    let before = variablesInScope.mock.calls.length;
+    fake.onSend = async () => resultWithChanges([]);
+    await tab.sending.send(api, tab);
+    await tick();
+    expect(variablesInScope.mock.calls.length).toBe(before);
+
+    before = variablesInScope.mock.calls.length;
+    fake.onSend = async () =>
+      resultWithChanges([{ scope: "global", target_id: "globals", op: "set", key: "nope", value: "1" }]);
+    await tab.sending.send(api, tab);
+    await waitFor(() => expect(variablesInScope.mock.calls.length).toBe(before + 1));
+    expect(variablesInScope).toHaveBeenLastCalledWith("req");
   });
 });

@@ -21,9 +21,11 @@ import {
   type RequestContent,
   type RequestDraft,
   type SavedTab,
+  type VariableChange,
   type VariableRow,
 } from "./types";
 import { bumpVariables } from "./variableScope.svelte";
+import { applyToRows } from "./variableSync";
 import { workspace } from "./workspace.svelte";
 
 /** DOM id of the title of the tab in the tab bar: its panel is labelled by it. */
@@ -126,6 +128,22 @@ export class Tab<C extends TabContent = TabContent> implements TabLike {
     return true;
   }
 
+  /**
+   * Changes a script made to the variables of this collection: put into `saved` and into `draft`. The core
+   * has written them already, so the tab is as changed as it was: the unsaved edits of the user stay, and
+   * where a script and the user changed the same value, the draft has the one of the script.
+   */
+  applyVariableChanges(changes: VariableChange[]): void {
+    if (this.kind !== "collection") return;
+    const saved = structuredClone(this.saved) as CollectionDraft;
+    const draft = this.draft as CollectionDraft;
+    for (const change of changes) {
+      applyToRows(saved.variables, change);
+      applyToRows(draft.variables, change);
+    }
+    this.saved = saved as C;
+  }
+
   /** Throws the edits away: the draft is the stored content again. */
   revert(): void {
     this.draft = structuredClone(this.saved);
@@ -185,6 +203,16 @@ export class EnvironmentTab implements TabLike {
     this.#unsaved = true;
     this.suspend();
     this.#timer = setTimeout(() => void this.flush(api), SAVE_DELAY_MS);
+  }
+
+  /**
+   * Changes a script made to this set: put into the rows and saved like an edit. The save repeats what the
+   * core has written, and puts right the case when a save of this tab reached the storage between the write
+   * of the core and the arrival of the result.
+   */
+  applyChanges(api: Api, changes: VariableChange[]): void {
+    for (const change of changes) applyToRows(this.variables, change);
+    this.edited(api);
   }
 
   /**

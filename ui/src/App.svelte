@@ -29,6 +29,7 @@
   import { tabPanelId, tabs, tabTitleId, type AnyTab, type EnvironmentTab, type Tab } from "./lib/tabs.svelte";
   import { toasts } from "./lib/toasts.svelte";
   import type { CollectionDraft, FolderDraft, RequestDraft } from "./lib/types";
+  import { installVariableSync } from "./lib/variableSync";
   import { workspace } from "./lib/workspace.svelte";
 
   const api = getContext<Api>("api");
@@ -203,6 +204,7 @@
     });
     const removeContextMenuGuard = installContextMenuGuard();
     const removeFieldEffects = installFieldEffects();
+    const stopVariableSync = installVariableSync();
     let stopCloseListening: (() => void) | undefined;
     api.onCloseRequested(onCloseRequested).then(
       (stop) => {
@@ -219,6 +221,7 @@
       removeHotkeys();
       removeContextMenuGuard();
       removeFieldEffects();
+      stopVariableSync();
       stopCloseListening?.();
     };
   });

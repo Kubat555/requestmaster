@@ -5,8 +5,9 @@ import { strings } from "../lib/strings";
 import { tabs } from "../lib/tabs.svelte";
 import { createFakeApi, type FakeApi, type FakeSeed } from "../lib/testing/fakeApi";
 import { pressEnter } from "../lib/testing/keys";
+import { requestTab, resultWithChanges } from "../lib/testing/scriptSend";
 import { toasts } from "../lib/toasts.svelte";
-import { GLOBALS_ID, type ImportResult, type VariableRow } from "../lib/types";
+import { GLOBALS_ID, type ImportResult, type SendResult, type VariableChange, type VariableRow } from "../lib/types";
 import { workspace } from "../lib/workspace.svelte";
 
 const TEXT = strings.environment;
@@ -938,5 +939,78 @@ describe("environment without a name", () => {
     expect(save.mock.calls[0].slice(0, 2)).toEqual(["env-blank", "Без названия"]);
     expect(toasts.items).toHaveLength(0);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("variables changed by a script with the tab of the environment open", () => {
+  const A = { key: "a", value: "1", secret: false, enabled: true, postman_extra: {} };
+
+  /** The window with the tab of "Dev" (active, `a=1`) shown. */
+  async function openDev() {
+    const api = await openEnvironments({ variables: { "env-dev": [{ key: "a", value: "1" }] } });
+    const save = vi.spyOn(api, "saveEnvironment");
+    await openEditor("Dev");
+    return { api, save };
+  }
+
+  function set(key: string, value: string): VariableChange {
+    return { scope: "environment", target_id: "env-dev", op: "set", key, value };
+  }
+
+  it("script_change_reaches_the_open_environment_tab", async () => {
+    const { api, save } = await openDev();
+    api.onSend = async () => resultWithChanges([set("token", "T")]);
+    useFakeTimers();
+
+    const sender = requestTab();
+    await sender.sending.send(api, sender);
+
+    await waitFor(() => expect(names().map((input) => input.value)).toEqual(["a", "token", ""]));
+    expect(values()[1].value).toBe("T");
+    expect(save).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith("env-dev", "Dev", [A, { ...A, key: "token", value: "T" }]);
+  });
+
+  it("unsaved_edit_is_flushed_before_the_send", async () => {
+    const { api, save } = await openDev();
+    const order: string[] = [];
+    save.mockImplementation(async () => void order.push("saveEnvironment"));
+    api.onSend = async () => {
+      order.push("sendRequest");
+      return resultWithChanges([]);
+    };
+    useFakeTimers();
+
+    await type(values()[0], "2");
+    const sender = requestTab();
+    await sender.sending.send(api, sender);
+
+    expect(order).toEqual(["saveEnvironment", "sendRequest"]);
+    expect(save).toHaveBeenCalledWith("env-dev", "Dev", [{ ...A, value: "2" }]);
+  });
+
+  it("edit_made_during_the_send_survives", async () => {
+    const { api, save } = await openDev();
+    let answer!: (result: SendResult) => void;
+    const onSend = vi.fn(() => new Promise<SendResult>((resolve) => (answer = resolve)));
+    api.onSend = onSend;
+    useFakeTimers();
+
+    const sender = requestTab();
+    const sent = sender.sending.send(api, sender);
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    await type(values()[0], "2");
+    answer(resultWithChanges([set("b", "B")]));
+    await sent;
+
+    await waitFor(() => expect(names().map((input) => input.value)).toEqual(["a", "b", ""]));
+    expect(values().map((input) => input.value)).toEqual(["2", "B", ""]);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(save).toHaveBeenLastCalledWith("env-dev", "Dev", [
+      { ...A, value: "2" },
+      { ...A, key: "b", value: "B" },
+    ]);
   });
 });

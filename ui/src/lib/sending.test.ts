@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { observeSends, type SendObserver } from "./sending.svelte";
 import { Tab, Tabs } from "./tabs.svelte";
 import { toasts } from "./toasts.svelte";
 import { createFakeApi, noScriptResults, type FakeApi } from "./testing/fakeApi";
@@ -303,5 +304,110 @@ describe("Sending", () => {
     calls[0].resolve(answered("late"));
     await sent;
     expect(api.released).toEqual(["late"]);
+  });
+});
+
+describe("observers of sends", () => {
+  let stop: (() => void) | undefined;
+
+  /** Registers an observer that writes what happens to `log`; the settled results are kept in `settled`. */
+  function observe(log: string[], before: SendObserver["before"] = async () => {}) {
+    const settled: SendResult[] = [];
+    stop = observeSends({
+      before: async (api) => {
+        log.push("before");
+        await before(api);
+      },
+      settled: (_api, result) => {
+        log.push("settled");
+        settled.push(result);
+      },
+    });
+    return settled;
+  }
+
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+  });
+
+  it("observer_runs_before_and_after_a_send", async () => {
+    const { api, calls, tab, sending } = setup();
+    const log: string[] = [];
+    const onSend = api.onSend;
+    api.onSend = (...args) => {
+      log.push("sendRequest");
+      return onSend(...args);
+    };
+    const settled = observe(log);
+
+    const sent = sending.send(api, tab);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const result = answered("b1");
+    calls[0].resolve(result);
+    await sent;
+
+    expect(log).toEqual(["before", "sendRequest", "settled"]);
+    expect(settled).toEqual([result]);
+    expect(sending.result).toEqual(result);
+
+    // A removed observer hears nothing more.
+    stop!();
+    const again = sending.send(api, tab);
+    calls[1].resolve(answered("b2"));
+    await again;
+    expect(log).toHaveLength(4);
+    expect(log[3]).toBe("sendRequest");
+  });
+
+  it("settled_is_called_for_a_cancelled_send", async () => {
+    const { api, calls, tab, sending } = setup();
+    const settled = observe([]);
+    const sent = sending.send(api, tab);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+
+    sending.cancel(api);
+    const late = answered("late");
+    calls[0].resolve(late);
+    await sent;
+
+    expect(settled).toEqual([late]);
+    expect(sending.result?.error?.kind).toBe("cancelled");
+    expect(api.released).toEqual(["late"]);
+  });
+
+  it("settled_is_called_for_a_replaced_send", async () => {
+    const { api, calls, tab, sending } = setup();
+    const settled = observe([]);
+    const first = sending.send(api, tab);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const second = sending.send(api, tab);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+
+    const dropped = answered("b1");
+    const kept = answered("b2");
+    calls[0].resolve(dropped);
+    await first;
+    expect(settled).toEqual([dropped]);
+
+    calls[1].resolve(kept);
+    await second;
+    expect(settled).toEqual([dropped, kept]);
+    expect(sending.result).toEqual(kept);
+    expect(api.released).toEqual(["b1"]);
+  });
+
+  it("failing_before_does_not_stop_the_send", async () => {
+    const { api, calls, tab, sending } = setup();
+    const settled = observe([], () => Promise.reject("flush failed"));
+
+    const sent = sending.send(api, tab);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const result = answered("b1");
+    calls[0].resolve(result);
+    await sent;
+
+    expect(settled).toEqual([result]);
+    expect(sending.result).toEqual(result);
   });
 });

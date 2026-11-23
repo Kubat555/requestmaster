@@ -38,6 +38,22 @@ function report(error: unknown): void {
   toasts.error(String(error));
 }
 
+/** Something that follows every send of the window, whatever tab it is of. */
+export interface SendObserver {
+  /** Before the command of a send is called; the send waits for it. A failure does not stop the send. */
+  before(api: Api): Promise<void>;
+  /** The command returned a result — also one the tab drops (the send was cancelled or replaced). */
+  settled(api: Api, result: SendResult): void;
+}
+
+const observers = new Set<SendObserver>();
+
+/** Registers an observer of every send of the window; the returned function removes it. */
+export function observeSends(observer: SendObserver): () => void {
+  observers.add(observer);
+  return () => void observers.delete(observer);
+}
+
 /** Deletes the stored body of a response nobody shows any more. */
 function releaseBody(api: Api, result: SendResult | null): void {
   if (result?.response) api.releaseBody(result.response.body.id).catch(report);
@@ -62,6 +78,11 @@ export class Sending {
    * released. A failure of the command itself is shown as a notification and leaves the previous result.
    * Whatever the command ends with, the shell has written the send to the history by then, so the list of the
    * history is read again — also for a result that is dropped.
+   *
+   * The observers of the sends ({@link observeSends}) are waited for before the command and are told its
+   * result before the tab decides whether it is the awaited one: what the scripts of a dropped send changed
+   * in the variables is written by the core all the same. A send that was cancelled or replaced while the
+   * observers were waited for does not call the command at all. A command that fails has no result to tell.
    */
   async send(api: Api, tab: Sendable): Promise<void> {
     const sendId = crypto.randomUUID();
@@ -69,6 +90,16 @@ export class Sending {
     this.#api = api;
     this.startedAt = performance.now();
     this.state = "sending";
+
+    for (const observer of [...observers]) {
+      try {
+        await observer.before(api);
+      } catch (error) {
+        report(error);
+      }
+    }
+    // Cancelled or replaced meanwhile: nothing went to the core yet, and nothing has to.
+    if (this.#awaited !== sendId) return;
 
     let result: SendResult;
     try {
@@ -83,6 +114,13 @@ export class Sending {
       return;
     }
 
+    for (const observer of [...observers]) {
+      try {
+        observer.settled(api, result);
+      } catch (error) {
+        report(error);
+      }
+    }
     if (this.#awaited !== sendId) {
       releaseBody(api, result);
       return;
