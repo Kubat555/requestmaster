@@ -277,7 +277,7 @@ export const strings = {
     kind: "Скрипт",
     kinds: {
       pre_request: "Pre-request",
-      test: "Tests",
+      test: "Post-response",
     },
     text: "Текст скрипта",
   },

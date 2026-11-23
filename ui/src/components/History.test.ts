@@ -599,7 +599,7 @@ describe("a history entry", () => {
     expect(view.getByText("status is 200")).toBeTruthy();
     expect(view.getByText(strings.tests.failed)).toBeTruthy();
     expect(view.getByText("AssertionError: expected 500 to equal 200")).toBeTruthy();
-    expect(view.getByText(/Tests · Demo API/)).toBeTruthy();
+    expect(view.getByText(/Post-response · Demo API/)).toBeTruthy();
     expect(view.getByText("script ran too long")).toBeTruthy();
   });
 

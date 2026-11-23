@@ -325,8 +325,10 @@ input[type="checkbox"]:checked::after {
 :root[data-motion="rich"] .slide-indicator {
   position: absolute;
   left: 0;
-  width: 1px;
-  transform: translateX(var(--slide-x, 0)) scaleX(var(--slide-width, 0));
+  /* A base of 100px, not 1px: at a display scale of 125% one pixel is rounded down and the mark comes out
+     narrower than its tab. */
+  width: 100px;
+  transform: translateX(var(--slide-x, 0)) scaleX(calc(var(--slide-width, 0) / 100));
   transform-origin: left;
   pointer-events: none;
 }

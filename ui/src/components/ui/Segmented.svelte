@@ -65,7 +65,10 @@
 
 <style>
   .segmented {
-    display: flex;
+    /* Columns of one width, as wide as the longest text needs: no text is cut while there is room. */
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     height: var(--control-height);
     background: var(--bg);
     border: 1px solid var(--border);
@@ -74,7 +77,6 @@
   }
 
   button {
-    flex: 1;
     min-width: 0;
     padding: 0 calc(var(--space) * 2);
     background: transparent;

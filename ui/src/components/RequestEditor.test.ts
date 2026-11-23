@@ -680,13 +680,13 @@ describe("RequestEditor: Scripts and Settings", () => {
     const { draft } = await openRequest({ ...BASE, scripts: { pre_request: "before();", test: "after();" } });
     await showSection(/^Scripts/);
     const kinds = screen.getByRole("tablist", { name: strings.scripts.kind });
-    expect(within(kinds).getAllByRole("tab").map((kind) => kind.textContent!.trim())).toEqual(["Pre-request", "Tests"]);
+    expect(within(kinds).getAllByRole("tab").map((kind) => kind.textContent!.trim())).toEqual(["Pre-request", "Post-response"]);
     expect(within(kinds).getByRole("tab", { name: "Pre-request" }).getAttribute("aria-selected")).toBe("true");
     expect(scriptEditor().value).toBe("before();");
     // One editor shows the chosen script.
     expect(screen.getAllByRole("textbox", { name: strings.scripts.text })).toHaveLength(1);
 
-    await fireEvent.click(within(kinds).getByRole("tab", { name: "Tests" }));
+    await fireEvent.click(within(kinds).getByRole("tab", { name: "Post-response" }));
 
     expect(scriptEditor().value).toBe("after();");
     expect(screen.getAllByRole("textbox", { name: strings.scripts.text })).toHaveLength(1);
