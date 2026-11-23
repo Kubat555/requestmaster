@@ -22,7 +22,7 @@
   /* Motion that repeats while something runs: one turn of a spinner, one pass of a progress line or of the
      arrows of the Send button. Not zeroed without motion: what repeats is stopped by `--loop-state`, which
      every such animation takes as its play state — it then stands at its first frame. */
-  --dur-spin: 800ms; --dur-loop: 1400ms; --loop-state: running;
+  --dur-spin: 800ms; --dur-loop: 1400ms; --dur-bend: 500ms; --loop-state: running;
   /* The rich motion level only (`data-motion="rich"`, see motion.svelte.ts): the longer effects, the easing
      that overshoots a little, how far apart the rows of a list appear, how long a just typed letter glows
      (typingGlow.ts removes its mark a little later), and the glow itself in the colour of the accent. */

@@ -200,7 +200,7 @@
   {#if waiting}
     <!-- What happens is said by the name; the ring, the line and the time are for the eyes, and the time,
          changing ten times a second, is kept from a screen reader. At the rich motion level the ring gives
-         way to the two arrows of the application, flying towards each other. -->
+         way to the two arrows of the application, which bend into a ring and circle one after the other. -->
     <div class="sending" role="status" aria-label={strings.response.sending}>
       <div class="progress" aria-hidden="true"></div>
       {#if motion.rich}
@@ -216,9 +216,16 @@
           stroke-linejoin="round"
           aria-hidden="true"
         >
-          {#each icons.send as d, index (index)}
-            <path {d} />
-          {/each}
+          <g class="straight">
+            {#each icons.send as d, index (index)}
+              <path {d} />
+            {/each}
+          </g>
+          <!-- The same two arrows bent into a ring: each is an arc of the circle with its head at the end. -->
+          <g class="ring">
+            <path d="M3.3 6.29A5 5 0 0 1 12.7 6.29M10.57 4.8L12.7 6.29L13.37 3.78" />
+            <path d="M12.7 9.71A5 5 0 0 1 3.3 9.71M5.43 11.2L3.3 9.71L2.63 12.22" />
+          </g>
         </svg>
       {:else}
         <Spinner size="lg" />
@@ -357,40 +364,49 @@
     animation: none;
   }
 
-  /* The rich motion level: the request arrow flies to the right and the response arrow to the left, each from
-     its side through the middle and on, again and again; they are not cut at the edge of the drawing. */
+  /* The rich motion level: the two straight arrows, pointing opposite ways, bend into a ring — they turn and
+     fade while the bent ones come in already turning — and then the ring goes round, one arrow chasing the
+     other, for as long as the request is on its way. Nothing is cut at the edge of the drawing. */
   :global(:root[data-motion="rich"]) .exchange {
     overflow: visible;
   }
 
-  :global(:root[data-motion="rich"]) .exchange path {
-    animation: fly var(--dur-loop) ease-in-out infinite var(--loop-state);
+  :global(:root[data-motion="rich"]) .exchange g {
+    transform-box: view-box;
+    transform-origin: center;
   }
 
-  :global(:root[data-motion="rich"]) .exchange path:first-child {
-    --fly-from: -5px;
-    --fly-to: 5px;
+  :global(:root[data-motion="rich"]) .exchange .straight {
+    animation: bend-out var(--dur-bend) var(--ease) var(--dur-4) both;
   }
 
-  :global(:root[data-motion="rich"]) .exchange path:last-child {
-    --fly-from: 5px;
-    --fly-to: -5px;
+  :global(:root[data-motion="rich"]) .exchange .ring {
+    opacity: 0;
+    animation:
+      bend-in var(--dur-bend) var(--ease) var(--dur-4) forwards,
+      chase var(--dur-loop) linear var(--dur-4) infinite var(--loop-state);
   }
 
-  @keyframes fly {
-    from {
+  @keyframes bend-out {
+    to {
       opacity: 0;
-      transform: translateX(var(--fly-from));
+      transform: rotate(120deg);
     }
+  }
 
-    30%,
-    70% {
+  @keyframes bend-in {
+    to {
       opacity: 1;
+    }
+  }
+
+  @keyframes chase {
+    from {
+      transform: rotate(0deg);
     }
 
     to {
-      opacity: 0;
-      transform: translateX(var(--fly-to));
+      transform: rotate(360deg);
     }
   }
 
