@@ -395,9 +395,43 @@ fn memory_is_full(ctx: &Ctx<'_>, limits: &Limits) -> bool {
 }
 
 /// When no memory is left even for the error object, the engine throws `null` instead of
-/// `InternalError: out of memory`.
-fn no_error_object(thrown: &Value<'_>) -> bool {
-    thrown.is_null() || thrown.is_undefined()
+/// `InternalError: out of memory`. When it is left for the object but not for its text, the engine throws
+/// an `InternalError` with no message (seen at 128 MiB with `a.push(new Uint8Array(1000))`; at 8 to 64 MiB
+/// the same script gets the whole error). Neither tells the end of memory from a `throw` of the script by
+/// itself: the caller measures the memory as well.
+fn no_error_object<'js>(ctx: &Ctx<'js>, thrown: &Value<'js>) -> bool {
+    if thrown.is_null() || thrown.is_undefined() {
+        return true;
+    }
+    let Some(object) = thrown.as_object().filter(|_| thrown.is_error()) else {
+        return false;
+    };
+    // Reading may run a getter of the script or find no memory: neither exception may stay pending.
+    let read = |holder: &Object<'js>, key: &str| {
+        holder.get::<_, Value<'js>>(key).map_err(|_| {
+            let _ = ctx.catch();
+        })
+    };
+    let Ok(class) = read(&ctx.globals(), "InternalError") else {
+        return false;
+    };
+    if !object.is_instance_of(&class) {
+        return false;
+    }
+    match read(object, "message") {
+        Ok(message) if message.is_undefined() => true,
+        // A text that cannot be read counts as none: there may be no memory to copy it.
+        Ok(message) => message.as_string().is_some_and(|text| {
+            text.to_string().map_or_else(
+                |_| {
+                    let _ = ctx.catch();
+                    true
+                },
+                |text| text.is_empty(),
+            )
+        }),
+        Err(()) => false,
+    }
 }
 
 /// What the rejection tracker saw of a script that ran out of memory ([`track_rejections`]).
@@ -422,7 +456,8 @@ fn track_rejections(
     let limits = *limits;
     runtime.set_host_promise_rejection_tracker(Some(Box::new(
         move |ctx, promise, reason, handled| {
-            let starved = !handled && no_error_object(&reason) && memory_is_full(&ctx, &limits);
+            let starved =
+                !handled && no_error_object(&ctx, &reason) && memory_is_full(&ctx, &limits);
             if starved {
                 exhausted.seen.set(true);
             }
@@ -442,7 +477,7 @@ fn track_rejections(
                 // the script would end as if nothing had happened. It stays an error of memory even if
                 // the script gives the promise a handler later.
                 if !handled
-                    && no_error_object(&thrown)
+                    && no_error_object(&ctx, &thrown)
                     && (starved || memory_is_full(&ctx, &limits))
                 {
                     exhausted.lost.set(true);
@@ -692,6 +727,7 @@ impl<'js> Script<'_, 'js> {
     /// The error a thrown value, or the reason of a rejected promise, makes.
     fn thrown(&self, thrown: &Value<'js>, origin: Origin) -> Failure {
         let read = self.read_thrown(thrown);
+        let bare = no_error_object(self.ctx, thrown);
         // Reading runs getters of the script; they are stopped like the script itself.
         if let Some(stop) = self.budget.stop() {
             return Failure::stopped(stop, self.limits);
@@ -704,13 +740,15 @@ impl<'js> Script<'_, 'js> {
         // script, so the memory is measured. Measuring here is often too late — the script is over and its
         // variables are freed (0.3 MiB taken of 16 in the experiment; a probe allocation succeeds as
         // well) — so the rejection tracker measures too: it is called while the variables of the top
-        // level of the script still live (16 MiB of 16). Here is caught what is still held, a global
-        // filled by a callback of a timer. Not caught, and still reported as the exception `null`: data
-        // that is freed on the way out — the local variables of a function the script calls, or of a
-        // callback. Only an allocator that sees the refused allocation would tell those.
-        if no_error_object(thrown)
-            && (self.exhausted.seen.get() || memory_is_full(self.ctx, self.limits))
-        {
+        // level of the script still live (16 MiB of 16). Here is caught what is still held, a property of
+        // `globalThis` filled by a callback of a timer. Not caught, and still reported as the exception
+        // `null`: data that is freed before either measure — the local variables of a function the script
+        // calls or of a callback, the unfinished result of a built-in (`JSON.parse` of a big answer made
+        // of small objects, `Array.from`, `map`, `split`), a variable of the script that a callback of a
+        // timer or of `then` fills; inside `pm.test` it is a failed test with the text `null`. Only an
+        // allocator that sees the refused allocation would tell those.
+        // The same holds for an `InternalError` with no message: memory for the object, none for its text.
+        if bare && (self.exhausted.seen.get() || memory_is_full(self.ctx, self.limits)) {
             return Failure::memory(self.limits);
         }
         if origin == Origin::Engine {
