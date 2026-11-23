@@ -59,6 +59,9 @@ struct Shared {
     completed: AtomicBool,
     /// The thread has ended. Written under the lock of `state`.
     ended: AtomicBool,
+    /// The largest `memory_used_size` of a runtime at the end of its script, in bytes.
+    #[cfg(feature = "measure")]
+    memory_used: std::sync::atomic::AtomicU64,
 }
 
 impl Shared {
@@ -73,6 +76,17 @@ impl Shared {
         lock(&self.state)
             .as_ref()
             .is_some_and(|state| state.skip_request)
+    }
+
+    /// The report of what the scripts have produced; of nothing when the state is already taken.
+    fn report(&self, state: Option<State>) -> Report {
+        let report = state.map(State::into_report).unwrap_or_default();
+        #[cfg(feature = "measure")]
+        let report = Report {
+            memory_used_bytes: self.memory_used.load(Ordering::SeqCst),
+            ..report
+        };
+        report
     }
 }
 
@@ -125,6 +139,8 @@ pub(crate) fn run(
         current: AtomicUsize::new(0),
         completed: AtomicBool::new(false),
         ended: AtomicBool::new(false),
+        #[cfg(feature = "measure")]
+        memory_used: std::sync::atomic::AtomicU64::new(0),
     });
     let (ended_sender, ended_receiver) = mpsc::channel::<()>();
     let end = ThreadEnd {
@@ -168,7 +184,7 @@ pub(crate) fn run(
 fn finished_report(shared: &Shared) -> Report {
     if shared.completed.load(Ordering::SeqCst) {
         let state = lock(&shared.state).take();
-        state.map(State::into_report).unwrap_or_default()
+        shared.report(state)
     } else {
         // The thread panicked. Reachable in the dev and test profiles only: release aborts on panic.
         failed_report(shared)
@@ -179,7 +195,7 @@ fn finished_report(shared: &Shared) -> Report {
 /// the console, the variables and their changes stay as far as they got.
 fn failed_report(shared: &Shared) -> Report {
     let state = lock(&shared.state).take();
-    let mut report = state.map(State::into_report).unwrap_or_default();
+    let mut report = shared.report(state);
     report.errors = internal_report(THREAD_FAILED, Variables::default()).errors;
     report
 }
@@ -201,7 +217,7 @@ fn abandon(
     if shared.ended.load(Ordering::SeqCst) {
         return None;
     }
-    let mut report = slot.take().map(State::into_report).unwrap_or_default();
+    let mut report = shared.report(slot.take());
     shared.watch.abandon();
     ABANDONED_THREADS.fetch_add(1, Ordering::SeqCst);
     drop(slot);
@@ -419,7 +435,7 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return Some(Failure::engine(&error, limits)),
     };
-    context.with(|ctx| {
+    let failure = context.with(|ctx| {
         let script = Script {
             ctx: &ctx,
             code,
@@ -451,7 +467,14 @@ fn run_script(
         budget.pause();
         host.discard_requests();
         failure
-    })
+    });
+    // Outside `Context::with`: the runtime is free to ask.
+    #[cfg(feature = "measure")]
+    shared.memory_used.fetch_max(
+        u64::try_from(runtime.memory_usage().memory_used_size).unwrap_or(0),
+        Ordering::SeqCst,
+    );
+    failure
 }
 
 /// A script inside its context. Holds JavaScript values, so it lives inside one `Context::with` only.

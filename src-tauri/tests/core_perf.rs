@@ -8,47 +8,25 @@
 
 #[path = "common/big_collection.rs"]
 mod big_collection;
+#[path = "common/perf.rs"]
+mod perf;
 
 use std::path::Path;
 use std::time::Instant;
 
 use requestmaster_lib::dto::ImportFile;
-use requestmaster_lib::{AppCore, CoreConfig};
-use serde_json::json;
-use tempfile::TempDir;
+use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use big_collection::big_collection;
+use perf::{
+    core_in, measured_send, ms_since, overhead_ms, scripted_request, TYPICAL_BODY, TYPICAL_PRE_REQUEST,
+    TYPICAL_TEST,
+};
 
 /// How many sends the overhead is measured over, after the warm-up one.
 const SENDS: usize = 30;
-
-/// A core over a database file in `dir`, as the application has it.
-fn core_in(dir: &TempDir) -> AppCore {
-    // Keeps the sends independent of the machine's system proxy.
-    std::env::set_var("NO_PROXY", "127.0.0.1");
-    AppCore::new(CoreConfig {
-        db_path: Some(dir.path().join("app.db")),
-        bodies_dir: dir.path().join("bodies"),
-        history_keep: None,
-        measure_file: None,
-    })
-    .unwrap()
-}
-
-fn ms_since(start: Instant) -> f64 {
-    start.elapsed().as_secs_f64() * 1000.0
-}
-
-/// Sends the request and returns what the application adds to the time of the response: the time around
-/// `send_request` minus `total_ms` of the response.
-async fn overhead_ms(core: &AppCore, send_id: &str, request_id: &str) -> f64 {
-    let start = Instant::now();
-    let result = core.send_request(send_id, request_id, None).await.unwrap();
-    let around = ms_since(start);
-    around - result.response.expect("the server answers").total_ms
-}
 
 #[tokio::test]
 #[ignore = "a measurement: run by hand in a release build"]
@@ -84,6 +62,104 @@ async fn request_overhead_report() {
     let median = (overheads[SENDS / 2 - 1] + overheads[SENDS / 2]) / 2.0;
     let max = overheads[SENDS - 1];
     println!("request_overhead_ms median={median:.2} max={max:.2} n={SENDS}");
+}
+
+/// One case of `script_overhead_report`.
+struct ScriptCase {
+    name: &'static str,
+    /// Path on the server.
+    path: &'static str,
+    /// The `scripts` of the contents of the collection and of the request.
+    collection_scripts: Value,
+    request_scripts: Value,
+    /// How many passed `pm.test` every send has to bring.
+    tests: usize,
+    /// How many changes of stored variables every send has to bring.
+    variable_changes: usize,
+}
+
+/// The overhead of a send with scripts: the warm-up send (`first`), then `SENDS` measured ones. The numbers
+/// include the writing of the variables and of the history. The bytecode of the prelude and of chai is
+/// compiled once per process and the cases run one after another, so `first` of the cases after the first
+/// one with a script is not a cold start — `core_perf_cold.rs` measures that.
+#[tokio::test]
+#[ignore = "a measurement: run by hand in a release build"]
+async fn script_overhead_report() {
+    let server = MockServer::start().await;
+    let big = json!({ "token": "abc", "filler": "x".repeat(15 * 1024) }).to_string();
+    for (at, body) in [("/x", TYPICAL_BODY.to_string()), ("/big", big)] {
+        Mock::given(method("GET"))
+            .and(path(at))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+    }
+    let none = || json!({});
+    let blank = || json!({ "pre_request": "  \n\t ", "test": " \n " });
+    let cases = [
+        ScriptCase {
+            name: "no_scripts",
+            path: "/x",
+            collection_scripts: none(),
+            request_scripts: none(),
+            tests: 0,
+            variable_changes: 0,
+        },
+        ScriptCase {
+            name: "blank_scripts",
+            path: "/x",
+            collection_scripts: blank(),
+            request_scripts: blank(),
+            tests: 0,
+            variable_changes: 0,
+        },
+        ScriptCase {
+            name: "owner_like",
+            path: "/big",
+            collection_scripts: none(),
+            request_scripts: json!({
+                "test": r#"var d = JSON.parse(responseBody); pm.collectionVariables.set("token", d.token);"#
+            }),
+            tests: 0,
+            variable_changes: 1,
+        },
+        ScriptCase {
+            name: "typical",
+            path: "/x",
+            collection_scripts: json!({ "pre_request": TYPICAL_PRE_REQUEST }),
+            request_scripts: json!({ "test": TYPICAL_TEST }),
+            tests: 3,
+            variable_changes: 0,
+        },
+    ];
+
+    for case in cases {
+        // A database and a core of its own: a case does not see what the ones before it stored.
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_in(&dir);
+        let url = format!("{}{}", server.uri(), case.path);
+        let request_id = scripted_request(&core, &url, case.collection_scripts, case.request_scripts);
+
+        let mut overheads = Vec::with_capacity(SENDS);
+        let mut first = 0.0;
+        for index in 0..=SENDS {
+            let (overhead, result) = measured_send(&core, &format!("send-{index}"), &request_id).await;
+            assert_eq!(result.script_errors, vec![], "{}", case.name);
+            assert_eq!(result.warnings, vec![], "{}", case.name);
+            assert_eq!(result.tests.iter().filter(|test| test.passed).count(), case.tests, "{}", case.name);
+            assert_eq!(result.variable_changes.len(), case.variable_changes, "{}", case.name);
+            // The first send warms everything up; it is not part of the sample.
+            if index == 0 {
+                first = overhead;
+            } else {
+                overheads.push(overhead);
+            }
+        }
+        overheads.sort_by(f64::total_cmp);
+        let median = (overheads[SENDS / 2 - 1] + overheads[SENDS / 2]) / 2.0;
+        let max = overheads[SENDS - 1];
+        println!("script_overhead_ms case={} first={first:.2} median={median:.2} max={max:.2} n={SENDS}", case.name);
+    }
 }
 
 #[test]

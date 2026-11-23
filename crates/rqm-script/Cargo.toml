@@ -5,6 +5,10 @@ edition = "2021"
 publish = false
 description = "RequestMaster: runs Postman scripts in QuickJS under time, memory and stack limits."
 
+[features]
+# Measurements only (`tests/perf.rs`): `Report::memory_used_bytes`. No crate of the product turns it on.
+measure = []
+
 [dependencies]
 rqm-vars = { path = "../rqm-vars" }
 rquickjs = { workspace = true }

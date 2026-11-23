@@ -298,6 +298,9 @@ impl State {
             tests: self.tests,
             request: self.request,
             skip_request: self.skip_request,
+            // The thread of the scripts counts it; `engine` writes it into the report.
+            #[cfg(feature = "measure")]
+            memory_used_bytes: 0,
         }
     }
 

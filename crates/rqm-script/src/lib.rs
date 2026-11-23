@@ -197,6 +197,9 @@ pub struct Report {
     pub request: ScriptRequest,
     /// `pm.execution.skipRequest()` was called; never true in `Phase::Test`.
     pub skip_request: bool,
+    /// The largest `memory_used_size` a runtime of a script of the job had at the end of its script.
+    #[cfg(feature = "measure")]
+    pub memory_used_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
