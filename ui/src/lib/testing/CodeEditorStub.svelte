@@ -7,10 +7,11 @@
     readonly?: boolean;
     label?: string;
     variables?: boolean;
+    completions?: "script";
     onchange?: (value: string) => void;
   }
 
-  let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
+  let { value, language = "text", readonly = false, label, variables = false, completions, onchange }: Props = $props();
 
   let searchOpen = $state(false);
 
@@ -23,6 +24,7 @@
   aria-label={label}
   data-language={language}
   data-variables={variables ? "true" : "false"}
+  data-completions={completions ?? "none"}
   data-search-open={searchOpen ? "true" : undefined}
   {readonly}
   {value}

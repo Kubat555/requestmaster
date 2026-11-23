@@ -707,6 +707,15 @@ describe("RequestEditor: Scripts and Settings", () => {
     expect(document.querySelector(".scripts-editor .note")).toBeNull();
   });
 
+  it("offers the names of the script API in a script, not in a body", async () => {
+    await openRequest({ ...SCRIPTED, body: { mode: "raw", data: { text: "{}", language: "json" } } });
+    await showSection(/^Scripts/);
+    expect(scriptEditor().dataset.completions).toBe("script");
+
+    await showSection(/^Body/);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: strings.body.text }).dataset.completions).toBe("none");
+  });
+
   it("leaves a script with Windows line ends as it came until it is edited", async () => {
     const script = "const a = 1;\r\nconsole.log(a);\r\n";
     const { draft } = await openRequest({ ...BASE, scripts: { pre_request: script } });

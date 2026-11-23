@@ -30,7 +30,13 @@
     <!-- A new editor for the other script: in one editor Ctrl+Z would bring the text of the script left
          into the script shown. -->
     {#key kind}
-      <CodeEditor value={scripts[kind]} language="javascript" label={strings.scripts.text} onchange={(text) => (scripts[kind] = text)} />
+      <CodeEditor
+        value={scripts[kind]}
+        language="javascript"
+        completions="script"
+        label={strings.scripts.text}
+        onchange={(text) => (scripts[kind] = text)}
+      />
     {/key}
   </div>
 </div>

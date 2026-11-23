@@ -17,6 +17,7 @@
       { openSearchPanel },
       { baseSetup, indentation, tabIndentation },
       { contentReplaced, typingGlow },
+      { scriptCompletions },
     ] = await Promise.all([
       import("@codemirror/view"),
       import("@codemirror/state"),
@@ -27,6 +28,7 @@
       import("@codemirror/search"),
       import("../lib/codemirror/setup"),
       import("../lib/codemirror/typingGlow"),
+      import("../lib/codemirror/scriptCompletions"),
     ]);
 
     // Colours come from tokens.css. The built-in highlighting is made for a light background.
@@ -122,6 +124,11 @@
     const styleNonce = document.querySelector<HTMLStyleElement>("style[nonce]")?.nonce;
     const nonce = styleNonce ? EditorView.cspNonce.of(styleNonce) : [];
 
+    // The names of the script API. One source for every editor: the autocompletion tells its sources apart by
+    // identity.
+    const scriptData = [{ autocomplete: scriptCompletions }];
+    const scriptSupport = EditorState.languageData.of(() => scriptData);
+
     return {
       EditorView,
       EditorState,
@@ -135,6 +142,7 @@
       phrases,
       nonce,
       variableSupport,
+      scriptSupport,
       openSearchPanel,
       contentReplaced,
       typingGlow,
@@ -164,11 +172,13 @@
      * one is typed. Needs the variables of an editor around it (`provideVariableScope`).
      */
     variables?: boolean;
+    /** What the autocompletion offers besides the variables: `"script"` — the names of the script API (`pm.*`). */
+    completions?: "script";
     /** Called with the whole text after every change made by the user. */
     onchange?: (value: string) => void;
   }
 
-  let { value, language = "text", readonly = false, label, variables = false, onchange }: Props = $props();
+  let { value, language = "text", readonly = false, label, variables = false, completions, onchange }: Props = $props();
 
   /** The variables of the editor around this one. */
   const scope = useVariableScope();
@@ -180,6 +190,7 @@
     languageSlot: Compartment;
     readonlySlot: Compartment;
     variablesSlot: Compartment;
+    completionsSlot: Compartment;
     indentSlot: Compartment;
     glowSlot: Compartment;
     cm: Awaited<ReturnType<typeof load>>;
@@ -234,6 +245,11 @@
     return cm.variableSupport(scope.variables);
   }
 
+  /** The extension for the names the autocompletion offers by `completions`. */
+  function completionSupport(cm: Awaited<ReturnType<typeof load>>): Extension {
+    return completions === "script" ? cm.scriptSupport : [];
+  }
+
   onMount(() => {
     let unmounted = false;
     let view: EditorView | undefined;
@@ -243,6 +259,7 @@
       const languageSlot = new cm.Compartment();
       const readonlySlot = new cm.Compartment();
       const variablesSlot = new cm.Compartment();
+      const completionsSlot = new cm.Compartment();
       const indentSlot = new cm.Compartment();
       const glowSlot = new cm.Compartment();
       shown = value;
@@ -260,6 +277,7 @@
             languageSlot.of(highlighting(cm)),
             readonlySlot.of(editing(cm)),
             variablesSlot.of(variableSupport(cm)),
+            completionsSlot.of(completionSupport(cm)),
             indentSlot.of(indentation(cm)),
             glowSlot.of(cm.typingGlow(motion.rich)),
             cm.EditorView.contentAttributes.of(label ? { "aria-label": label } : {}),
@@ -273,7 +291,7 @@
           ],
         }),
       });
-      editor = { view, languageSlot, readonlySlot, variablesSlot, indentSlot, glowSlot, cm };
+      editor = { view, languageSlot, readonlySlot, variablesSlot, completionsSlot, indentSlot, glowSlot, cm };
       if (searchAsked) cm.openSearchPanel(view);
       searchAsked = false;
     });
@@ -312,11 +330,12 @@
 
   $effect(() => {
     if (!editor) return;
-    const { view, languageSlot, readonlySlot, indentSlot, cm } = editor;
+    const { view, languageSlot, readonlySlot, completionsSlot, indentSlot, cm } = editor;
     view.dispatch({
       effects: [
         languageSlot.reconfigure(highlighting(cm)),
         readonlySlot.reconfigure(editing(cm)),
+        completionsSlot.reconfigure(completionSupport(cm)),
         indentSlot.reconfigure(indentation(cm)),
       ],
     });

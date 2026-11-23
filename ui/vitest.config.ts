@@ -6,6 +6,9 @@ import { svelteTesting } from "@testing-library/svelte/vite";
 // of Svelte is resolved and `mount` fails.
 export default defineConfig({
   plugins: [svelte(), svelteTesting()],
+  // The table of the script API lies outside this folder, in the core; scriptCompletions.test.ts reads it as text
+  // to compare with the list of the window. Without the entry the import is refused ("Denied ID").
+  server: { fs: { allow: [".", "../crates/rqm-script/prelude/src"] } },
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.ts"],

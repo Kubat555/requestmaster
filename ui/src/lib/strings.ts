@@ -514,7 +514,7 @@ export const strings = {
     editorIndent: "Добавить отступ",
     editorOutdent: "Убрать отступ",
     editorLeave: "Выйти из редактора к следующему элементу",
-    editorVariables: "Список переменных — в редакторе и в полях с переменными",
+    editorVariables: "Список подсказок — в редакторе и в полях с переменными",
     editorUndo: "Отменить",
     editorRedo: "Повторить",
     editorFind: "Поиск в тексте редактора",
