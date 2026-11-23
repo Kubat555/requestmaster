@@ -3,6 +3,7 @@
   import CodeEditor from "./CodeEditor.svelte";
   import HeadersView from "./HeadersView.svelte";
   import SendWarnings from "./SendWarnings.svelte";
+  import TestResults from "./TestResults.svelte";
   import Button from "./ui/Button.svelte";
   import type { Api } from "../lib/api";
   import { formatBytes, formatClock, formatDate, formatMs, methodClass, statusClass } from "../lib/format";
@@ -94,6 +95,12 @@
     </span>
   </header>
   <SendWarnings warnings={entry.warnings} />
+  <!-- The console of a send is not kept, only its tests and the errors of its scripts. -->
+  {#if entry.tests.length > 0 || entry.script_errors.length > 0}
+    <div class="tests">
+      <TestResults tests={entry.tests} errors={entry.script_errors} />
+    </div>
+  {/if}
   <div class="panes">
     <section class="pane" aria-labelledby="{id}-request">
       <h3 id="{id}-request">{strings.history.request}</h3>
@@ -110,8 +117,11 @@
       <h3 id="{id}-response">{strings.history.response}</h3>
       {#if entry.error_kind !== null}
         <div class="failure">
-          <!-- A cancel is what the user asked for, so it is not shown as an error. -->
-          <p class="reason" class:error={entry.error_kind !== "cancelled"}>{strings.response.errors[entry.error_kind]}</p>
+          <!-- A cancel is what the user asked for and a skip is what a script asked for, so neither is shown
+               as an error. -->
+          <p class="reason" class:error={entry.error_kind !== "cancelled" && entry.error_kind !== "skipped"}>
+            {strings.response.errors[entry.error_kind]}
+          </p>
           {#if entry.error_message}
             <pre class="message">{entry.error_message}</pre>
           {/if}
@@ -185,6 +195,15 @@
   /* At the right edge of the line. */
   .open {
     margin-left: auto;
+  }
+
+  /* The tests take what they need, up to a part of the height: the request and the response stay on the screen. */
+  .tests {
+    flex: none;
+    max-height: 40%;
+    padding: calc(var(--space) * 2) calc(var(--space) * 3);
+    border-bottom: 1px solid var(--border);
+    overflow: auto;
   }
 
   /* The request on the left, the response on the right. */

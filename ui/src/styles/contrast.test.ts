@@ -37,6 +37,9 @@ describe("colour tokens", () => {
     ...tokensWithPrefix("--method-").map((name): [string, string] => [name, "--surface"]),
     ...tokensWithPrefix("--status-").map((name): [string, string] => [name, "--surface"]),
     ["--accent-contrast", "--accent"],
+    // The mark of failed tests lies on the surface, the title of a script error — on a raised block.
+    ["--danger", "--surface"],
+    ["--danger", "--surface-2"],
     // Text of the code editor lies on the background of the window.
     ...["--code-key", "--code-string", "--code-number", "--code-atom"].map((name): [string, string] => [name, "--bg"]),
     // A `{{variable}}` in a field of the editor lies on the background of the window too.

@@ -162,6 +162,19 @@ input[type="checkbox"]:checked::after {
   font-size: 11px;
 }
 
+/* The mark of the tests — how many passed — says by its colour whether all is well, and fades in. */
+.section-tabs .count:is(.ok, .bad) {
+  animation: fade-in var(--dur-2) var(--ease);
+}
+
+.section-tabs .count.ok {
+  color: var(--status-ok);
+}
+
+.section-tabs .count.bad {
+  color: var(--danger);
+}
+
 /* Colour of an HTTP method, the same wherever a method is shown; the class comes from `methodClass` (format.ts). */
 .method-get {
   color: var(--method-get);

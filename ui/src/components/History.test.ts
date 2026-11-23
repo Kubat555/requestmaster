@@ -570,6 +570,39 @@ describe("a history entry", () => {
     expect(within(view.getByRole("region", { name: TEXT.request })).getByRole("table")).toBeTruthy();
   });
 
+  it("shows the tests and the script errors of the send", async () => {
+    await openHistory([
+      entry(1, {
+        tests: [
+          {
+            source: { node_id: "req-list-users", node_name: "List users", node_kind: "request", phase: "test" },
+            name: "status is 200",
+            passed: false,
+            skipped: false,
+            error: "AssertionError: expected 500 to equal 200",
+          },
+        ],
+        script_errors: [
+          {
+            source: { node_id: "col", node_name: "Demo API", node_kind: "collection", phase: "test" },
+            kind: "timeout",
+            message: "script ran too long",
+            line: null,
+            column: null,
+          },
+        ],
+      }),
+    ]);
+
+    const view = await openEntry(1);
+
+    expect(view.getByText("status is 200")).toBeTruthy();
+    expect(view.getByText(strings.tests.failed)).toBeTruthy();
+    expect(view.getByText("AssertionError: expected 500 to equal 200")).toBeTruthy();
+    expect(view.getByText(/Tests · Demo API/)).toBeTruthy();
+    expect(view.getByText("script ran too long")).toBeTruthy();
+  });
+
   it("does not show a cancelled send as an error", async () => {
     await openHistory([failedEntry(1, { error_kind: "cancelled", error_message: "" })]);
 

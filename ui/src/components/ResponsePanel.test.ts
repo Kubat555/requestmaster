@@ -14,8 +14,10 @@ import {
   type NodeDto,
   type RequestDraft,
   type ResponseDto,
+  type ScriptSource,
   type SendErrorDto,
   type SendResult,
+  type TestResult,
   type Warning,
 } from "../lib/types";
 
@@ -880,6 +882,135 @@ describe("ResponsePanel", () => {
       for (let turn = 0; turn < 10; turn++) await Promise.resolve();
 
       expect(screen.getByRole("tab", { name: /Headers/ }).getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
+  describe("what the scripts left", () => {
+    function source(overrides: Partial<ScriptSource> = {}): ScriptSource {
+      return { node_id: "req", node_name: "List users", node_kind: "request", phase: "test", ...overrides };
+    }
+
+    function test(name: string, error: string | null = null): TestResult {
+      return { source: source(), name, passed: error === null, skipped: false, error };
+    }
+
+    /** Renders the panel alone over a send state the test fills. */
+    function renderPanel(result: SendResult) {
+      const api = createFakeApi({ bodies: { b1: utf8.encode('{"a":1}') } });
+      const sending = new Sending();
+      sending.result = result;
+      render(ResponsePanel, { props: { sending }, context: new Map([["api", api]]) });
+      return sending;
+    }
+
+    function tab(name: RegExp): HTMLElement {
+      return screen.getByRole("tab", { name });
+    }
+
+    function tabNames(): string[] {
+      return screen.queryAllByRole("tab").map((item) => item.firstChild!.textContent!.trim());
+    }
+
+    function shownPanel(): HTMLElement {
+      return document.querySelector<HTMLElement>("[role=tabpanel]:not([hidden])")!;
+    }
+
+    it("shows the tests and the console in sections of their own, with what they count", async () => {
+      renderPanel({
+        ...answered(),
+        tests: [test("status is 200"), test("has users"), test("is fast", "AssertionError: expected 500 to equal 200")],
+        console: [
+          { source: source(), level: "log", text: "token saved", at_ms: 12 },
+          { source: null, level: "network", text: "GET https://api.test/users 200", at_ms: 40 },
+        ],
+      });
+
+      const badge = tab(/^Tests/).querySelector(".count")!;
+      expect(badge.textContent).toBe("2/3");
+      expect(badge.classList.contains("bad")).toBe(true);
+      expect(tab(/^Console/).querySelector(".count")!.textContent).toBe("2");
+
+      await fireEvent.click(tab(/^Tests/));
+      const tests = within(shownPanel());
+      expect(tests.getAllByText(strings.tests.passed)).toHaveLength(2);
+      expect(tests.getAllByText(strings.tests.failed)).toHaveLength(1);
+      expect(tests.getByText("AssertionError: expected 500 to equal 200")).toBeTruthy();
+      expect(tests.getByText(strings.tests.summary(2, 1, 0))).toBeTruthy();
+
+      await fireEvent.click(tab(/^Console/));
+      const output = within(shownPanel());
+      expect(output.getByText("token saved")).toBeTruthy();
+      expect(output.getByText(strings.console.levels.log)).toBeTruthy();
+      expect(output.getByText("GET https://api.test/users 200")).toBeTruthy();
+      expect(output.getByText(strings.console.levels.network)).toBeTruthy();
+    });
+
+    it("shows the error of a pre-request script with its place, and only the section of the tests", async () => {
+      renderPanel({
+        ...failed({ kind: "script", message: "TypeError: x is not a function" }),
+        script_errors: [
+          {
+            source: source({ node_id: "col", node_name: "Col", node_kind: "collection", phase: "pre_request" }),
+            kind: "exception",
+            message: "TypeError: x is not a function",
+            line: 3,
+            column: 5,
+          },
+        ],
+      });
+
+      expect(screen.getByText(strings.response.errors.script).classList.contains("error")).toBe(true);
+      expect(tabNames()).toEqual(["Tests"]);
+      const badge = tab(/^Tests/).querySelector(".count")!;
+      expect(badge.textContent).toBe("!");
+      expect(badge.classList.contains("bad")).toBe(true);
+      // The only section there is is the one that is shown.
+      expect(tab(/^Tests/).getAttribute("aria-selected")).toBe("true");
+      const tests = within(shownPanel());
+      expect(tests.getByText(/Pre-request · Col/)).toBeTruthy();
+      expect(tests.getByText(/строка 3, столбец 5/)).toBeTruthy();
+      expect(tests.getByText("TypeError: x is not a function")).toBeTruthy();
+    });
+
+    it("keeps the chosen section over a result that has no such section", async () => {
+      const passed = { ...answered(), tests: [test("status is 200")] };
+      const sending = renderPanel(passed);
+      await fireEvent.click(tab(/^Tests/));
+
+      sending.result = failed({ kind: "connect", message: "refused" });
+      flushSync();
+      expect(screen.queryAllByRole("tab")).toHaveLength(0);
+
+      sending.result = { ...passed };
+      flushSync();
+      expect(tab(/^Tests/).getAttribute("aria-selected")).toBe("true");
+      expect(within(shownPanel()).getByText("status is 200")).toBeTruthy();
+      const badge = tab(/^Tests/).querySelector(".count")!;
+      expect(badge.textContent).toBe("1/1");
+      expect(badge.classList.contains("ok")).toBe(true);
+    });
+
+    it("shows what a script wrote as plain text, never as markup", async () => {
+      renderPanel({
+        ...answered(),
+        tests: [test("<b>x</b>")],
+        console: [{ source: source(), level: "log", text: "<img src=x onerror=alert(1)>", at_ms: 1 }],
+      });
+      const whole = tab(/^Tests/).closest(".response-panel")!;
+
+      await fireEvent.click(tab(/^Tests/));
+      expect(within(shownPanel()).getByText("<b>x</b>")).toBeTruthy();
+      expect(whole.querySelector("b")).toBeNull();
+
+      await fireEvent.click(tab(/^Console/));
+      expect(within(shownPanel()).getByText("<img src=x onerror=alert(1)>")).toBeTruthy();
+      expect(whole.querySelector("img")).toBeNull();
+    });
+
+    it("does not show a request a script skipped as an error", () => {
+      renderPanel(failed({ kind: "skipped" }));
+
+      expect(screen.getByText(strings.response.errors.skipped).classList.contains("error")).toBe(false);
     });
   });
 

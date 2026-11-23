@@ -1,10 +1,12 @@
 <script lang="ts">
   import { getContext, tick } from "svelte";
+  import ConsoleView from "./ConsoleView.svelte";
   import CookiesView from "./CookiesView.svelte";
   import HeadersView from "./HeadersView.svelte";
   import ResponseBody from "./ResponseBody.svelte";
   import ResponseStatus from "./ResponseStatus.svelte";
   import SendWarnings from "./SendWarnings.svelte";
+  import TestResults from "./TestResults.svelte";
   import EmptyState from "./ui/EmptyState.svelte";
   import Spinner from "./ui/Spinner.svelte";
   import type { Api } from "../lib/api";
@@ -30,15 +32,15 @@
 
   const api = getContext<Api>("api");
 
-  type Section = "body" | "headers" | "cookies";
-  const SECTIONS: Section[] = ["body", "headers", "cookies"];
+  type Section = "body" | "headers" | "cookies" | "tests" | "console";
+  const SECTIONS: Section[] = ["body", "headers", "cookies", "tests", "console"];
   /** A send that takes less does not replace what the panel shows with the waiting indicator. */
   const INDICATOR_DELAY_MS = 150;
   /** How often the time of the running send is written anew. */
   const ELAPSED_TICK_MS = 100;
 
   const id = $props.id();
-  /** Stays as chosen when the next response arrives. */
+  /** The section the user chose. Stays as chosen when the next response arrives, also over a result without it. */
   let section = $state<Section>("body");
   /** A send has been running for longer than the delay. */
   let waiting = $state(false);
@@ -65,6 +67,23 @@
   const result = $derived(sending.result);
   const response = $derived(result?.response ?? null);
   const error = $derived(result?.error ?? null);
+  const tests = $derived(result?.tests ?? []);
+  const scriptErrors = $derived(result?.script_errors ?? []);
+  const consoleLines = $derived(result?.console ?? []);
+
+  /**
+   * The sections there is something to show in: all of them for a response; without one — only what the
+   * scripts left.
+   */
+  const available = $derived.by<Section[]>(() => {
+    if (response) return SECTIONS;
+    const sections: Section[] = [];
+    if (tests.length > 0 || scriptErrors.length > 0) sections.push("tests");
+    if (consoleLines.length > 0) sections.push("console");
+    return sections;
+  });
+  /** The section on the screen: the chosen one, or the first there is while the chosen one has nothing to show. */
+  const shown = $derived(available.includes(section) ? section : available[0]);
 
   let panel: HTMLDivElement;
   /** The response that has already arrived on the screen. */
@@ -134,11 +153,26 @@
     bodyView?.openSearch();
   }
 
-  /** Number of rows next to the name of a section; 0 — no number. */
+  /** Number of rows next to the name of a section; 0 — no number. The tests have a mark of their own. */
   const counts = $derived<Record<Section, number>>({
     body: 0,
     headers: response?.headers.length ?? 0,
     cookies: response?.cookies.length ?? 0,
+    tests: 0,
+    console: consoleLines.length,
+  });
+
+  /**
+   * The mark of the tests: how many of those that ran passed, or `!` for a script error without a single
+   * test; `null` — nothing to mark. A skipped test did not run. One failed test or one script error makes the
+   * mark bad.
+   */
+  const testsMark = $derived.by(() => {
+    if (tests.length === 0 && scriptErrors.length === 0) return null;
+    if (tests.length === 0) return { text: "!", ok: false };
+    const ran = tests.filter((test) => !test.skipped);
+    const passed = ran.filter((test) => test.passed).length;
+    return { text: `${passed}/${ran.length}`, ok: passed === ran.length && scriptErrors.length === 0 };
   });
 
   /** What went wrong, by the kind of the error; the fields whose files are missing are named. */
@@ -184,46 +218,62 @@
     <SendWarnings warnings={result.warnings} />
     {#if error}
       <div class="failure">
-        <!-- A cancel is what the user asked for, so it is not shown as an error. -->
-        <p class="reason" class:error={error.kind !== "cancelled"}>{errorText}</p>
+        <!-- A cancel is what the user asked for and a skip is what a script asked for, so neither is shown as
+             an error. -->
+        <p class="reason" class:error={error.kind !== "cancelled" && error.kind !== "skipped"}>{errorText}</p>
         {#if error.message}
           <pre class="message">{error.message}</pre>
         {/if}
       </div>
     {:else if response}
       <ResponseStatus {response} oncopy={copyBody} onsave={saveBody} />
+    {/if}
 
+    <!-- Without a response there are sections only for what the scripts left; the reason stays above them. -->
+    {#if available.length > 0}
       <div class="section-tabs" role="tablist" aria-label={strings.response.sections} {@attach slideIndicator}>
-        {#each SECTIONS as name (name)}
+        {#each available as name (name)}
           <button
             type="button"
             role="tab"
             id="{id}-tab-{name}"
-            aria-selected={section === name}
+            aria-selected={shown === name}
             aria-controls="{id}-panel-{name}"
             onclick={() => (section = name)}
           >
             {strings.response[name]}
-            {#if counts[name] > 0}
+            {#if name === "tests" && testsMark}
+              <span class={["count", testsMark.ok ? "ok" : "bad"]}>{testsMark.text}</span>
+            {:else if counts[name] > 0}
               <span class="count">{counts[name]}</span>
             {/if}
           </button>
         {/each}
       </div>
 
-      <!-- The body stays while another section is shown, so that it is not fetched again. -->
-      <div class="panel" role="tabpanel" id="{id}-panel-body" aria-labelledby="{id}-tab-body" hidden={section !== "body"}>
-        {#key response.body.id}
-          <ResponseBody bind:this={bodyView} body={response.body} decodeError={response.decode_error} bind:pretty onsave={saveBody} />
-        {/key}
-      </div>
-      {#if section === "headers"}
+      {#if response}
+        <!-- The body stays while another section is shown, so that it is not fetched again. -->
+        <div class="panel" role="tabpanel" id="{id}-panel-body" aria-labelledby="{id}-tab-body" hidden={shown !== "body"}>
+          {#key response.body.id}
+            <ResponseBody bind:this={bodyView} body={response.body} decodeError={response.decode_error} bind:pretty onsave={saveBody} />
+          {/key}
+        </div>
+      {/if}
+      {#if shown === "headers" && response}
         <div class="panel scroll" role="tabpanel" id="{id}-panel-headers" aria-labelledby="{id}-tab-headers">
           <HeadersView headers={response.headers} />
         </div>
-      {:else if section === "cookies"}
+      {:else if shown === "cookies" && response}
         <div class="panel scroll" role="tabpanel" id="{id}-panel-cookies" aria-labelledby="{id}-tab-cookies">
           <CookiesView cookies={response.cookies} />
+        </div>
+      {:else if shown === "tests"}
+        <div class="panel scroll" role="tabpanel" id="{id}-panel-tests" aria-labelledby="{id}-tab-tests">
+          <TestResults {tests} errors={scriptErrors} />
+        </div>
+      {:else if shown === "console"}
+        <div class="panel scroll" role="tabpanel" id="{id}-panel-console" aria-labelledby="{id}-tab-console">
+          <ConsoleView lines={consoleLines} truncated={result.console_truncated} />
         </div>
       {/if}
     {/if}
@@ -351,7 +401,10 @@
     }
   }
 
+  /* Takes what it needs, up to a part of the height: the sections under it stay on the screen. */
   .failure {
+    flex: none;
+    max-height: 40%;
     padding: calc(var(--space) * 3);
     overflow: auto;
   }

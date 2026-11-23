@@ -281,6 +281,42 @@ export const strings = {
     },
     text: "Текст скрипта",
   },
+  /** What the `pm.test` calls of a send recorded, and the errors that stopped its scripts. */
+  tests: {
+    empty: "Тестов нет",
+    emptyText: "Здесь появятся результаты pm.test из скриптов запроса",
+    passed: "PASS",
+    failed: "FAIL",
+    skipped: "SKIP",
+    summary: (passed: number, failed: number, skipped: number) => `Пройдено ${passed}, провалено ${failed}, пропущено ${skipped}`,
+    /** Which script: the name of its kind and the name of the node it belongs to. */
+    where: (phase: string, node: string) => `${phase} · ${node}`,
+    scriptError: (where: string) => `Ошибка в скрипте ${where}`,
+    position: (line: number, column: number | null) => (column === null ? `строка ${line}` : `строка ${line}, столбец ${column}`),
+    /** Why a script was stopped; an exception is told by its own message. */
+    kinds: {
+      exception: "исключение",
+      timeout: "превышен предел времени",
+      memory: "превышен предел памяти",
+      cancelled: "отменён",
+      internal: "сбой движка",
+    },
+  },
+  /** The console of a send: what its scripts wrote and what the application says about the network. */
+  console: {
+    empty: "Консоль пуста",
+    emptyText: "Здесь появится вывод console.log из скриптов запроса",
+    truncated: "Вывод обрезан: показаны первые 1000 строк или 1 МБ",
+    at: (ms: number) => `+${ms} мс`,
+    levels: {
+      log: "log",
+      info: "info",
+      warn: "warn",
+      error: "error",
+      debug: "debug",
+      network: "network",
+    },
+  },
   requestSettings: {
     followRedirects: "Следовать редиректам",
     followRedirectsNote: "По умолчанию: да",
@@ -318,6 +354,8 @@ export const strings = {
     body: "Body",
     headers: "Headers",
     cookies: "Cookies",
+    tests: "Tests",
+    console: "Console",
     view: "Вид тела",
     pretty: "Pretty",
     raw: "Raw",
