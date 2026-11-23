@@ -22,6 +22,7 @@ use rqm_store::{Store, StoreError};
 pub use body_view::{body_view, format_json, BodyView, INLINE_BODY_LIMIT, TRUNCATED_PREVIEW};
 pub use cookies_state::{load_cookies, save_cookies, COOKIE_JAR_KEY};
 pub use prepare::{prepare, PrepareError, Prepared, SendWarning};
+pub use rqm_script::unsupported_api;
 pub use scope::{variables_in_scope, ScopeSources, ScopeVariable, VariableOrigin};
 pub use scripts::{
     script_steps, ConsoleEntry, ConsoleLevel, ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptSource, ScriptStep,

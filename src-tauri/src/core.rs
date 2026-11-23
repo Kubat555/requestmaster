@@ -313,7 +313,7 @@ impl AppCore {
                 Ok(ImportResult {
                     name: Some(name),
                     root_id: Some(root_id),
-                    report: imported.report.items.into_iter().map(Into::into).collect(),
+                    report: crate::scripts::import_report(&imported.nodes, imported.report.items),
                     ..blank_result(ImportKind::Collection)
                 })
             }

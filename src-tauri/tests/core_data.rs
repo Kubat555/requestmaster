@@ -471,3 +471,41 @@ fn load_session_tells_whether_the_timings_are_measured() {
     assert!(measuring.load_session().unwrap().measure);
     assert_eq!(as_json(&measuring.load_session().unwrap())["measure"], json!(true));
 }
+
+/// A Postman event with this script.
+fn script_event(listen: &str, script: &str) -> Value {
+    json!({ "listen": listen, "script": { "type": "text/javascript", "exec": [script] } })
+}
+
+#[test]
+fn import_report_names_unsupported_script_api() {
+    let (core, _dir) = core();
+    let source = json!({
+        "info": { "name": "Scripted", "schema": SCHEMA_V21 },
+        "item": [{
+            "name": "Folder",
+            "event": [script_event("test", "pm.test('y', () => {})")],
+            "item": [{
+                "name": "Request",
+                "event": [script_event(
+                    "test",
+                    "pm.vault.get('a'); const m = require('moment'); pm.test('x', () => {})"
+                )],
+                "request": { "method": "GET", "url": { "raw": "http://127.0.0.1/x" } }
+            }]
+        }]
+    });
+    let result = import_one(&core, "scripted.json", &source);
+    let (folder, request) = (id_by_name(&core, "Folder"), id_by_name(&core, "Request"));
+    assert_eq!(
+        as_json(&result)["report"],
+        json!([
+            { "kind": "has_scripts", "node_id": folder, "node_path": "Scripted / Folder", "detail": "test" },
+            { "kind": "has_scripts", "node_id": request, "node_path": "Scripted / Folder / Request", "detail": "test" },
+            {
+                "kind": "unsupported_script_api", "node_id": request, "node_path": "Scripted / Folder / Request",
+                "detail": "pm.vault, require('moment')"
+            }
+        ])
+    );
+}

@@ -14,7 +14,13 @@
   let { results, onclose }: Props = $props();
 
   /** Order of the groups of records. */
-  const KINDS: ReportItem["kind"][] = ["unsupported_auth", "setting_not_applied", "has_scripts", "file_reference"];
+  const KINDS: ReportItem["kind"][] = [
+    "unsupported_auth",
+    "setting_not_applied",
+    "has_scripts",
+    "unsupported_script_api",
+    "file_reference",
+  ];
 
   /** Records of all files grouped by kind; kinds without records are left out. */
   const groups = $derived(

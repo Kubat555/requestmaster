@@ -138,7 +138,14 @@ export function createFakeApi(seed: FakeSeed = {}): FakeApi {
   }));
   let activeEnvironment = seed.activeEnvironment ?? null;
   let settings: SettingsDto = structuredClone(
-    seed.settings ?? { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal" },
+    seed.settings ?? {
+      timeout_ms: 0,
+      verify_tls: true,
+      proxy: { mode: "system" },
+      motion: "normal",
+      scripts_enabled: true,
+      script_timeout_ms: 10000,
+    },
   );
   const allowed = new Set(
     seed.scriptsAllowed ?? nodes.filter((node) => node.kind === "collection").map((node) => node.id),

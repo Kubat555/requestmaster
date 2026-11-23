@@ -309,7 +309,7 @@ async fn saved_timeout_stops_a_slow_server() {
     let (core, dir) = core();
     import_items(&core, json!([get_item("Slow", &format!("{}/slow", server.uri()))]));
     let id = id_by_name(&core, "Slow");
-    core.save_settings(SettingsDto { timeout_ms: 200, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 200, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal, scripts_enabled: true, script_timeout_ms: 10_000 }).unwrap();
 
     let started = Instant::now();
     let result = as_json(&core.send_request("send-1", &id, None).await.unwrap());
@@ -319,7 +319,7 @@ async fn saved_timeout_stops_a_slow_server() {
     assert_eq!(files_in(&bodies_dir(&dir)), 0);
 
     // the setting works from the next send on, without a restart: no limit again — the response arrives
-    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal, scripts_enabled: true, script_timeout_ms: 10_000 }).unwrap();
     let result = core.send_request("send-2", &id, None).await.unwrap();
     assert_eq!(result.response.unwrap().status, 200);
 }
@@ -333,7 +333,7 @@ async fn saved_manual_proxy_is_used() {
     import_items(&core, json!([get_item("Far", "http://example.invalid/x")]));
     let id = id_by_name(&core, "Far");
 
-    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Manual { url: proxy.uri() }, motion: MotionLevel::Normal }).unwrap();
+    core.save_settings(SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::Manual { url: proxy.uri() }, motion: MotionLevel::Normal, scripts_enabled: true, script_timeout_ms: 10_000 }).unwrap();
     let result = core.send_request("send-1", &id, None).await.unwrap();
     assert!(result.error.is_none(), "{:?}", result.error);
     let response = result.response.unwrap();
@@ -766,4 +766,78 @@ async fn test_results_do_not_bloat_the_history() {
         .query_row("SELECT length(CAST(detail AS BLOB)) FROM history ORDER BY id DESC LIMIT 1", [], |row| row.get(0))
         .unwrap();
     assert!(stored as usize <= 2 * HISTORY_BODY_LIMIT + 1_048_576, "the entry takes {stored} bytes");
+}
+
+/// The settings with these two values of the scripts and the defaults of everything else.
+fn script_settings(scripts_enabled: bool, script_timeout_ms: u64) -> SettingsDto {
+    SettingsDto {
+        timeout_ms: 0,
+        verify_tls: true,
+        proxy: ProxyDto::System,
+        motion: MotionLevel::Normal,
+        scripts_enabled,
+        script_timeout_ms,
+    }
+}
+
+#[tokio::test]
+async fn scripts_disabled_in_the_settings() {
+    let server = token_server(Duration::ZERO).await;
+    let (core, _dir) = core();
+    let (collection, request) =
+        scripted(&core, &format!("{}/x", server.uri()), "pm.globals.set('seen', 'yes');", "pm.test('ran', () => {});");
+    assert_eq!(core.scripts_allowed(&collection), Ok(true));
+    core.save_settings(script_settings(false, 10_000)).unwrap();
+
+    let result = as_json(&core.send_request("send-1", &request, None).await.unwrap());
+    assert_eq!(result["response"]["status"], 200);
+    assert_eq!(result["warnings"][0], json!({ "kind": "scripts_disabled", "items": [] }));
+    assert_eq!(result["tests"], json!([]));
+    assert_eq!(result["variable_changes"], json!([]));
+    assert!(variables_of(&core, "globals").is_empty());
+}
+
+#[tokio::test]
+async fn saved_script_timeout_stops_a_script() {
+    let (core, _dir) = core();
+    let (_, request) = scripted(&core, &format!("{CLOSED_PORT}/x"), "while (true) {}", "");
+    core.save_settings(script_settings(true, 200)).unwrap();
+
+    let started = Instant::now();
+    let result = as_json(&core.send_request("send-1", &request, None).await.unwrap());
+    assert!(started.elapsed() < Duration::from_secs(2), "took {:?}", started.elapsed());
+    assert_eq!(result["error"]["kind"], "script");
+    assert_eq!(result["script_errors"][0]["kind"], "timeout");
+}
+
+/// The engine cannot interrupt this loop: the watchdog gives the thread up, and the send ends as after any
+/// other script error.
+#[tokio::test]
+async fn native_loop_is_stopped_by_the_watchdog_and_the_send_is_recorded() {
+    let server = token_server(Duration::ZERO).await;
+    let (core, _dir) = core();
+    let endless = "pm.globals.set('a', '1'); [].reverse.call({ length: 2 ** 53 - 1 })";
+    let (collection, request) = scripted(&core, &format!("{CLOSED_PORT}/x"), endless, "");
+    core.save_settings(script_settings(true, 200)).unwrap();
+
+    let started = Instant::now();
+    let result = as_json(&core.send_request("send-1", &request, None).await.unwrap());
+    // the time limit, the 2 s the watchdog waits on top of it, and 1 s for everything else
+    assert!(started.elapsed() <= Duration::from_millis(200 + 2000 + 1000), "took {:?}", started.elapsed());
+    assert_eq!(result["error"]["kind"], "script");
+    assert_eq!(result["script_errors"][0]["kind"], "timeout");
+    assert_eq!(
+        result["variable_changes"],
+        json!([{ "scope": "global", "target_id": "globals", "op": "set", "key": "a", "value": "1" }])
+    );
+    assert_eq!(variables_of(&core, "globals"), ["a = 1"]);
+    assert_eq!(as_json(&core.history_list(1, None).unwrap())[0]["error_kind"], "script");
+
+    // the next send works
+    let plain = core.create_node(Some(&collection), NodeKind::Request, "Plain").unwrap();
+    let mut content = core.get_node(&plain).unwrap().content;
+    content["url"] = json!(format!("{}/x", server.uri()));
+    core.save_node_content(&plain, content).unwrap();
+    let result = core.send_request("send-2", &plain, None).await.unwrap();
+    assert_eq!(result.response.unwrap().status, 200);
 }

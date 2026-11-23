@@ -96,6 +96,8 @@ describe("SettingsDialog", () => {
       verify_tls: false,
       proxy: { mode: "manual", url: "http://10.0.0.1:3128" },
       motion: "normal",
+      scripts_enabled: true,
+      script_timeout_ms: 10000,
     });
 
     expect(timeout().value).toBe("15000");
@@ -130,12 +132,12 @@ describe("SettingsDialog", () => {
   });
 
   it("takes the timeout 0 and the largest one", async () => {
-    const { saveSettings } = await openSettings({ timeout_ms: 500, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
+    const { saveSettings } = await openSettings({ timeout_ms: 500, verify_tls: true, proxy: { mode: "off" }, motion: "normal", scripts_enabled: true, script_timeout_ms: 10000 });
 
     await fireEvent.input(timeout(), { target: { value: "0" } });
     await save();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "off" }, motion: "normal", scripts_enabled: true, script_timeout_ms: 10000 });
 
     await fireEvent.click(screen.getByRole("button", { name: strings.settings.button }));
     await screen.findByRole("textbox", { name: strings.settings.timeout });
@@ -144,7 +146,7 @@ describe("SettingsDialog", () => {
     await fireEvent.input(timeout(), { target: { value: "3600000" } });
     await save();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 3600000, verify_tls: true, proxy: { mode: "off" }, motion: "normal" });
+    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 3600000, verify_tls: true, proxy: { mode: "off" }, motion: "normal", scripts_enabled: true, script_timeout_ms: 10000 });
   });
 
   it.each(["host:8080", "", "http://", "ftp://host:21"])(
@@ -178,6 +180,8 @@ describe("SettingsDialog", () => {
       verify_tls: false,
       proxy: { mode: "manual", url: "http://127.0.0.1:8888" },
       motion: "normal",
+      scripts_enabled: true,
+      script_timeout_ms: 10000,
     });
     expect(screen.getByText("Настройки сохранены")).toBeTruthy();
   });
@@ -188,13 +192,15 @@ describe("SettingsDialog", () => {
       verify_tls: true,
       proxy: { mode: "manual", url: "https://proxy.example.test" },
       motion: "normal",
+      scripts_enabled: true,
+      script_timeout_ms: 10000,
     });
 
     await fireEvent.click(proxy(strings.settings.proxySystem));
     await save();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal" });
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "normal", scripts_enabled: true, script_timeout_ms: 10000 });
     expect(saveSettings.mock.calls[0][0].proxy).not.toHaveProperty("url");
   });
 
@@ -241,13 +247,13 @@ describe("SettingsDialog", () => {
     ["off", "Выключены"],
     ["rich", "Расширенные"],
   ] as const)("opens with the saved motion level %j", async (level, name) => {
-    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: level });
+    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: level, scripts_enabled: true, script_timeout_ms: 10000 });
 
     expect(chosenMotion()).toBe(name);
   });
 
   it("shows a level it does not know, or settings without one, as the normal level", async () => {
-    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "extreme" as MotionLevel });
+    await openSettings({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "extreme" as MotionLevel, scripts_enabled: true, script_timeout_ms: 10000 });
     expect(chosenMotion()).toBe("Обычные");
   });
 
@@ -262,7 +268,7 @@ describe("SettingsDialog", () => {
     await save();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "rich" });
+    expect(saveSettings).toHaveBeenCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "rich", scripts_enabled: true, script_timeout_ms: 10000 });
     expect(motion.level).toBe("rich");
     expect(document.documentElement.dataset.motion).toBe("rich");
 
@@ -273,7 +279,7 @@ describe("SettingsDialog", () => {
     await fireEvent.click(motionOption(strings.settings.motionLevels.off));
     await save();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "off" });
+    expect(saveSettings).toHaveBeenLastCalledWith({ timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: "off", scripts_enabled: true, script_timeout_ms: 10000 });
     expect(document.documentElement.dataset.motion).toBe("off");
   });
 
@@ -312,5 +318,30 @@ describe("SettingsDialog", () => {
 
     expect(saveSettings).not.toHaveBeenCalled();
     expect(screen.queryByText(strings.settings.saved)).toBeNull();
+  });
+
+  it("script_settings_are_kept_as_read", async () => {
+    // The dialog has no fields for them yet: Save must not reset what is stored.
+    const { saveSettings } = await openSettings({
+      timeout_ms: 0,
+      verify_tls: true,
+      proxy: { mode: "system" },
+      motion: "normal",
+      scripts_enabled: false,
+      script_timeout_ms: 2000,
+    });
+
+    await fireEvent.input(timeout(), { target: { value: "500" } });
+    await save();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(saveSettings).toHaveBeenCalledWith({
+      timeout_ms: 500,
+      verify_tls: true,
+      proxy: { mode: "system" },
+      motion: "normal",
+      scripts_enabled: false,
+      script_timeout_ms: 2000,
+    });
   });
 });

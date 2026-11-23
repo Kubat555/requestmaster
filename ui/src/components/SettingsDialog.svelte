@@ -39,6 +39,9 @@
   let proxyUrl = $state("");
   /** How much the window animates; applied when the settings are saved. */
   let motionLevel = $state<MotionLevel>("normal");
+  /** The two settings of the scripts as they were read: the dialog has no fields for them and saves them back. */
+  let scriptsEnabled = $state(true);
+  let scriptTimeoutMs = $state(10000);
 
   let form: HTMLFormElement;
 
@@ -66,6 +69,8 @@
         proxyMode = settings.proxy.mode;
         proxyUrl = settings.proxy.mode === "manual" ? settings.proxy.url : "";
         motionLevel = motionLevelOf(settings.motion);
+        scriptsEnabled = settings.scripts_enabled;
+        scriptTimeoutMs = settings.script_timeout_ms;
         loaded = true;
       },
       (error) => (failure = String(error)),
@@ -102,7 +107,14 @@
 
     saving = true;
     try {
-      await api.saveSettings({ timeout_ms: timeoutMs, verify_tls: verifyTls, proxy, motion: motionLevel });
+      await api.saveSettings({
+        timeout_ms: timeoutMs,
+        verify_tls: verifyTls,
+        proxy,
+        motion: motionLevel,
+        scripts_enabled: scriptsEnabled,
+        script_timeout_ms: scriptTimeoutMs,
+      });
     } catch (error) {
       failure = String(error);
       return;

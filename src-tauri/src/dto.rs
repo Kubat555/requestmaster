@@ -104,6 +104,8 @@ pub enum ReportKind {
     HasScripts,
     /// The body refers to a file on the computer the collection was exported from.
     FileReference,
+    /// The scripts of the node use sandbox API the engine does not support.
+    UnsupportedScriptApi,
 }
 
 /// One record of the import report.
@@ -115,7 +117,8 @@ pub struct ReportItem {
     pub node_id: String,
     /// Names from the collection down to the node, joined with ` / `.
     pub node_path: String,
-    /// Depends on `kind`: the Postman auth type, the setting key, the script events or the form field name.
+    /// Depends on `kind`: the Postman auth type, the setting key, the script events, the form field name or
+    /// the names of the unsupported sandbox API joined with `, `.
     pub detail: String,
 }
 
@@ -732,6 +735,27 @@ pub struct SettingsDto {
     /// field existed have none: they read as [`MotionLevel::Normal`].
     #[serde(default)]
     pub motion: MotionLevel,
+    /// Whether scripts run at all. Written by the dialog of the settings; read by every send. Settings
+    /// stored before the field existed have none: they read as `true`.
+    #[serde(default = "default_scripts_enabled")]
+    pub scripts_enabled: bool,
+    /// JavaScript execution time of one script in milliseconds, from
+    /// [`MIN_SCRIPT_TIMEOUT_MS`](crate::MIN_SCRIPT_TIMEOUT_MS) to
+    /// [`MAX_SCRIPT_TIMEOUT_MS`](crate::MAX_SCRIPT_TIMEOUT_MS). Written by the dialog of the settings; read
+    /// by every send. Settings stored before the field existed have none: they read as
+    /// [`DEFAULT_SCRIPT_TIMEOUT_MS`](crate::DEFAULT_SCRIPT_TIMEOUT_MS).
+    #[serde(default = "default_script_timeout_ms")]
+    pub script_timeout_ms: u64,
+}
+
+/// `SettingsDto::scripts_enabled` of the settings stored without it.
+fn default_scripts_enabled() -> bool {
+    true
+}
+
+/// `SettingsDto::script_timeout_ms` of the settings stored without it.
+fn default_script_timeout_ms() -> u64 {
+    crate::DEFAULT_SCRIPT_TIMEOUT_MS
 }
 
 /// How much the window animates; chosen in the dialog of the settings.

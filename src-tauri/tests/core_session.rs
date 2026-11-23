@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use requestmaster_lib::dto::{DraftDto, ImportFile, MotionLevel, ProxyDto, SavedTab, SavedTabKind, SettingsDto, WindowState};
-use requestmaster_lib::{AppCore, CoreConfig, DRAFT_KEY_PREFIX, MAX_TIMEOUT_MS, SETTINGS_KEY, WINDOW_STATE_KEY};
+use requestmaster_lib::{
+    AppCore, CoreConfig, DEFAULT_SCRIPT_TIMEOUT_MS, DRAFT_KEY_PREFIX, MAX_SCRIPT_TIMEOUT_MS, MAX_TIMEOUT_MS,
+    MIN_SCRIPT_TIMEOUT_MS, SETTINGS_KEY, WINDOW_STATE_KEY,
+};
 use rqm_http::ProxySetting;
 use rqm_model::NodeKind;
 use rqm_runner::AppSettings;
@@ -98,7 +101,14 @@ fn window_with(tabs: Vec<SavedTab>, active: Option<&str>) -> WindowState {
 }
 
 fn default_settings_value() -> SettingsDto {
-    SettingsDto { timeout_ms: 0, verify_tls: true, proxy: ProxyDto::System, motion: MotionLevel::Normal }
+    SettingsDto {
+        timeout_ms: 0,
+        verify_tls: true,
+        proxy: ProxyDto::System,
+        motion: MotionLevel::Normal,
+        scripts_enabled: true,
+        script_timeout_ms: 10_000,
+    }
 }
 
 #[test]
@@ -308,6 +318,8 @@ fn session_survives_reopening_the_database() {
         verify_tls: false,
         proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() },
         motion: MotionLevel::Rich,
+        scripts_enabled: true,
+        script_timeout_ms: 10_000,
     };
     core.save_window_state(state.clone()).unwrap();
     core.save_draft(&a, Some(json!({ "method": "DELETE", "url": "http://127.0.0.1/y" }))).unwrap();
@@ -327,7 +339,10 @@ fn default_settings() {
     assert_eq!(core.get_settings().unwrap(), default_settings_value());
     assert_eq!(
         as_json(&core.get_settings().unwrap()),
-        json!({ "timeout_ms": 0, "verify_tls": true, "proxy": { "mode": "system" }, "motion": "normal" })
+        json!({
+            "timeout_ms": 0, "verify_tls": true, "proxy": { "mode": "system" }, "motion": "normal",
+            "scripts_enabled": true, "script_timeout_ms": 10000
+        })
     );
     assert_eq!(raw_get(&db_path(&dir), SETTINGS_KEY), None, "reading writes nothing");
 
@@ -342,7 +357,7 @@ fn default_settings() {
 #[test]
 fn settings_round_trip() {
     let (core, dir) = core();
-    let text = r#"{"timeout_ms":30000,"verify_tls":false,"proxy":{"mode":"manual","url":"http://127.0.0.1:8888"},"motion":"rich"}"#;
+    let text = r#"{"timeout_ms":30000,"verify_tls":false,"proxy":{"mode":"manual","url":"http://127.0.0.1:8888"},"motion":"rich","scripts_enabled":false,"script_timeout_ms":2500}"#;
     let settings: SettingsDto = serde_json::from_str(text).unwrap();
     assert_eq!(
         settings,
@@ -351,6 +366,8 @@ fn settings_round_trip() {
             verify_tls: false,
             proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() },
             motion: MotionLevel::Rich,
+            scripts_enabled: false,
+            script_timeout_ms: 2500,
         }
     );
     core.save_settings(settings.clone()).unwrap();
@@ -359,7 +376,7 @@ fn settings_round_trip() {
     assert_eq!(raw_get(&db_path(&dir), SETTINGS_KEY).as_deref(), Some(text));
 
     for proxy in [ProxyDto::Off, ProxyDto::System] {
-        let settings = SettingsDto { timeout_ms: MAX_TIMEOUT_MS, verify_tls: true, proxy, motion: MotionLevel::Off };
+        let settings = SettingsDto { timeout_ms: MAX_TIMEOUT_MS, proxy, motion: MotionLevel::Off, ..default_settings_value() };
         core.save_settings(settings.clone()).unwrap();
         assert_eq!(core.get_settings().unwrap(), settings);
     }
@@ -378,7 +395,7 @@ fn settings_of_a_build_without_the_motion_level_stay_readable() {
     raw_set(&db_path(&dir), SETTINGS_KEY, r#"{"timeout_ms":1500,"verify_tls":false,"proxy":{"mode":"off"}}"#);
     assert_eq!(
         core.get_settings().unwrap(),
-        SettingsDto { timeout_ms: 1500, verify_tls: false, proxy: ProxyDto::Off, motion: MotionLevel::Normal }
+        SettingsDto { timeout_ms: 1500, verify_tls: false, proxy: ProxyDto::Off, ..default_settings_value() }
     );
     // and the send still takes them
     assert_eq!(
@@ -387,9 +404,54 @@ fn settings_of_a_build_without_the_motion_level_stay_readable() {
             timeout: Some(Duration::from_millis(1500)),
             verify_tls: false,
             proxy: ProxySetting::Off,
-            ..AppSettings::default()
+            scripts_enabled: true,
+            script_timeout: Duration::from_secs(10),
         }
     );
+}
+
+/// What a build without scripts stored: the two keys of the scripts are absent and read as the defaults,
+/// and nothing of the rest is reset.
+#[test]
+fn settings_saved_before_stage_2_keep_their_values() {
+    let (core, dir) = core();
+    raw_set(&db_path(&dir), SETTINGS_KEY, r#"{"timeout_ms":30000,"verify_tls":false,"proxy":{"mode":"off"},"motion":"rich"}"#);
+    assert_eq!(
+        core.get_settings().unwrap(),
+        SettingsDto {
+            timeout_ms: 30000,
+            verify_tls: false,
+            proxy: ProxyDto::Off,
+            motion: MotionLevel::Rich,
+            scripts_enabled: true,
+            script_timeout_ms: 10_000,
+        }
+    );
+}
+
+#[test]
+fn script_timeout_out_of_range_is_refused() {
+    let (core, dir) = core();
+    let saved = SettingsDto { script_timeout_ms: 2500, ..default_settings_value() };
+    core.save_settings(saved.clone()).unwrap();
+    let stored = raw_get(&db_path(&dir), SETTINGS_KEY);
+
+    for out_of_range in [99, 600_001] {
+        assert_eq!(
+            core.save_settings(SettingsDto { script_timeout_ms: out_of_range, ..default_settings_value() }),
+            Err("script timeout is out of range".to_string()),
+            "{out_of_range}"
+        );
+        assert_eq!(core.get_settings().unwrap(), saved, "{out_of_range}");
+    }
+    assert_eq!(raw_get(&db_path(&dir), SETTINGS_KEY), stored, "the stored value is the one saved before");
+
+    for edge in [100, 600_000] {
+        let settings = SettingsDto { script_timeout_ms: edge, ..default_settings_value() };
+        core.save_settings(settings.clone()).unwrap();
+        assert_eq!(core.get_settings().unwrap(), settings);
+    }
+    assert_eq!((MIN_SCRIPT_TIMEOUT_MS, MAX_SCRIPT_TIMEOUT_MS, DEFAULT_SCRIPT_TIMEOUT_MS), (100, 600_000, 10_000));
 }
 
 #[test]
@@ -438,6 +500,8 @@ fn settings_refuse_a_bad_proxy_and_a_huge_timeout() {
         verify_tls: false,
         proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() },
         motion: MotionLevel::Rich,
+        scripts_enabled: true,
+        script_timeout_ms: 10_000,
     };
     core.save_settings(saved.clone()).unwrap();
     let stored = raw_get(&db_path(&dir), SETTINGS_KEY);
@@ -461,14 +525,22 @@ fn settings_refuse_a_bad_proxy_and_a_huge_timeout() {
 fn settings_dto_maps_to_app_settings() {
     assert_eq!(AppSettings::from(default_settings_value()), AppSettings::default());
     assert_eq!(AppSettings::from(default_settings_value()).timeout, None, "0 means no limit");
-    let settings = SettingsDto { timeout_ms: 1500, verify_tls: false, proxy: ProxyDto::Off, motion: MotionLevel::Normal };
+    let settings = SettingsDto {
+        timeout_ms: 1500,
+        verify_tls: false,
+        proxy: ProxyDto::Off,
+        motion: MotionLevel::Normal,
+        scripts_enabled: false,
+        script_timeout_ms: 2500,
+    };
     assert_eq!(
         AppSettings::from(settings),
         AppSettings {
             timeout: Some(Duration::from_millis(1500)),
             verify_tls: false,
             proxy: ProxySetting::Off,
-            ..AppSettings::default()
+            scripts_enabled: false,
+            script_timeout: Duration::from_millis(2500),
         }
     );
     let manual = SettingsDto { proxy: ProxyDto::Manual { url: "http://127.0.0.1:8888".to_string() }, ..default_settings_value() };

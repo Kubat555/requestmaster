@@ -1,7 +1,9 @@
 //! The scripts of [`AppCore`]: what the scripts of a send left, in the form the window and the history get
-//! it, and the consent to run the scripts of a collection.
+//! it, the consent to run the scripts of a collection, and what the import report says about scripts.
 
-use rqm_model::NodeKind;
+use std::collections::BTreeSet;
+
+use rqm_model::{Node, NodeContent, NodeKind, Scripts};
 use rqm_runner::{
     AppliedChange, ConsoleEntry, ConsoleLevel, ScriptErrorKind, ScriptFailure, ScriptPhase, ScriptSource,
     StoredScope, TestOutcome, VariableOp, SCRIPTS_ALLOWED_KEY,
@@ -10,8 +12,8 @@ use rqm_store::Store;
 
 use crate::core::{message, AppCore};
 use crate::dto::{
-    ConsoleLevelDto, ConsoleLineDto, ScriptErrorDto, ScriptErrorKindDto, ScriptPhaseDto, ScriptSourceDto,
-    TestResultDto, VariableChangeDto, VariableOpDto, VariableScope,
+    ConsoleLevelDto, ConsoleLineDto, ReportItem, ReportKind, ScriptErrorDto, ScriptErrorKindDto, ScriptPhaseDto,
+    ScriptSourceDto, TestResultDto, VariableChangeDto, VariableOpDto, VariableScope,
 };
 
 /// The most characters of a node name a [`ScriptSourceDto`] keeps.
@@ -46,6 +48,46 @@ pub(crate) fn allow_existing_collections(store: &mut Store) -> Result<(), String
     let collections: Vec<String> =
         rows.into_iter().filter(|row| row.kind == NodeKind::Collection).map(|row| row.id).collect();
     store.state_set(SCRIPTS_ALLOWED_KEY, &serde_json::Value::from(collections).to_string()).map_err(message)
+}
+
+/// The report of an imported collection as the window gets it. Right after the `HasScripts` record of a node
+/// whose scripts use sandbox API the engine does not support comes a record that names that API: sorted,
+/// without repeats, joined with `, `.
+pub(crate) fn import_report(nodes: &[Node], items: Vec<rqm_postman::ReportItem>) -> Vec<ReportItem> {
+    let mut report = Vec::with_capacity(items.len());
+    for item in items {
+        let unsupported = match item.kind {
+            rqm_postman::ReportKind::HasScripts => {
+                nodes.iter().find(|node| node.id == item.node_id).map(|node| unsupported_in(scripts_of(&node.content)))
+            }
+            _ => None,
+        };
+        let (node_id, node_path) = (item.node_id.clone(), item.node_path.clone());
+        report.push(ReportItem::from(item));
+        if let Some(detail) = unsupported.filter(|names| !names.is_empty()) {
+            report.push(ReportItem { kind: ReportKind::UnsupportedScriptApi, node_id, node_path, detail });
+        }
+    }
+    report
+}
+
+/// The scripts of a node of any kind.
+fn scripts_of(content: &NodeContent) -> &Scripts {
+    match content {
+        NodeContent::Collection(collection) => &collection.scripts,
+        NodeContent::Folder(folder) => &folder.scripts,
+        NodeContent::Request(request) => &request.scripts,
+    }
+}
+
+/// The names of the unsupported sandbox API in both scripts of a node: sorted, without repeats, joined with
+/// `, `; empty when the scripts use none.
+fn unsupported_in(scripts: &Scripts) -> String {
+    let names: BTreeSet<String> = [&scripts.pre_request, &scripts.test]
+        .into_iter()
+        .flat_map(|script| rqm_runner::unsupported_api(script))
+        .collect();
+    names.into_iter().collect::<Vec<_>>().join(", ")
 }
 
 impl From<ScriptSource> for ScriptSourceDto {

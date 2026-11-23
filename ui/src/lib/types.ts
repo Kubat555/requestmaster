@@ -349,7 +349,7 @@ export interface ImportFile {
 
 /** One record of the import report. */
 export interface ReportItem {
-  kind: "unsupported_auth" | "setting_not_applied" | "has_scripts" | "file_reference";
+  kind: "unsupported_auth" | "setting_not_applied" | "has_scripts" | "unsupported_script_api" | "file_reference";
   node_id: string;
   node_path: string;
   detail: string;
@@ -641,6 +641,10 @@ export interface SettingsDto {
   proxy: ProxyDto;
   /** Not used by a send: the window reads it at the start and applies it at once when it is saved (`motion.svelte.ts`). */
   motion: MotionLevel;
+  /** Whether scripts run at all. */
+  scripts_enabled: boolean;
+  /** How long the JavaScript of one script may run, in milliseconds: from 100 to 600000. */
+  script_timeout_ms: number;
 }
 
 /** What the window remembers between two launches. */

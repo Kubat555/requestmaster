@@ -60,6 +60,7 @@ export const strings = {
       unsupported_auth: "Авторизация не поддерживается",
       setting_not_applied: "Настройки не применяются",
       has_scripts: "Скрипты",
+      unsupported_script_api: "Не поддерживается в скриптах",
       file_reference: "Ссылки на файлы",
     },
     conflictsTitle: "Глобальные переменные различаются",

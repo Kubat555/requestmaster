@@ -5,7 +5,14 @@ import { toasts } from "./toasts.svelte";
 import type { MotionLevel, SettingsDto } from "./types";
 
 function settings(level: unknown): SettingsDto {
-  return { timeout_ms: 0, verify_tls: true, proxy: { mode: "system" }, motion: level as MotionLevel };
+  return {
+    timeout_ms: 0,
+    verify_tls: true,
+    proxy: { mode: "system" },
+    motion: level as MotionLevel,
+    scripts_enabled: true,
+    script_timeout_ms: 10000,
+  };
 }
 
 /** What `<html data-motion>` says: the stylesheets read the level from there. */
