@@ -191,6 +191,17 @@ fn memory_filled_with_small_objects_is_a_memory_error() {
 }
 
 #[test]
+fn memory_filled_by_an_async_function_nobody_awaits_is_a_memory_error() {
+    let limits = Limits {
+        memory_bytes: 16 << 20,
+        ..Limits::default()
+    };
+    // The prelude has no memory to note the rejection: without the engine the script would pass.
+    let error = one_error("(async () => { const a = []; for (;;) a.push({}) })()", limits);
+    assert_eq!(error.kind, ScriptErrorKind::Memory);
+}
+
+#[test]
 fn infinite_recursion_is_an_error_of_the_script() {
     let still_works = || {
         assert_eq!(

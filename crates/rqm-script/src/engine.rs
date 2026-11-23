@@ -400,13 +400,21 @@ fn no_error_object(thrown: &Value<'_>) -> bool {
     thrown.is_null() || thrown.is_undefined()
 }
 
+/// What the rejection tracker saw of a script that ran out of memory ([`track_rejections`]).
+#[derive(Default)]
+struct Exhausted {
+    /// A promise was rejected with no error object while the memory was full ([`Script::thrown`]).
+    seen: Cell<bool>,
+    /// The prelude had no memory to write such a rejection into its list ([`Script::execute`]).
+    lost: Cell<bool>,
+}
+
 /// The engine tells of every promise that is rejected with no handler, and again when it gets one later;
-/// the prelude keeps the list. `exhausted` is set when the promise is rejected with no error object while
-/// the memory is full ([`Script::thrown`]).
+/// the prelude keeps the list.
 fn track_rejections(
     runtime: &Runtime,
     tracking: &Tracking,
-    exhausted: &Rc<Cell<bool>>,
+    exhausted: &Rc<Exhausted>,
     limits: &Limits,
 ) {
     let slot = Rc::clone(tracking);
@@ -414,8 +422,9 @@ fn track_rejections(
     let limits = *limits;
     runtime.set_host_promise_rejection_tracker(Some(Box::new(
         move |ctx, promise, reason, handled| {
-            if !handled && no_error_object(&reason) && memory_is_full(&ctx, &limits) {
-                exhausted.set(true);
+            let starved = !handled && no_error_object(&reason) && memory_is_full(&ctx, &limits);
+            if starved {
+                exhausted.seen.set(true);
             }
             // The borrow ends before JavaScript runs.
             let saved = slot.try_borrow().ok().and_then(|slot| slot.clone());
@@ -427,7 +436,17 @@ fn track_rejections(
                 .and_then(|track| track.call::<_, ()>((promise, reason, handled)));
             if matches!(called, Err(Error::Exception)) {
                 // Must not stay pending in the context. A stop is not lost: its flag stays set.
-                let _ = ctx.catch();
+                let thrown = ctx.catch();
+                // An async function nobody awaits fills the memory: its data still lives while its
+                // promise is rejected, so the prelude has no memory to add the rejection to its list and
+                // the script would end as if nothing had happened. It stays an error of memory even if
+                // the script gives the promise a handler later.
+                if !handled
+                    && no_error_object(&thrown)
+                    && (starved || memory_is_full(&ctx, &limits))
+                {
+                    exhausted.lost.set(true);
+                }
             }
         },
     )));
@@ -463,7 +482,7 @@ fn run_script(
     let interrupt = Rc::clone(&budget);
     runtime.set_interrupt_handler(Some(Box::new(move || interrupt.stop().is_some())));
     let tracking: Tracking = Rc::new(RefCell::new(None));
-    let exhausted = Rc::new(Cell::new(false));
+    let exhausted = Rc::new(Exhausted::default());
     track_rejections(&runtime, &tracking, &exhausted, limits);
     let context = match Context::full(&runtime) {
         Ok(context) => context,
@@ -520,7 +539,7 @@ struct Script<'a, 'js> {
     budget: &'a Budget,
     primitives: &'a Primitives,
     /// The script was left with no memory for an error object ([`track_rejections`]).
-    exhausted: &'a Cell<bool>,
+    exhausted: &'a Exhausted,
     well_formed: Option<Function<'js>>,
 }
 
@@ -543,6 +562,7 @@ impl<'js> Script<'_, 'js> {
             // list is looked at only here, or one error would be named twice.
             PromiseState::Resolved => match host::unhandled(hooks) {
                 Ok(Some(reason)) => Some(self.thrown(&reason, Origin::Script)),
+                Ok(None) if self.exhausted.lost.get() => Some(Failure::memory(self.limits)),
                 Ok(None) => None,
                 Err(error) => Some(self.failure(error, Origin::Script)),
             },
@@ -689,7 +709,7 @@ impl<'js> Script<'_, 'js> {
         // that is freed on the way out — the local variables of a function the script calls, or of a
         // callback. Only an allocator that sees the refused allocation would tell those.
         if no_error_object(thrown)
-            && (self.exhausted.get() || memory_is_full(self.ctx, self.limits))
+            && (self.exhausted.seen.get() || memory_is_full(self.ctx, self.limits))
         {
             return Failure::memory(self.limits);
         }
