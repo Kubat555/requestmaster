@@ -587,6 +587,26 @@ describe("ResponsePanel", () => {
     expect(panel().getByText(text)).toBeTruthy();
   });
 
+  it("not_allowed_warning_has_an_allow_button", async () => {
+    const api = await openRequest({
+      onSend: async () =>
+        answered({}, [
+          { kind: "scripts_not_allowed", items: ["API"] },
+          { kind: "scripts_disabled", items: [] },
+        ]),
+    });
+    await clickSend();
+    await panel().findByText("200 OK");
+
+    // One button: the switch of the settings is not a matter of one collection.
+    const allow = panel().getByRole("button", { name: strings.response.allowScripts });
+    expect(allow.closest("li")!.textContent).toContain(strings.response.warnings.scripts_not_allowed(["API"]));
+    await fireEvent.click(allow);
+
+    await waitFor(() => expect(api.allowCalls).toEqual([["req", true]]));
+    expect(await screen.findByText(strings.response.scriptsAllowedNow)).toBeTruthy();
+  });
+
   it("shows the other warnings of a send", async () => {
     await openRequest({
       onSend: async () =>

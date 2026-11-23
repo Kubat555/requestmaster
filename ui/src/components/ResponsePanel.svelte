@@ -26,9 +26,11 @@
     sending: Sending;
     /** A new value shows the body of the response and opens the search in it. */
     findSignal?: number;
+    /** The request whose response is shown: its collection gets the consent. Without it the warning has no button. */
+    nodeId?: string;
   }
 
-  let { sending, findSignal }: Props = $props();
+  let { sending, findSignal, nodeId }: Props = $props();
 
   const api = getContext<Api>("api");
 
@@ -133,6 +135,17 @@
     void exportToFile(() => api.saveResponseBody(bodyId));
   }
 
+  /** Lets the scripts of the collection of `id` run; the send that was warned about stays as it is. */
+  async function allowScripts(id: string) {
+    try {
+      await api.setScriptsAllowed(id, true);
+    } catch (error) {
+      toasts.error(String(error));
+      return;
+    }
+    toasts.info(strings.response.scriptsAllowedNow);
+  }
+
   /** The view of the body on the screen. */
   let bodyView = $state<ResponseBody>();
   /** The value of `findSignal` that was answered last. */
@@ -215,7 +228,7 @@
   {:else if !result}
     <EmptyState icon="send" title={strings.response.emptyTitle} text={strings.response.empty} />
   {:else}
-    <SendWarnings warnings={result.warnings} />
+    <SendWarnings warnings={result.warnings} onallow={nodeId === undefined ? undefined : () => allowScripts(nodeId)} />
     {#if error}
       <div class="failure">
         <!-- A cancel is what the user asked for and a skip is what a script asked for, so neither is shown as

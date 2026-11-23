@@ -339,6 +339,10 @@ export const strings = {
     name: "Имя",
     /** The section of the description, in the editors of a collection and of a folder. */
     description: "Описание",
+    /** The consent to run the scripts of the collection: acts at once, is not saved with the tab. */
+    allowScripts: "Разрешить скрипты этой коллекции",
+    allowScriptsNote:
+      "Скрипты выполняются при каждой отправке запроса. Они читают все переменные, включая секретные, и могут отправлять запросы на любые адреса. Разрешайте скрипты только коллекциям, которым доверяете.",
   },
   folder: {
     sections: "Разделы папки",
@@ -363,6 +367,9 @@ export const strings = {
     copy: "Копировать",
     copied: "Скопировано",
     copyFailed: "Не удалось скопировать: буфер обмена недоступен",
+    /** The button of the warning about scripts that are not allowed, and what is told after it. */
+    allowScripts: "Разрешить",
+    scriptsAllowedNow: "Скрипты разрешены — отправьте запрос ещё раз",
     save: "Сохранить в файл",
     noBody: "Ответ без тела",
     truncated: (total: string) => `Показаны первые 256 КБ из ${total}`,
@@ -456,6 +463,10 @@ export const strings = {
     motion: "Анимации",
     motionLevels: { off: "Выключены", normal: "Обычные", rich: "Расширенные" },
     motionNote: "Расширенные — эффекты для мощных компьютеров",
+    scriptsEnabled: "Выполнять скрипты",
+    scriptTimeout: "Лимит времени скрипта, мс",
+    scriptTimeoutNote: "От 100 до 600 000",
+    scriptTimeoutInvalid: "Целое число от 100 до 600 000",
     save: "Сохранить",
     cancel: "Отмена",
     saved: "Настройки сохранены",

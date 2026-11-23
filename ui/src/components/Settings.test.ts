@@ -30,6 +30,10 @@ function timeout(): HTMLInputElement {
   return within(dialog()).getByRole("textbox", { name: strings.settings.timeout });
 }
 
+function scriptTimeout(): HTMLInputElement {
+  return within(dialog()).getByRole("textbox", { name: strings.settings.scriptTimeout });
+}
+
 function verifyTls(): HTMLInputElement {
   return within(dialog()).getByRole("checkbox", { name: strings.settings.verifyTls });
 }
@@ -321,7 +325,7 @@ describe("SettingsDialog", () => {
   });
 
   it("script_settings_are_kept_as_read", async () => {
-    // The dialog has no fields for them yet: Save must not reset what is stored.
+    // Untouched in the dialog: Save must not reset what is stored.
     const { saveSettings } = await openSettings({
       timeout_ms: 0,
       verify_tls: true,
@@ -343,5 +347,38 @@ describe("SettingsDialog", () => {
       scripts_enabled: false,
       script_timeout_ms: 2000,
     });
+  });
+
+  it("scripts_settings_are_saved", async () => {
+    const { saveSettings } = await openSettings();
+    const enabled = within(dialog()).getByRole<HTMLInputElement>("checkbox", { name: strings.settings.scriptsEnabled });
+    expect(enabled.checked).toBe(true);
+    expect(scriptTimeout().value).toBe("10000");
+
+    await fireEvent.click(enabled);
+    await fireEvent.input(scriptTimeout(), { target: { value: "2000" } });
+    await save();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(saveSettings).toHaveBeenCalledWith({
+      timeout_ms: 0,
+      verify_tls: true,
+      proxy: { mode: "system" },
+      motion: "normal",
+      scripts_enabled: false,
+      script_timeout_ms: 2000,
+    });
+  });
+
+  it("script_timeout_out_of_range_is_not_saved", async () => {
+    const { saveSettings } = await openSettings();
+
+    for (const value of ["99", "600001", "1.5", ""]) {
+      await fireEvent.input(scriptTimeout(), { target: { value } });
+      await save();
+      expect(within(dialog()).getByText(strings.settings.scriptTimeoutInvalid)).toBeTruthy();
+      expect(scriptTimeout().getAttribute("aria-invalid")).toBe("true");
+    }
+    expect(saveSettings).not.toHaveBeenCalled();
   });
 });

@@ -311,7 +311,7 @@
         {#each tabs.list as tab (tab.id)}
           {#if tab.kind === "request"}
             <div class="tab-panel" hidden={tabs.active !== tab}>
-              <ResponsePanel sending={tab.sending} findSignal={finding?.tabId === tab.id ? finding.count : undefined} />
+              <ResponsePanel sending={tab.sending} nodeId={tab.nodeId} findSignal={finding?.tabId === tab.id ? finding.count : undefined} />
             </div>
           {/if}
         {/each}

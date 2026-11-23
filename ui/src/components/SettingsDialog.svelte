@@ -23,6 +23,9 @@
 
   /** The longest timeout the core takes, in milliseconds: one hour. */
   const MAX_TIMEOUT_MS = 3_600_000;
+  /** The shortest and the longest time limit of a script the core takes, in milliseconds. */
+  const MIN_SCRIPT_TIMEOUT_MS = 100;
+  const MAX_SCRIPT_TIMEOUT_MS = 600_000;
   /** A timeout the field takes: a whole number without a sign. */
   const WHOLE = /^\d+$/;
   /** A proxy address the field takes: `http://` or `https://` with something after it. */
@@ -39,9 +42,10 @@
   let proxyUrl = $state("");
   /** How much the window animates; applied when the settings are saved. */
   let motionLevel = $state<MotionLevel>("normal");
-  /** The two settings of the scripts as they were read: the dialog has no fields for them and saves them back. */
+  /** The scripts run on a send; without it every send goes as if there were none. */
   let scriptsEnabled = $state(true);
-  let scriptTimeoutMs = $state(10000);
+  /** The time limit of one script, as typed. */
+  let scriptTimeout = $state("");
 
   let form: HTMLFormElement;
 
@@ -57,6 +61,7 @@
   /** The last save found the value of the field unfit. */
   let timeoutInvalid = $state(false);
   let proxyUrlInvalid = $state(false);
+  let scriptTimeoutInvalid = $state(false);
   /** What the core answered when it could not read or save the settings; `null` — nothing. */
   let failure = $state<string | null>(null);
   let saving = $state(false);
@@ -70,7 +75,7 @@
         proxyUrl = settings.proxy.mode === "manual" ? settings.proxy.url : "";
         motionLevel = motionLevelOf(settings.motion);
         scriptsEnabled = settings.scripts_enabled;
-        scriptTimeoutMs = settings.script_timeout_ms;
+        scriptTimeout = String(settings.script_timeout_ms);
         loaded = true;
       },
       (error) => (failure = String(error)),
@@ -85,6 +90,14 @@
     return value <= MAX_TIMEOUT_MS ? value : null;
   }
 
+  /** The time limit of a script that is typed; `null` — not a whole number within the limits of the core. */
+  function typedScriptTimeout(): number | null {
+    const text = scriptTimeout.trim();
+    if (!WHOLE.test(text)) return null;
+    const value = Number(text);
+    return value >= MIN_SCRIPT_TIMEOUT_MS && value <= MAX_SCRIPT_TIMEOUT_MS ? value : null;
+  }
+
   /** The proxy that is chosen; `null` — the manual one with an address that cannot be one. */
   function chosenProxy(): ProxyDto | null {
     if (proxyMode !== "manual") return { mode: proxyMode };
@@ -97,10 +110,12 @@
     if (saving) return;
     const timeoutMs = typedTimeout();
     const proxy = chosenProxy();
+    const scriptTimeoutMs = typedScriptTimeout();
     timeoutInvalid = timeoutMs === null;
     proxyUrlInvalid = proxy === null;
+    scriptTimeoutInvalid = scriptTimeoutMs === null;
     failure = null;
-    if (timeoutMs === null || proxy === null) {
+    if (timeoutMs === null || proxy === null || scriptTimeoutMs === null) {
       if (motion.rich) void shakeInvalid();
       return;
     }
@@ -197,6 +212,34 @@
         <span class="name">{strings.settings.motion}</span>
         <Segmented options={MOTION_OPTIONS} bind:value={motionLevel} label={strings.settings.motion} />
         <span class="note">{strings.settings.motionNote}</span>
+      </div>
+
+      <div class="row">
+        <label class="choice">
+          <input type="checkbox" bind:checked={scriptsEnabled} />
+          {strings.settings.scriptsEnabled}
+        </label>
+      </div>
+
+      <div class="row">
+        <span class="name">{strings.settings.scriptTimeout}</span>
+        <Field
+          mono
+          label={strings.settings.scriptTimeout}
+          inputmode="numeric"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={scriptTimeout}
+          aria-invalid={scriptTimeoutInvalid ? "true" : undefined}
+          aria-describedby="{id}-script-timeout-note"
+        />
+        <span class="note" id="{id}-script-timeout-note">
+          {#if scriptTimeoutInvalid}
+            <span class="invalid">{strings.settings.scriptTimeoutInvalid}</span>
+          {:else}
+            {strings.settings.scriptTimeoutNote}
+          {/if}
+        </span>
       </div>
     {/if}
 

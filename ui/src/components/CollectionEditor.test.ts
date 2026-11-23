@@ -281,4 +281,30 @@ describe("variables changed by a script with the tab of the collection open", ()
       description: "About",
     });
   });
+
+  it("allow_scripts_acts_at_once_and_is_not_part_of_the_draft", async () => {
+    const { api, saveNodeContent } = await openCollection();
+    const setScriptsAllowed = vi.spyOn(api, "setScriptsAllowed");
+    await fireEvent.click(screen.getByRole("tab", { name: strings.collection.scripts }));
+    const allow = await screen.findByRole<HTMLInputElement>("checkbox", { name: strings.collection.allowScripts });
+    // The collections of the seed are allowed.
+    await waitFor(() => expect(allow.checked).toBe(true));
+    const drafts = api.draftCalls.length;
+
+    await fireEvent.click(allow);
+    await waitFor(() => expect(api.allowCalls).toEqual([["col", false]]));
+    expect(allow.checked).toBe(false);
+    expect(await api.scriptsAllowed("col")).toBe(false);
+
+    // A refusal of the command puts the mark back and is told.
+    setScriptsAllowed.mockRejectedValueOnce("storage is locked");
+    await fireEvent.click(allow);
+    expect(await screen.findByText("storage is locked")).toBeTruthy();
+    expect(allow.checked).toBe(false);
+
+    // Not a part of the draft: nothing to save, nothing kept for the next start.
+    expect(screen.queryByLabelText(strings.tabs.unsaved)).toBeNull();
+    expect(api.draftCalls).toHaveLength(drafts);
+    expect(saveNodeContent).not.toHaveBeenCalled();
+  });
 });
